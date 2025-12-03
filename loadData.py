@@ -26,10 +26,15 @@ class TrialData:
     blinkThreshR: np.ndarray
     xToy: np.ndarray
     yToy: np.ndarray
+    def __post_init__(self):
+        #validation function as were pulling in data
+        pass
 # initialize results dictionary
 results = {}
 
-def loadData(paths:dict[str, str],applyNaN=True,verbose=True):
+def loadData(paths:dict[str, str],
+             applyNaN=True,
+             verbose=True):
 
     for key in paths.keys():
 
@@ -67,7 +72,6 @@ def loadData(paths:dict[str, str],applyNaN=True,verbose=True):
         else:
             df_toy = pd.DataFrame()
 
-        
         xL, yL, timeStampL = getData.getEyePos(df_eye, eye='eye0', verbose=False)
         xR, yR, timeStampR = getData.getEyePos(df_eye, eye='eye1', verbose=False)
         eyeConfL, eyeConfR, blinkThreshL, blinkThreshR = getData.getEyeConfidenced(df_eyeconf)

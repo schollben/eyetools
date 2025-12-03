@@ -58,10 +58,10 @@ def getEyePos(df,eye='eye0',verbose=True):
 
     ###############
     # convert eye position traces in pixels to estimated degrees of visual angle (dva)
-    camera_width       = 1.15 # note: 1.15 mm sensor width at 200 Hz sampling (192 x 192 px)???
+    camera_width       = 1.15 # note: 1.15 mm sensor width at 200 Hz sampling (192 x 192 px)
     camera_sensor_size = 400 #images are 400 x 400 pixels at 120 Hz
     camera_lens_f      = 1.7 # mm
-    camera_distance    = 50 # mm (rough estimate- might be further)
+    camera_distance    = 24.1 # mm estimate via Jon working with 3D models -> see discord discussion
     eyeRadius          = 3.5 # mm
 
     #calculate image de-magnitifcation with thin lens equation

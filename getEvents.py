@@ -145,7 +145,6 @@ def detectHeadSacs(posL, posR, yaw, min_prominence=20):
     # Parameters
     min_peak_height = 0.1
     min_peak_distance = 30
-    # min_prominence = 20
 
     hdChange = np.diff(medfilt(yaw,31))
 
@@ -155,9 +154,9 @@ def detectHeadSacs(posL, posR, yaw, min_prominence=20):
         distance=min_peak_distance,
         prominence=min_prominence)
     
-    # remove peaks where yaw is >160 or <20 degrees
+    # remove peaks where yaw is >150 or < -150 degrees (avoiding wrap issuses but need to address better!)
     if len(peaks_pos) > 0:
-        mask = (yaw[peaks_pos] <= 120) & (yaw[peaks_pos] >= 20)
+        mask = (yaw[peaks_pos] < 150) & (yaw[peaks_pos] > -150)
         peaks_pos = peaks_pos[mask]
 
     peaks_neg, _ = find_peaks(
@@ -166,9 +165,9 @@ def detectHeadSacs(posL, posR, yaw, min_prominence=20):
         distance=min_peak_distance,
         prominence=min_prominence)
     
-    # remove peaks where yaw is >160 or <20 degrees
+    # remove peaks where yaw is >150 or < -150 degrees
     if len(peaks_neg) > 0:
-        mask = (yaw[peaks_neg] <= 160) & (yaw[peaks_neg] >= 20)
+        mask = (yaw[peaks_neg] < 150) & (yaw[peaks_neg] > -150)
         peaks_neg = peaks_neg[mask]
 
     print(len(peaks_pos) + len(peaks_neg), "head saccades detected (pos & neg)")
@@ -211,9 +210,9 @@ def detectHeadSacs(posL, posR, yaw, min_prominence=20):
         if (np.isnan(sac).sum() < post_time) & (len(sac)==pre_time+post_time):
             eye_STA.append(sac)
 
-        hdm = yaw[t-pre_time : t+post_time]
+        hdm = -yaw[t-pre_time : t+post_time]
         hdm = hdm - np.nanmean(yaw[t-1:t:1])
         if len(hdm)==pre_time+post_time:
-            head_STA.append(-hdm)
+            head_STA.append(hdm)
 
     return time_axis, eye_STA, head_STA

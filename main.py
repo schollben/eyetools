@@ -1,7 +1,7 @@
 # %% init and load up data
 import numpy as np
 import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.express as px
 import importlib
 import getEvents
 from loadData import loadData
@@ -26,16 +26,11 @@ paths['EO10'] = dataDir + 'session_2025-10-20_ferret_420_E010/'
 results = loadData(paths, applyNaN=True, verbose=False)
 
 
-
-'blah blah'
-
-
-
 # %% generate a comprehensive plot of all data for a given time window (in frames)
 # make look better in seaborne?
 importlib.reload(plotStuff)
 # window - frame number range
-ID = 'EO15'
+ID = 'EO10'
 start = 1000
 dur = 30 # seconds
 plotStuff.quickPlot(
@@ -49,6 +44,26 @@ plotStuff.quickPlot(
     speed=results[ID].speed,
     window=[start, start + 120*dur]
 )
+
+
+# %% 
+# LOOK AT EO10 MORE CLOSELY- FRAMES 10,000 to 33,000  FUCKED FOR LEFT EYE
+importlib.reload(plotStuff)
+# window - frame number range
+ID = 'EO10'
+start = 33000
+dur = 30 # seconds
+plotStuff.quickPlot_wBools(xPosLeye=results[ID].xL,
+                           yPosLeye=results[ID].yL,
+                           xPosReye=results[ID].xR,
+                           yPosReye=results[ID].yR,
+                           eyeConfL=results[ID].eyeConfL,
+                           eyeConfR=results[ID].eyeConfR,
+                           blinkThreshL=results[ID].blinkThreshL,
+                           blinkThreshR=results[ID].blinkThreshR,
+                           window=[start, start + 120*dur]
+)
+
 
 
 # %%
@@ -132,33 +147,36 @@ plt.show()
 #note: adjust min_prominence to get reasonable number of events given head dynamics (need to make better)
 #also note: the eye movements here are kinda shit b/c this isn't gaze-in-world but gaze-in-head (so still includes head VOR contributions, ect)
 #are left/right flipped for EO2? maybe eye0 and eye1 cameras are swapped comapred to the other data
+# GO BACK TO IDENTIFYING HEAD SACCADES AGAIN! NEED SOME GROUND TRUTH DATA
 
-# time_axis, eye_STA, head_STA = getEvents.detectHeadSacs(
-#     posL=results['EO15'].xL,
-#     posR=results['EO15'].xR,
-#     yaw=results['EO15'].yaw,
-#     min_prominence=20
-# )
+importlib.reload(getEvents) 
 
 time_axis, eye_STA, head_STA = getEvents.detectHeadSacs(
-    posL=results['EO10'].xL,
-    posR=results['EO10'].xR,
-    yaw=results['EO10'].yaw,
-    min_prominence=3
+    posL=results['EO15'].xL,
+    posR=results['EO15'].xR,
+    yaw=results['EO15'].yaw,
+    min_prominence=1
 )
+
+# time_axis, eye_STA, head_STA = getEvents.detectHeadSacs(
+#     posL=results['EO10'].xL,
+#     posR=results['EO10'].xR,
+#     yaw=results['EO10'].yaw,
+#     min_prominence=20
+# )
 
 # time_axis, eye_STA, head_STA = getEvents.detectHeadSacs(
 #     posL=results['EO5'].xL,
 #     posR=results['EO5'].xR,
 #     yaw=results['EO5'].yaw,
-#     min_prominence=0.5
+#     min_prominence=10
 # )
 
 # time_axis, eye_STA, head_STA = getEvents.detectHeadSacs(
-#     posL=results['EO2'].xR,
-#     posR=results['EO2'].xL,
+#     posL=results['EO2'].xL,
+#     posR=results['EO2'].xR,
 #     yaw=results['EO2'].yaw,
-#     min_prominence=0.5
+#     min_prominence=1
 # )
 
 
@@ -325,6 +343,14 @@ yR = results['EO5'].yR
 # distance of toy and head
 dist = np.sqrt( (results['EO5'].xH - results['EO5'].xToy)**2 +
                 (results['EO5'].yH - results['EO5'].yToy)**2 )
+
+#change in distance to toy (approach vs. recede)
+delta_dist = np.gradient(dist, 1/120)
+
+# pointing vector angle from animal to toy
+angle = np.arctan2(results['EO5'].yToy - results['EO5'].yH, 
+                   results['EO5'].xToy - results['EO5'].xH)
+
 speed = results['EO5'].speed
 inds = (dist < 40) & (speed > 5) #Cm per second (choosing random value)
 
@@ -362,3 +388,30 @@ for ax in axes:
      ax.set_aspect('equal')
      ax.tick_params(direction='out')
 plt.tight_layout()
+
+
+# %% HEAD PITCH VS VERGENCE USE PLOTLY FOR INTERACTIVE ZOOMING
+
+ID = 'EO15'
+x = results[ID].pitch
+x = x - np.nanmedian(x)
+y = results[ID].xR - np.nanmean(results[ID].xR) - results[ID].xL - np.nanmean(results[ID].xL)   
+
+# Create mask for valid (non-NaN) data points
+mask = ~np.isnan(x) & ~np.isnan(y) & (results[ID].speed > 20)
+plt.scatter(x[mask], y[mask], s=2, color='blue', alpha=0.1)
+
+
+# %% VERGENCE VS YAW 
+
+ID = 'EO15'
+x = np.gradient(results[ID].yaw, 1/120) 
+y = np.gradient(results[ID].xL, 1/120)
+
+# Create mask for valid data
+mask = ~np.isnan(x) & ~np.isnan(y) & (results[ID].yaw < 150) & (results[ID].yaw > -150) & (results[ID].speed > 5)
+
+
+plt.scatter(x[mask], y[mask], s=2, color='blue', alpha=0.1)
+plt.xlim(-500, 500)
+plt.ylim(-500, 500)

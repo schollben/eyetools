@@ -19,27 +19,28 @@ from load_eye_kinematics import load_eye_kinematics
 from load_gaze_kinematics import load_gaze_kinematics
 from load_toy_data import load_toy_data
 from parse_session_name import parse_session_name
+from session_data import SessionData
 
 
-def load_session_data(session: str) -> dict:
+def load_session_data(session: str) -> SessionData:
 
     analyzable_output_dir = DATA_DIR / session
-    
+
     assert analyzable_output_dir.exists(), f"Session directory not found: {analyzable_output_dir}"
 
-    results = {}
-    results.update(parse_session_name(session))
-    results.update(load_skull_data(analyzable_output_dir))
-    results.update(load_eye_quality(analyzable_output_dir))
-    results.update(load_eye_kinematics(analyzable_output_dir, eye="left"))
-    results.update(load_eye_kinematics(analyzable_output_dir, eye="right"))
-    results.update(load_gaze_kinematics(analyzable_output_dir, eye="left"))
-    results.update(load_gaze_kinematics(analyzable_output_dir, eye="right"))
-    results.update(load_toy_data(analyzable_output_dir))
+    d = {}
+    d.update(parse_session_name(session))
+    d.update(load_skull_data(analyzable_output_dir))
+    d.update(load_eye_quality(analyzable_output_dir))
+    d.update(load_eye_kinematics(analyzable_output_dir, eye="left"))
+    d.update(load_eye_kinematics(analyzable_output_dir, eye="right"))
+    d.update(load_gaze_kinematics(analyzable_output_dir, eye="left"))
+    d.update(load_gaze_kinematics(analyzable_output_dir, eye="right"))
+    d.update(load_toy_data(analyzable_output_dir))
 
     # Frame count checks
-    print(f"skull_timestamps : {len(results['skull_timestamps'])} frames")
-    print(f"LE_timestamps    : {len(results['LE_timestamps'])} frames")
-    print(f"EQtimestamps     : {len(results['EQtimestamps'])} frames")
+    print(f"skull_timestamps : {len(d['skull_timestamps'])} frames")
+    print(f"LE_timestamps    : {len(d['LE_timestamps'])} frames")
+    print(f"EQtimestamps     : {len(d['EQtimestamps'])} frames")
 
-    return results
+    return SessionData(**{k: v for k, v in d.items() if k in SessionData.__dataclass_fields__})

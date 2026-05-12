@@ -12,6 +12,10 @@ class SessionData:
 
     # --- skull kinematics ---
     skull_timestamps: np.ndarray
+    position_x: np.ndarray
+    position_y: np.ndarray
+    linearVel_x: np.ndarray
+    linearVel_y: np.ndarray
     roll:   np.ndarray
     pitch:  np.ndarray
     yaw:    np.ndarray

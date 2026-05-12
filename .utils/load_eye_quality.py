@@ -9,6 +9,6 @@ def load_eye_quality(analyzable_output_dir: Path) -> dict:
     return {
         "EQtimestamps": df.loc[mask, "timestamp_s"].values,
         "EQframes":     df.loc[mask, "frame"].values,
-        "LEQ": df.loc[mask, "value"].values.astype(bool),
+        "LEQ": df.loc[(df.trajectory == "left_eye_data_quality") & (df.component == "high_threshold"), "value"].values.astype(bool),
         "REQ": df.loc[(df.trajectory == "right_eye_data_quality") & (df.component == "high_threshold"), "value"].values.astype(bool),
     }

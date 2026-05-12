@@ -15,6 +15,10 @@ def load_skull_data(analyzable_output_dir: Path) -> dict:
 
     return {
         "skull_timestamps": skull.timestamps,
+        "position_x": df.loc[(df.trajectory == "position") & (df.component == "x"), "value"].values,
+        "position_y": df.loc[(df.trajectory == "position") & (df.component == "y"), "value"].values,
+        "linearVel_x": df.loc[(df.trajectory == "linear_velocity") & (df.component == "x"), "value"].values,
+        "linearVel_y": df.loc[(df.trajectory == "linear_velocity") & (df.component == "y"), "value"].values,
         "roll":   np.rad2deg(skull.roll.values),
         "pitch":  np.rad2deg(skull.pitch.values),
         "yaw":    np.rad2deg(skull.yaw.values),

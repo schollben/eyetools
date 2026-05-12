@@ -9,5 +9,9 @@ SESSION = "session_2025-07-07_ferret_753_EyeCameras_P39_E11_analyzable_output"
 
 Results = load_session_data(SESSION)
 
+from data_viewer import launch_viewer
+launch_viewer(Results)
+
+
 # %%
 

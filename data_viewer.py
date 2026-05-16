@@ -45,9 +45,12 @@ def _window_mask(ts, t_start, window_sec):
 
 
 def launch_viewer(Results):
-    eq_ts = Results.EQtimestamps
-    leq   = Results.LEQ.astype(float)[:len(eq_ts)]
-    req   = Results.REQ.astype(float)[:len(eq_ts)]
+    # precompute toy velocity from position differences
+    toy_dt = np.diff(Results.skull_timestamps)
+    toy_dx = np.diff(Results.toy_x)
+    toy_dy = np.diff(Results.toy_y)
+    toy_vel = np.sqrt((toy_dx / toy_dt) ** 2 + (toy_dy / toy_dt) ** 2)
+    toy_vel = np.concatenate([[toy_vel[0]], toy_vel])  # pad to match length
 
     t_min = float(Results.LE_timestamps[0])
     t_max = float(Results.LE_timestamps[-1])
@@ -88,6 +91,18 @@ def launch_viewer(Results):
             style={"color": "#333", "fontFamily": "sans-serif",
                    "display": "inline-block", "marginRight": "32px"},
         ),
+        # Toy velocity toggle
+        html.Span("Toy vel: ", style={"color": "#333", "fontFamily": "sans-serif",
+                                      "marginRight": "6px"}),
+        dcc.RadioItems(
+            id="toy-select",
+            options=[{"label": " off ", "value": "off"},
+                     {"label": " on ",  "value": "on"}],
+            value="off",
+            inline=True,
+            style={"color": "#333", "fontFamily": "sans-serif",
+                   "display": "inline-block", "marginRight": "32px"},
+        ),
         # Time slider
         html.Span("Start: ", style={"color": "#333", "fontFamily": "sans-serif",
                                     "marginRight": "6px"}),
@@ -121,8 +136,9 @@ def launch_viewer(Results):
         Input("time-slider", "value"),
         Input("window-select", "value"),
         Input("skull-vel-select", "value"),
+        Input("toy-select", "value"),
     )
-    def update(t_start, window_sec, skull_vel_key):
+    def update(t_start, window_sec, skull_vel_key, toy_on):
         window_sec = float(window_sec)
 
         fig = make_subplots(
@@ -137,15 +153,11 @@ def launch_viewer(Results):
         me = _window_mask(Results.LE_timestamps, t_start, window_sec)
         ts_eye = Results.LE_timestamps[me]
 
-        # quality mask (EQ timestamps)
-        mq = _window_mask(eq_ts, t_start, window_sec)
-        ts_eq = eq_ts[mq]
-
         # skull mask
         ms = _window_mask(Results.skull_timestamps, t_start, window_sec)
         ts_skull = Results.skull_timestamps[ms]
 
-        # --- Row 1: Left Eye Position + LEQ quality ---
+        # --- Row 1: Left Eye Position ---
         for arr, name, color in [
             (Results.LE_x, "LE x", LE_X_COLOR),
             (Results.LE_y, "LE y", LE_Y_COLOR),
@@ -154,14 +166,7 @@ def launch_viewer(Results):
                                      line=dict(color=color, width=1.2),
                                      legendgroup="le_pos"), row=1, col=1)
 
-        fig.add_trace(go.Scatter(
-            x=ts_eq, y=leq[mq] * 20,
-            name="LE quality", line=dict(color="rgba(200,200,200,0.6)", width=1),
-            fill="tozeroy", fillcolor="rgba(200,200,200,0.15)",
-            legendgroup="quality",
-        ), row=1, col=1)
-
-        # --- Row 2: Right Eye Position + REQ quality ---
+        # --- Row 2: Right Eye Position ---
         for arr, name, color in [
             (Results.RE_x, "RE x", RE_X_COLOR),
             (Results.RE_y, "RE y", RE_Y_COLOR),
@@ -169,13 +174,6 @@ def launch_viewer(Results):
             fig.add_trace(go.Scatter(x=ts_eye, y=arr[me], name=name,
                                      line=dict(color=color, width=1.2),
                                      legendgroup="re_pos"), row=2, col=1)
-
-        fig.add_trace(go.Scatter(
-            x=ts_eq, y=req[mq] * 20,
-            name="RE quality", line=dict(color="rgba(200,200,200,0.6)", width=1),
-            fill="tozeroy", fillcolor="rgba(200,200,200,0.15)",
-            legendgroup="quality", showlegend=False,
-        ), row=2, col=1)
 
         # --- Row 3: Eye velocity magnitudes ---
         le_vel = np.sqrt(Results.LE_vx ** 2 + Results.LE_vy ** 2)
@@ -206,16 +204,20 @@ def launch_viewer(Results):
                                  line=dict(color=skull_color, width=1.2),
                                  legendgroup="skull_vel"), row=5, col=1)
 
-        # --- Row 6: Locomotion speed ---
+        # --- Row 6: Locomotion speed (+ optional toy velocity) ---
         loco = np.sqrt(Results.linearVel_x ** 2 + Results.linearVel_y ** 2)
-        fig.add_trace(go.Scatter(x=ts_skull, y=loco[ms], name="loco speed",
+        fig.add_trace(go.Scatter(x=ts_skull, y=loco[ms], name="animal speed",
                                  line=dict(color="#8c564b", width=1.2),
                                  legendgroup="loco"), row=6, col=1)
+        if toy_on == "on":
+            fig.add_trace(go.Scatter(x=ts_skull, y=toy_vel[ms], name="toy speed",
+                                     line=dict(color="#e377c2", width=1.2, dash="dash"),
+                                     legendgroup="loco"), row=6, col=1)
 
         # --- Row 7: Pupil size ---
         for arr, name, color in [
-            (Results.LE_pupil_major, "LE pupil", LE_X_COLOR),
-            (Results.RE_pupil_major, "RE pupil", RE_X_COLOR),
+            (Results.LE_pupil, "LE pupil", LE_X_COLOR),
+            (Results.RE_pupil, "RE pupil", RE_X_COLOR),
         ]:
             fig.add_trace(go.Scatter(x=ts_eye, y=arr[me], name=name,
                                      line=dict(color=color, width=1.2),

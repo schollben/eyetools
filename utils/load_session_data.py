@@ -31,7 +31,7 @@ def load_session_data(session: str) -> SessionData:
     d = {}
     d.update(parse_session_name(session))
     d.update(load_skull_data(analyzable_output_dir))
-    d.update(load_eye_quality(analyzable_output_dir))
+    d.update(load_eye_quality(analyzable_output_dir, threshold="low"))
     d.update(load_eye_kinematics(analyzable_output_dir, eye="left"))
     d.update(load_eye_kinematics(analyzable_output_dir, eye="right"))
     d.update(load_gaze_kinematics(analyzable_output_dir, eye="left"))

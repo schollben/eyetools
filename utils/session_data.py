@@ -41,7 +41,7 @@ class SessionData:
     LE_vy: np.ndarray
     LE_ax: np.ndarray
     LE_ay: np.ndarray
-    LE_pupil_major: np.ndarray
+    LE_pupil: np.ndarray
 
     # --- right eye kinematics ---
     RE_x:  np.ndarray
@@ -50,7 +50,7 @@ class SessionData:
     RE_vy: np.ndarray
     RE_ax: np.ndarray
     RE_ay: np.ndarray
-    RE_pupil_major: np.ndarray
+    RE_pupil: np.ndarray
 
     # --- left gaze ---
     LE_gaze_timestamps:     np.ndarray

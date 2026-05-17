@@ -1,13 +1,15 @@
 import numpy as np
-from scipy.ndimage import binary_dilation
-# NaN out values
-# dilate bad frames
+from scipy.ndimage import binary_dilation, label
 
 def removeBadData(Results):
 
     #left eye
     LEQ = Results.LEQ.astype(bool)
-    LEQ = ~binary_dilation(~LEQ, iterations=10) # pyright: ignore[reportOperatorIssue]
+    LEQ = ~binary_dilation(~LEQ, iterations = 6) # pyright: ignore[reportOperatorIssue]
+    badFrames = np.where(~LEQ)[0]
+    idx = np.where((np.diff(badFrames) > 1) & (np.diff(badFrames) < 60))[0]
+    for i in idx:
+        LEQ[badFrames[i]:badFrames[i+1]] = False
 
     Results.LE_x[~LEQ] = np.nan
     Results.LE_y[~LEQ] = np.nan
@@ -24,7 +26,11 @@ def removeBadData(Results):
 
     #right eye
     REQ = Results.REQ.astype(bool)
-    REQ = ~binary_dilation(~REQ, iterations=10) # pyright: ignore[reportOperatorIssue]
+    REQ = ~binary_dilation(~REQ, iterations = 6) # pyright: ignore[reportOperatorIssue]
+    badFrames = np.where(~REQ)[0]
+    idx = np.where((np.diff(badFrames) > 1) & (np.diff(badFrames) < 60))[0]
+    for i in idx:
+        REQ[badFrames[i]:badFrames[i+1]] = False
 
     Results.RE_x[~REQ] = np.nan
     Results.RE_y[~REQ] = np.nan

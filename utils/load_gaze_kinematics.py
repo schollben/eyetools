@@ -20,6 +20,6 @@ def load_gaze_kinematics(analyzable_output_dir: Path, eye: str) -> dict:
         f"{p}_gaze_timestamps":     gaze.kinematics.timestamps,
         f"{p}_gaze_horizontal_deg": gaze.horizontal_degrees,
         f"{p}_gaze_vertical_deg":   gaze.vertical_degrees,
-        f"{p}_ang_vel_local_x_deg_s": np.rad2deg(ang_vel[:, 0]),
-        f"{p}_ang_vel_local_y_deg_s": np.rad2deg(ang_vel[:, 1]),
+        f"{p}_ang_vel_local_x_deg_s": np.rad2deg(ang_vel[:, 1]),
+        f"{p}_ang_vel_local_y_deg_s": np.rad2deg(ang_vel[:, 0]),
     }

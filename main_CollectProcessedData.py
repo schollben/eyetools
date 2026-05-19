@@ -6,17 +6,36 @@ sys.path.insert(0, str(Path(__file__).parent))
 from utils import load_session_data, removeBadData, extract_saccades
 import plotly.graph_objects as go
 import numpy as np
+# plotting setup
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+sns.set_theme()
+mpl.rcParams.update({
+    'axes.spines.top':    False,
+    'axes.spines.right':  False,
+    'xtick.direction':    'out',
+    'ytick.direction':    'out',
+    'axes.grid':          False,
+    'figure.facecolor':   'white',
+    'axes.facecolor':     'white',
+    'font.family':        'sans-serif',
+    'font.sans-serif':    ['Arial'],
+    'font.size':          6,
+    'svg.fonttype':       'none',
+})
+
 from data_viewer import launch_viewer
 #use launch_viewer(R) to check the data and extracted saccades for a session.
 
 # %% load data
-
 SESSION = [
 "session_2025-07-07_ferret_757_EyeCameras_P39_E11_analyzable_output",
-# "session_2025-07-05_ferret_757_EyeCameras_P37_EO9_analyzable_output",
-# "session_2025-07-01_ferret_757_EyeCameras_P33_EO5_analyzable_output",
-# "session_2025-06-29_ferret_757_EyeCameras_P31_EO3__1_analyzable_output",
-# "session_2025-06-28_ferret_757_EyeCameras_P30_EO2_analyzable_output"
+"session_2025-07-05_ferret_757_EyeCameras_P37_EO9_analyzable_output",
+"session_2025-07-01_ferret_757_EyeCameras_P33_EO5_analyzable_output",
+"session_2025-06-29_ferret_757_EyeCameras_P31_EO3__1_analyzable_output",
+"session_2025-06-28_ferret_757_EyeCameras_P30_EO2_analyzable_output"
 ]
 
 Results = []
@@ -27,19 +46,13 @@ for session in SESSION:
     Results.append(R)
 
 
-# %% 
-import matplotlib.pyplot as plt
-import seaborn as sns
-plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = ['Arial']
-plt.rcParams['font.size'] = 6
-plt.rcParams['svg.fonttype'] = 'none'
+# %%
 
 fig, axes = plt.subplots(1, 2, figsize=(4, 2), sharex=True)
 
 for n in range(len(Results)):
 
-    age = Results[n].age
+    eo = Results[n].eo
 
     df_LE = extract_saccades(Results[n],
                         'eye', 
@@ -58,13 +71,14 @@ for n in range(len(Results)):
     pupil_m = np.nanmean(Results[n].LE_pupil)
     pupil_s = np.nanstd(Results[n].LE_pupil)
     Nsaccades = len(df_LE) / len(Results[n].EQframes)
-
-    axes[0].errorbar(age,pupil_m,yerr=pupil_s, 
+    #compute in time windows over trace?
+    
+    axes[0].errorbar(eo,pupil_m,yerr=pupil_s, 
                     fmt='o-', capsize=4,
                     color='blue', markerfacecolor='blue',
                     markeredgecolor='white', ecolor='blue')
 
-    axes[1].errorbar(age,Nsaccades,
+    axes[1].errorbar(eo ,Nsaccades,
                 fmt='o-', capsize=4,
                 color='blue', markerfacecolor='blue',
                 markeredgecolor='white', ecolor='blue')
@@ -75,12 +89,12 @@ for n in range(len(Results)):
     pupil_s = np.nanstd(Results[n].RE_pupil)
     Nsaccades = len(df_RE) / len(Results[n].EQframes)
 
-    axes[0].errorbar(age,pupil_m,yerr=pupil_s, 
+    axes[0].errorbar(eo,pupil_m,yerr=pupil_s, 
                     fmt='o-', capsize=4,
                     color='red', markerfacecolor='red',
                     markeredgecolor='white', ecolor='red')
 
-    axes[1].errorbar(age,Nsaccades,
+    axes[1].errorbar(eo,Nsaccades,
                 fmt='o-', capsize=4,
                 color='red', markerfacecolor='red',
                 markeredgecolor='white', ecolor='red')

@@ -24,8 +24,8 @@ def removeBadData(Results):
     Results.LE_ang_vel_local_x_deg_s[~LEQ] = np.nan
     Results.LE_ang_vel_local_y_deg_s[~LEQ] = np.nan
 
-    #right eye
-    REQ = Results.REQ.astype(bool)
+    #right eye RETURN ONCE DATA IS FIXES
+    REQ = Results.LEQ.astype(bool) #######
     REQ = ~binary_dilation(~REQ, iterations = 6) # pyright: ignore[reportOperatorIssue]
     badFrames = np.where(~REQ)[0]
     idx = np.where((np.diff(badFrames) > 1) & (np.diff(badFrames) < 60))[0]

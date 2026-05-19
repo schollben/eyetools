@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
-from scipy.signal import find_peaks, savgol_filter
+from scipy.signal import find_peaks
+from scipy.signal import savgol_filter
 
 from utils.session_data import SessionData
 
@@ -23,18 +24,15 @@ def _get_arrays(session: SessionData, data_type: str, eye: str | None):
                     None, None,
                     session.RE_gaze_horizontal_deg, session.RE_gaze_vertical_deg)
     else:  # skull
-        return session.yaw_v, session.pitch_v, session.yaw_a, session.pitch_a, session.yaw, session.pitch
+        L = 121
+        yaw_v = savgol_filter(session.yaw_v, L, 3)
+        pitch_v = savgol_filter(session.pitch_v, L, 3)
+        yaw_a = savgol_filter(session.yaw_a, L, 3)
+        pitch_a = savgol_filter(session.pitch_a, L, 3) 
+        return yaw_v, pitch_v, yaw_a, pitch_a, session.yaw, session.pitch
 
 
-def _detect(vx, vy, ax, ay, x, y, velocity_threshold, min_duration, max_duration, nan_margin,
-            sg_window=None, sg_polyorder=3):
-
-    if sg_window is not None:
-        vx = savgol_filter(vx, sg_window, sg_polyorder)
-        vy = savgol_filter(vy, sg_window, sg_polyorder)
-        if ax is not None:
-            ax = np.gradient(vx)
-            ay = np.gradient(vy)
+def _detect(vx, vy, ax, ay, x, y, velocity_threshold, min_duration, max_duration, nan_margin):
 
     speed = np.sqrt(vx ** 2 + vy ** 2)
     nan_mask = ~np.isfinite(speed) | ~np.isfinite(x) | ~np.isfinite(y)
@@ -53,7 +51,7 @@ def _detect(vx, vy, ax, ay, x, y, velocity_threshold, min_duration, max_duration
     peaks, _ = find_peaks(speed_clean, height=velocity_threshold, prominence=velocity_threshold, distance=min_duration)
 
     n = len(speed)
-    
+
     events = []
 
     for p in peaks:
@@ -106,9 +104,12 @@ def _filter_inter_event(df: pd.DataFrame, min_inter_event: int) -> pd.DataFrame:
     onsets = df['onset'].to_numpy()
     peaks = df['peak'].to_numpy()
     keep = [True] * len(df)
-    for i in range(len(df) - 1):
-        if onsets[i + 1] - peaks[i] < min_inter_event:
-            keep[i + 1] = False
+    last_kept = 0
+    for i in range(1, len(df)):
+        if onsets[i] - peaks[last_kept] < min_inter_event:
+            keep[i] = False
+        else:
+            last_kept = i
     return df[keep].reset_index(drop=True)
 
 
@@ -121,8 +122,6 @@ def extract_saccades(
     max_duration: int = 60,
     min_inter_event: int = 12,
     nan_margin: int = 12,
-    sg_window: int | None = None,
-    sg_polyorder: int = 3,
 ) -> pd.DataFrame:
     """Detect saccades (eye/gaze) or shifts (skull) from a SessionData object.
 
@@ -137,9 +136,6 @@ def extract_saccades(
             onset of the next. Removes rapid return/corrective movements.
         nan_margin: Number of frames around onset/peak to check for NaNs. Events
             with NaNs in this window are discarded.
-        sg_window: Window length (frames) for Savitzky-Golay smoothing of velocity
-            before computing speed and acceleration. Must be odd. None disables smoothing.
-        sg_polyorder: Polynomial order for Savitzky-Golay filter (default 3).
 
     Returns:
         DataFrame with columns: onset, peak (frame indices of movement start and
@@ -151,7 +147,7 @@ def extract_saccades(
         raise ValueError(f"eye must be 'LE' or 'RE', got '{eye}'")
 
     args = _get_arrays(session, data_type, eye if data_type != 'skull' else None)
-    events = _detect(*args, velocity_threshold, min_duration, max_duration, nan_margin, sg_window, sg_polyorder)
+    events = _detect(*args, velocity_threshold, min_duration, max_duration, nan_margin)
     if not events:
         return pd.DataFrame(columns=_COLS)
     df = pd.DataFrame(events, columns=_COLS)

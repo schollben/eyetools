@@ -5,7 +5,7 @@ from scipy.signal import savgol_filter
 
 from utils.session_data import SessionData
 
-_COLS = ['onset', 'peak', 'amplitude_deg', 'direction_deg']
+_COLS = ['onset', 'peak', 'amplitude_deg', 'peak_velocity_deg_s', 'direction_deg']
 
 def _get_arrays(session: SessionData, data_type: str, eye: str | None):
     """Return (vx, vy, ax, ay, x, y); ax/ay are None for gaze (no stored accel)."""
@@ -91,6 +91,7 @@ def _detect(vx, vy, ax, ay, x, y, velocity_threshold, min_duration, max_duration
             'onset': int(onset),
             'peak': int(pos_peak),
             'amplitude_deg': float(np.sqrt(dx ** 2 + dy ** 2)),
+            'peak_velocity_deg_s': float(speed[p]),
             'direction_deg': float(np.degrees(np.arctan2(dy, dx))),
         })
 

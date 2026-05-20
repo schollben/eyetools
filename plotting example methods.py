@@ -94,3 +94,15 @@ try:
     chart.show()
 except ImportError:
     print("Altair not installed. Install with: pip install altair")
+    
+# %%
+
+# other examples: 
+
+    # sns.scatterplot(x=eos, y=pupil_m,   ax=axes[0], 
+#                 color="#72B3E9",marker='o', s=40, edgecolor='black')
+
+
+# fig, ax = plt.subplots(figsize=(4, 3))
+# sns.kdeplot(Y1, ax=ax, color='green', label='LE', fill=True, alpha=0.3)
+# sns.kdeplot(Y2, ax=ax, color='red',   label='RE', fill=True, alpha=0.3)

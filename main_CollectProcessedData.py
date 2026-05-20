@@ -16,6 +16,7 @@ plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
+saveloc = "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/VisBehavDev/rawfigures/"
 
 from data_viewer import launch_viewer
 # to check the data and extracted saccades for a session, use:
@@ -27,7 +28,7 @@ SESSION = [
 "session_2025-07-05_ferret_757_EyeCameras_P37_EO9_analyzable_output",
 "session_2025-07-01_ferret_757_EyeCameras_P33_EO5_analyzable_output",
 "session_2025-06-29_ferret_757_EyeCameras_P31_EO3__1_analyzable_output",
-# "session_2025-06-28_ferret_757_EyeCameras_P30_EO2_analyzable_output",
+"session_2025-06-28_ferret_757_EyeCameras_P30_EO2_analyzable_output",
 ]
 
 Results = []
@@ -38,160 +39,104 @@ for session in SESSION:
 
 
 # %% examing eye kinematic changes over development
+from scipy.signal import decimate
 
-eos, pupil_m, pupil_s, rate_m, rate_s, amp_m, amp_s, ampVel_m, ampVel_s  = [], [], [], [], [], [], [], [], []
+eos = []
+eyeRates = []
+speeds = []
+gazeRate = []
+angVelocities = []
 
 for n in range(len(Results)):
 
     df_LE = extract_saccades(Results[n], 'eye', eye='LE',
-                             velocity_threshold=60, min_duration=30, min_inter_event=12)
+                             velocity_threshold=40, min_duration=12, min_inter_event=12)
 
     df_head = extract_saccades(Results[n],'skull', 
-                        velocity_threshold=.11, min_duration=12, max_duration=600, min_inter_event=12)
-
-    #sliding window to calculate saccade rate
-    #minimum amplitude saccade?
-    window_len = 120 * 10
-    n_frames = len(Results[n].EQframes)
-    starts = np.arange(0, n_frames - window_len + 1, window_len // 2)
-    rate = np.array([(1/10) * np.sum((df_LE.onset >= s) & (df_LE.onset < s + window_len)) for s in starts])
-
-    eos.append(Results[n].eo)
-
-    pupil_m.append(np.nanmean( Results[n].LE_pupil[ Results[n].LE_pupil < 10 ] )) #ignore outliers 
-    pupil_s.append(np.nanstd( Results[n].LE_pupil[ Results[n].LE_pupil < 10 ] ))
-
-    rate_m.append(np.nanmean(rate))
-    rate_s.append(np.nanstd(rate))
-
-    amp_m.append(np.nanmean(df_LE.amplitude_deg))
-    amp_s.append(np.nanstd(df_LE.amplitude_deg))
-
-    ampVel_m.append(np.nanmean(df_LE.peak_velocity_deg_s))
-    ampVel_s.append(np.nanstd(df_LE.peak_velocity_deg_s))
-
-    fig = saccade_triggered_average(Results[n], df_LE, window=60)
-    fig = saccade_andHead_triggered_average(Results[n], df_head, window=60)
-
-
-# %%
-
-fig, axes = plt.subplots(2, 2, figsize=(4, 4), sharex=False)
-fig.tight_layout(w_pad=3) 
-sns.despine(fig=fig)
-
-axes[0, 0].errorbar(
-    eos, pupil_m, yerr=pupil_s,
-    fmt='o',
-    color="#72B3E9",            
-    markeredgecolor='black',    
-    markeredgewidth=0.5,
-    elinewidth=0.5, 
-    ecolor="black",
-    capsize=0,                  
-    capthick=1,
-)
-
-axes[0, 1].errorbar(
-    eos, rate_m, yerr=rate_s,
-    fmt='o',                   
-    color="#72B3E9",            
-    markeredgecolor='black',    
-    markeredgewidth=0.5,
-    elinewidth=0.5, 
-    ecolor="black",
-    capsize=0,                  
-    capthick=1,
-)
-
-axes[1, 0].errorbar(
-    eos, amp_m, yerr=amp_s,
-    fmt='o',                   
-    color="#72B3E9",            
-    markeredgecolor='black',    
-    markeredgewidth=0.5,
-    elinewidth=0.5,               
-    ecolor="black",
-    capsize=0,                  
-    capthick=1,
-)
-
-axes[1, 1].errorbar(
-    eos, ampVel_m, yerr=ampVel_s,
-    fmt='o',                   
-    color="#72B3E9",            
-    markeredgecolor='black',    
-    markeredgewidth=0.5,
-    elinewidth=0.5,               
-    ecolor="black",
-    capsize=0,                  
-    capthick=1,
-)
-
-
-
-
-# %%
-
-eos, rate_gazem, rate_gazes, rate_headm, rate_heads = [], [], [], [], []
-for n in range(len(Results)):
+                        velocity_threshold=2, min_duration=12, max_duration=600, min_inter_event=12)
 
     df_LEgaze = extract_saccades(Results[n], 'gaze', eye='LE',
-                             velocity_threshold=20, min_duration=12, min_inter_event=12)
-
-    df_head = extract_saccades(Results[n],'skull', 
-                        velocity_threshold=2, min_duration=6, max_duration=600, min_inter_event=6)
+                             velocity_threshold=2, min_duration=12, min_inter_event=12)
 
     #sliding window to calculate saccade rate
     #minimum amplitude saccade?
     window_len = 120 * 10
     n_frames = len(Results[n].EQframes)
     starts = np.arange(0, n_frames - window_len + 1, window_len // 2)
-    rate_gaze = np.array([(1/10) * np.sum((df_LEgaze.onset >= s) & (df_LEgaze.onset < s + window_len)) for s in starts])
-    rate_head = np.array([(1/10) * np.sum((df_head.onset >= s) & (df_head.onset < s + window_len)) for s in starts])
 
     eos.append(Results[n].eo)
 
-    rate_gazem.append(np.nanmean(rate_gaze))
-    rate_gazes.append(np.nanstd(rate_gaze))
-    rate_headm.append(np.nanmean(rate_head))
-    rate_heads.append(np.nanstd(rate_head))
+    rate = np.array([(1/10) * np.sum((df_LE.onset >= s) & (df_LE.onset < s + window_len)) for s in starts])
+    eyeRates.append(rate)
 
-axes[1, 0].errorbar(
-    eos, rate_headm, yerr=rate_heads,
-    fmt='o',                   
-    color="#72B3E9",            
-    markeredgecolor='black',    
-    markeredgewidth=0.5,
-    elinewidth=1,               
-    capsize=0,                  
-    capthick=1,
-    title="head rate"                 
-)
+    vv = np.sqrt( Results[n].linearVel_x ** 2 + Results[n].linearVel_y ** 2 ).astype(int)
+    
+    angVel =  np.sqrt(Results[n].roll_v ** 2 + Results[n].pitch_v ** 2 + Results[n].yaw_v ** 2 ).astype(int) #total angular velocity -> use to examine stablization?
+    angVel = angVel[(vv >= 0) & (vv < 800)]
+    angVelocities.append(angVel)
 
-axes[1, 1].errorbar(
-    eos, rate_gazem, yerr=rate_gazes,
-    fmt='o',                   
-    color="#72B3E9",            
-    markeredgecolor='black',    
-    markeredgewidth=0.5,
-    elinewidth=1,               
-    capsize=0,                  
-    capthick=1
-    )
+    vv = vv[(vv >= 0) & (vv < 800)] # need to go understand why there are negative values in the linear velocity, which should be absolute value of speed. For now, just remove them.
+    speeds.append(vv)
+
+    rate = np.array([(1/10) * np.sum((df_LEgaze.onset >= s) & (df_LEgaze.onset < s + window_len)) for s in starts])
+    gazeRate.append(rate)
+    
+    fig = saccade_triggered_average(Results[n], df_LE, window=60)
+    plt.savefig(f'{saveloc}/LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
+
+    fig = saccade_andHead_triggered_average(Results[n], df_head, window=120)
+    plt.savefig(f'{saveloc}/head_and_LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
 
 
 
+# %% compare distributions of metrics amplitudes between 2 ages
 
-## % compare values from 2 ages for a given metric, e.g. pupil size distribution
+fig, axes = plt.subplots(1, 4, figsize=(4, 1), sharex=False)
+fig.tight_layout(w_pad=2)
+sns.despine(fig=fig)
 
-fig, ax = plt.subplots(figsize=(4, 3))
-v1 = Results[0].LE_pupil
-v1 = v1[v1 < 10] #ignore outliers
-v2 = Results[4].LE_pupil
-v2 = v2[v2 < 10] #ignore outliers
-sns.kdeplot(v1, ax=ax, color='blue', fill=True, alpha=0.3)
-sns.kdeplot(v2, ax=ax, color='red',  fill=True, alpha=0.3)
+n = 3
+p1 = Results[n].LE_pupil[ Results[n].LE_pupil < 10 ]
+n = 1
+p2 = Results[n].LE_pupil[ Results[n].LE_pupil < 10 ]
+sns.histplot(p1, ax=axes[0], color="#848484", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
+sns.histplot(p2, ax=axes[0], color="#000000", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
+axes[0].set_xlabel("Pupil size (mm)")
+axes[0].set_xlim(1, 4)
+axes[0].set_xticks([1, 2, 3, 4])
+axes[0].set_ylim(0, 0.12)
+axes[0].set_yticks([0, 0.06, 0.12])
+
+n = 3
+sns.histplot(speeds[n], ax=axes[1], color="#848484", stat="probability", binwidth=20, linewidth=0, alpha=0.6)
+n = 1
+sns.histplot(speeds[n], ax=axes[1], color="#000000", stat="probability", binwidth=20, linewidth=0, alpha=0.6)
+axes[1].set_title("")
+axes[1].set_xlabel("speed (mm/s)")
+axes[1].set_xlim(0, 600)
+axes[1].set_xticks([0,300,600])
+axes[1].set_ylim(0, 0.2)
+
+n = 3
+sns.histplot(eyeRates[n], ax=axes[2], color="#848484", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
+n = 1
+sns.histplot(eyeRates[n], ax=axes[2], color="#000000", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
+axes[2].set_xlabel("Saccade rate (Hz)")
+axes[2].set_xlim(0, 5)
+axes[2].set_ylim(0, 0.3)
+
+n = 3
+sns.histplot(gazeRate[n], ax=axes[3], color="#848484", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
+n = 1
+sns.histplot(gazeRate[n], ax=axes[3], color="#000000", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
+axes[3].set_xlabel("Gaze rate (Hz)")
+axes[3].set_xlim(0, 5)
+axes[3].set_ylim(0, 0.2)
+
+
+plt.savefig(f'{saveloc}/histPlots.svg', format='svg', bbox_inches='tight')
+
+
 
 
 # %% check head saccades

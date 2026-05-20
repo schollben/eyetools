@@ -9,7 +9,8 @@ def saccade_triggered_average(
     session: SessionData,
     df_saccades: pd.DataFrame,
     window: int = 60,
-    pre: int = 10,
+    pre: int = 2,
+    eye_ylim: float = 10,
 ):
     eye_traces = []
     n_frames = len(session.LE_x)
@@ -24,8 +25,7 @@ def saccade_triggered_average(
 
         eye = np.array(session.LE_x[start:end], dtype=float)
 
-        baseline = np.mean(eye[pre - 5:pre])
-        eye -= baseline
+        eye -= eye[pre]
 
         if np.mean(eye[pre:]) < 0:
             eye = -eye
@@ -43,6 +43,7 @@ def saccade_triggered_average(
     ax.plot(t, eye_m, color="green", linewidth=1, label="LE horizontal")
     ax.fill_between(t, eye_m - eye_se, eye_m + eye_se, color="green", alpha=0.3)
     ax.axvline(0, color="k", linestyle="--", linewidth=0.5)
+    ax.set_ylim(0, eye_ylim)
     ax.set_xlabel("Frames from onset")
     ax.set_ylabel("Eye position (deg)")
     ax.legend(frameon=False)
@@ -56,6 +57,7 @@ def saccade_andHead_triggered_average(
     df_head_saccades: pd.DataFrame,
     window: int = 60,
     pre: int = 10,
+    ylim: float = 10,
 ):
     eye_traces, head_traces = [], []
     n_frames = len(session.LE_x)
@@ -101,21 +103,21 @@ def saccade_andHead_triggered_average(
     fig, ax_eye = plt.subplots(figsize=(4, 3))
     ax_head = ax_eye.twinx()
 
-    ax_eye.plot(t, eye_m,  color="green", linewidth=1, label="LE horizontal")
+    ax_eye.plot(t, eye_m,  color="green", linewidth=1, alpha=0.7, label="LE horizontal")
     ax_eye.fill_between(t, eye_m - eye_se, eye_m + eye_se, color="green", alpha=0.3)
 
-    ax_head.plot(t, head_m, color="red", linewidth=1, label="Head yaw")
-    ax_head.fill_between(t, head_m - head_se, head_m + head_se, color="red", alpha=0.3)
+    ax_head.plot(t, head_m, color="#E87DA8", linewidth=1, alpha=0.7, label="Head yaw")
+    ax_head.fill_between(t, head_m - head_se, head_m + head_se, color="#E87DA8", alpha=0.3)
 
-    ax_eye.axvline(0, color="k", linestyle="--", linewidth=0.5)
+    ax_eye.set_ylim(0, ylim)
     ax_eye.set_xlabel("Frames from onset")
     ax_eye.set_ylabel("Eye position (deg)", color="green")
-    ax_head.set_ylabel("Head yaw (deg)", color="red")
+    ax_head.set_ylabel("Head yaw (deg)", color="#E87DA8")
     ax_eye.tick_params(axis='y', colors="green")
-    ax_head.tick_params(axis='y', colors="red")
+    ax_head.tick_params(axis='y', colors="#E87DA8")
 
     lines = [plt.Line2D([0], [0], color="green", label="LE horizontal"),
-             plt.Line2D([0], [0], color="red",   label="Head yaw")]
+             plt.Line2D([0], [0], color="#E87DA8", label="Head yaw")]
     ax_eye.legend(handles=lines, frameon=False)
     plt.tight_layout()
 

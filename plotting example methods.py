@@ -106,3 +106,9 @@ except ImportError:
 # fig, ax = plt.subplots(figsize=(4, 3))
 # sns.kdeplot(Y1, ax=ax, color='green', label='LE', fill=True, alpha=0.3)
 # sns.kdeplot(Y2, ax=ax, color='red',   label='RE', fill=True, alpha=0.3)
+
+# %% SAVING SVG METHODS:
+
+loc = "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/2poptostim/rawfigs/"
+plt.rcParams['svg.fonttype'] = 'none'
+plt.savefig(f'{loc}/XXX.svg', format='svg', bbox_inches='tight')

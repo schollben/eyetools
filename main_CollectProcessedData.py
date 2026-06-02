@@ -1,11 +1,12 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
 
 # main init
+%load_ext autoreload
+%autoreload 2
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import load_session_data, removeBadData, extract_saccades, saccade_triggered_average, saccade_andHead_triggered_average
-import pandas as pd
 import plotly.graph_objects as go
 import numpy as np
 
@@ -39,13 +40,13 @@ for session in SESSION:
 
 
 # %% examing eye kinematic changes over development
-from scipy.signal import decimate
 
 eos = []
 eyeRates = []
 speeds = []
 gazeRate = []
 angVelocities = []
+pupilSizes = []
 
 for n in range(len(Results)):
 
@@ -71,27 +72,30 @@ for n in range(len(Results)):
 
     vv = np.sqrt( Results[n].linearVel_x ** 2 + Results[n].linearVel_y ** 2 ).astype(int)
     
-    angVel =  np.sqrt(Results[n].roll_v ** 2 + Results[n].pitch_v ** 2 + Results[n].yaw_v ** 2 ).astype(int) #total angular velocity -> use to examine stablization?
-    angVel = angVel[(vv >= 0) & (vv < 800)]
-    angVelocities.append(angVel)
+    indFrames = (vv >= 0) & (vv < 800) & (Results[n].LE_pupil < 4) # need to go understand why there are negative values in the linear velocity, which should be absolute value of speed. For now, just remove them.
 
-    vv = vv[(vv >= 0) & (vv < 800)] # need to go understand why there are negative values in the linear velocity, which should be absolute value of speed. For now, just remove them.
-    speeds.append(vv)
+    angVel =  np.sqrt(Results[n].roll_v ** 2 + Results[n].pitch_v ** 2 + Results[n].yaw_v ** 2 ).astype(int) #total angular velocity -> use to examine stablization?
+    angVelocities.append(angVel[indFrames])
+
+    pupilSizes.append(Results[n].LE_pupil[indFrames]) # examine pupil size changes over development, as a proxy for arousal or cognitive effort. Need to check if there are any differences in the eye tracking quality that could affect this metric.
+
+    speeds.append(vv[indFrames])
 
     rate = np.array([(1/10) * np.sum((df_LEgaze.onset >= s) & (df_LEgaze.onset < s + window_len)) for s in starts])
     gazeRate.append(rate)
     
-    fig = saccade_triggered_average(Results[n], df_LE, window=60)
-    plt.savefig(f'{saveloc}/LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
+    # fig = saccade_triggered_average(Results[n], df_LE, window=30)
+    # plt.savefig(f'{saveloc}/LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
 
-    fig = saccade_andHead_triggered_average(Results[n], df_head, window=120)
-    plt.savefig(f'{saveloc}/head_and_LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
+    # fig = saccade_andHead_triggered_average(Results[n], df_head, window=120)
+    # plt.savefig(f'{saveloc}/head_and_LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
+
 
 
 
 # %% compare distributions of metrics amplitudes between 2 ages
 
-fig, axes = plt.subplots(1, 4, figsize=(4, 1), sharex=False)
+fig, axes = plt.subplots(1, 4, figsize=(8, 3), sharex=False)
 fig.tight_layout(w_pad=2)
 sns.despine(fig=fig)
 
@@ -136,6 +140,14 @@ axes[3].set_ylim(0, 0.2)
 
 plt.savefig(f'{saveloc}/histPlots.svg', format='svg', bbox_inches='tight')
 
+
+
+# %% examine total angular velocity or head rotations
+
+n = 2
+x = speeds[n]
+y = np.abs(angVelocities[n])
+sns.scatterplot(x=x, y=y)
 
 
 
@@ -199,3 +211,57 @@ fig.add_trace(go.Scatter(x=win , y=y2, mode='markers', marker=dict(color='orange
 fig.add_trace(go.Scatter(x=win , y=y3, mode='markers', marker=dict(color='red', size=6)))
 
 
+# %% 2D scatters comparing speed and pupil size distributions between ages (young to old)
+
+fig, axes = plt.subplots(1, 3, figsize=(6, 2), sharex=False)
+fig.tight_layout(w_pad=2)
+
+sns.kdeplot(ax=axes[0], x=speeds[4],y=pupilSizes[4], fill=True, cmap="Blues", levels=10, thresh=0.05)
+ax=axes[0].set_ylim(1, 4)
+ax=axes[0].set_xlim(0, 800)
+ax=axes[0].set_xlabel("speed (mm/s)")
+ax=axes[0].set_ylabel("pupil size (mm)")
+
+sns.kdeplot(ax=axes[1], x=speeds[1],y=pupilSizes[1], fill=True, cmap="Blues", levels=10, thresh=0.05)
+ax=axes[1].set_ylim(1, 4)
+ax=axes[1].set_xlim(0, 800)
+ax=axes[1].set_xlabel("speed (mm/s)")
+
+sns.kdeplot(ax=axes[2], x=speeds[0],y=pupilSizes[0], fill=True, cmap="Blues", levels=10, thresh=0.05)
+ax=axes[2].set_ylim(1, 4)
+ax=axes[2].set_xlim(0, 800)
+ax=axes[2].set_xlabel("speed (mm/s)")
+
+
+# %% GMM to look when running or not running 
+# develop state machine in the future?
+
+from sklearn.mixture import GaussianMixture
+from scipy.stats import norm
+
+data = speeds[0]
+
+# Fit the model
+gmm = GaussianMixture(n_components=2, random_state=100)
+gmm.fit(data.reshape(-1, 1))  # needs shape (n_samples, n_features)
+
+# Extract the estimates
+means = gmm.means_.flatten()
+stds = np.sqrt(gmm.covariances_.flatten())
+weights = gmm.weights_ 
+
+x = np.linspace(data.min(), data.max(), 500)
+
+# Plot histogram
+plt.hist(data, bins=100, density=True, alpha=0.4, label='Data')
+
+# Plot each component and the mixture
+for i in range(2):
+    component = weights[i] * norm.pdf(x, means[i], stds[i])
+    plt.plot(x, component, label=f'Component {i+1} (μ={means[i]:.2f})')
+
+# Total mixture
+total = sum(weights[i] * norm.pdf(x, means[i], stds[i]) for i in range(2))
+plt.plot(x, total, 'k--', label='Mixture')
+plt.legend()
+plt.show()

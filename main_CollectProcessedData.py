@@ -29,8 +29,8 @@ plt.rcParams['svg.fonttype'] = 'none'
 
 #SESSION = get_sessions_by_ferret(402, 420)    # multiple — preserves order by ferret
 #SESSION = get_sessions_by_ferret(420)          # or load sessions from an inidividual ID
-# SESSION = get_sessions("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
-SESSION = get_sessions("session_2026-03-16_ferret_403_P49_E7_analyzable_output") # or load a specific session by name
+SESSION = get_sessions("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
+# SESSION = get_sessions("session_2026-03-16_ferret_403_P49_E7_analyzable_output") # or load a specific session by name
 
 Results = []
 for session in SESSION:
@@ -55,10 +55,16 @@ for n in range(len(Results)):
     df_LE = extract_saccades(Results[n], 'eye', eye='LE',
                              velocity_threshold=40, min_duration=12, min_inter_event=12)
 
+    df_RE = extract_saccades(Results[n], 'eye', eye='RE',
+                             velocity_threshold=40, min_duration=12, min_inter_event=12)
+
     df_head = extract_saccades(Results[n],'skull', 
                         velocity_threshold=2, min_duration=12, max_duration=600, min_inter_event=12)
 
     df_LEgaze = extract_saccades(Results[n], 'gaze', eye='LE',
+                             velocity_threshold=2, min_duration=12, min_inter_event=12)
+    
+    df_REgaze = extract_saccades(Results[n], 'gaze', eye='RE',
                              velocity_threshold=2, min_duration=12, min_inter_event=12)
 
     #sliding window to calculate saccade rate
@@ -92,9 +98,119 @@ for n in range(len(Results)):
     # plt.savefig(f'{saveloc}/head_and_LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
 
 
+# %% BASIC PLOTS: pupil distribution
+n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
+pL = Results[n].LE_pupil[ Results[n].LE_pupil < 10 ]
+pR = Results[n].RE_pupil[ Results[n].RE_pupil < 10 ]
+
+fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
+fig.tight_layout(w_pad=2)
+sns.despine(fig=fig)
+sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
+sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
+axes.set_xlabel("Pupil size (mm)")
+
+# %% BASIC PLOTS: saccade rate distribution
+n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
+pL = eyeRates[n]
+pR = eyeRates[n]
+
+fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
+fig.tight_layout(w_pad=2)
+sns.despine(fig=fig)
+sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
+sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
+axes.set_xlabel("Pupil size (mm)")
 
 
-# %% compare distributions of metrics amplitudes between 2 ages
+# %% BASIC PLOTS: speed distribution
+n = 0 
+dat = speeds[n]
+
+fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
+fig.tight_layout(w_pad=2)
+sns.despine(fig=fig)
+sns.histplot(dat, ax=axes, color="#000000", stat="probability", binwidth=20, linewidth=0, alpha=0.6)
+axes.set_xlabel("speed (mm/s")
+
+
+
+# %% examine total angular velocity or head rotations
+
+n = 2
+x = speeds[n]
+y = np.abs(angVelocities[n])
+sns.scatterplot(x=x, y=y)
+
+
+
+
+
+# %% 2D scatters comparing speed and pupil size distributions between ages (young to old)
+
+fig, axes = plt.subplots(1, 3, figsize=(6, 2), sharex=False)
+fig.tight_layout(w_pad=2)
+
+sns.kdeplot(ax=axes[0], x=speeds[4],y=pupilSizes[4], fill=True, cmap="Blues", levels=10, thresh=0.05)
+ax=axes[0].set_ylim(1, 4)
+ax=axes[0].set_xlim(0, 800)
+ax=axes[0].set_xlabel("speed (mm/s)")
+ax=axes[0].set_ylabel("pupil size (mm)")
+
+sns.kdeplot(ax=axes[1], x=speeds[1],y=pupilSizes[1], fill=True, cmap="Blues", levels=10, thresh=0.05)
+ax=axes[1].set_ylim(1, 4)
+ax=axes[1].set_xlim(0, 800)
+ax=axes[1].set_xlabel("speed (mm/s)")
+
+sns.kdeplot(ax=axes[2], x=speeds[0],y=pupilSizes[0], fill=True, cmap="Blues", levels=10, thresh=0.05)
+ax=axes[2].set_ylim(1, 4)
+ax=axes[2].set_xlim(0, 800)
+ax=axes[2].set_xlabel("speed (mm/s)")
+
+
+# %% GMM to look when running or not running 
+# develop state machine in the future?
+# combine speed and pupil size to look at different states of arousal and movement
+# and how they change over development. 
+# For example, are there more periods of high speed and large pupil size (active exploration) 
+# in older animals compared to younger animals? 
+# Are there more periods of low speed and small pupil size (quiescence) in younger animals compared to older animals? 
+# This could be done with a Gaussian Mixture Model to identify clusters in the speed-pupil space, 
+# and then look at the proportion of time spent in each cluster across ages.
+
+from sklearn.mixture import GaussianMixture
+from scipy.stats import norm
+
+data = speeds[0]
+
+# Fit the model
+gmm = GaussianMixture(n_components=2, random_state=100)
+gmm.fit(data.reshape(-1, 1))  # needs shape (n_samples, n_features)
+
+# Extract the estimates
+means = gmm.means_.flatten()
+stds = np.sqrt(gmm.covariances_.flatten())
+weights = gmm.weights_ 
+
+x = np.linspace(data.min(), data.max(), 500)
+
+# Plot histogram
+plt.hist(data, bins=100, density=True, alpha=0.4, label='Data')
+
+# Plot each component and the mixture
+for i in range(2):
+    component = weights[i] * norm.pdf(x, means[i], stds[i])
+    plt.plot(x, component, label=f'Component {i+1} (μ={means[i]:.2f})')
+
+# Total mixture
+total = sum(weights[i] * norm.pdf(x, means[i], stds[i]) for i in range(2))
+plt.plot(x, total, 'k--', label='Mixture')
+plt.legend()
+plt.show()
+
+
+
+# %% COMPARE distributions of metrics amplitudes between 2 ages
 
 fig, axes = plt.subplots(1, 4, figsize=(8, 3), sharex=False)
 fig.tight_layout(w_pad=2)
@@ -139,132 +255,3 @@ axes[3].set_xlim(0, 5)
 axes[3].set_ylim(0, 0.2)
 
 # plt.savefig(f'{saveloc}/histPlots.svg', format='svg', bbox_inches='tight')
-
-
-
-# %% examine total angular velocity or head rotations
-
-n = 2
-x = speeds[n]
-y = np.abs(angVelocities[n])
-sns.scatterplot(x=x, y=y)
-
-
-
-# %% check head saccades
-
-df = extract_saccades(Results[0],
-                      'skull', 
-                      velocity_threshold=2,
-                      min_duration=6,
-                      max_duration=600,
-                      min_inter_event=6)
-
-
-y1 = np.unwrap(Results[0].yaw)
-y2 = np.full(len(y1), np.nan)
-y3 = np.full(len(y1), np.nan)
-
-for j in range(len(df)):
-        y2[df['onset'][j]] = y1[df['onset'][j]]
-        y3[df['peak'][j]] = y1[df['peak'][j]]
-
-win = np.arange(15 * 1e3, 25 * 1e3).astype(int)
-y1 = y1[win]
-y2 = y2[win]
-y3 = y3[win]
-
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=win , y=y1))
-fig.add_trace(go.Scatter(x=win , y=y2, mode='markers', marker=dict(color='orange', size=6)))
-fig.add_trace(go.Scatter(x=win , y=y3, mode='markers', marker=dict(color='red', size=6)))
-
-
-
-# %% check eye saccades or gaze shifts
-
-df = extract_saccades(Results[3],
-                      'eye', 
-                      eye='LE', 
-                      velocity_threshold=60,
-                      min_duration=12,
-                      min_inter_event=12)
-
-y1 = Results[3].LE_x
-# y1 = Results[3].LE_gaze_horizontal_deg
-
-y2 = np.full(len(y1), np.nan)
-y3 = np.full(len(y1), np.nan)
-
-for j in range(len(df)):
-        y2[df['onset'][j]] = y1[df['onset'][j]]
-        y3[df['peak'][j]] = y1[df['peak'][j]]
-
-win = np.arange(20 * 1e3, 25 * 1e3).astype(int)
-y1 = y1[win]
-y2 = y2[win]
-y3 = y3[win]
-
-fig = go.Figure()
-fig.add_trace(go.Scatter(x=win , y=y1))
-fig.add_trace(go.Scatter(x=win , y=y2, mode='markers', marker=dict(color='orange', size=6)))
-fig.add_trace(go.Scatter(x=win , y=y3, mode='markers', marker=dict(color='red', size=6)))
-
-
-# %% 2D scatters comparing speed and pupil size distributions between ages (young to old)
-
-fig, axes = plt.subplots(1, 3, figsize=(6, 2), sharex=False)
-fig.tight_layout(w_pad=2)
-
-sns.kdeplot(ax=axes[0], x=speeds[4],y=pupilSizes[4], fill=True, cmap="Blues", levels=10, thresh=0.05)
-ax=axes[0].set_ylim(1, 4)
-ax=axes[0].set_xlim(0, 800)
-ax=axes[0].set_xlabel("speed (mm/s)")
-ax=axes[0].set_ylabel("pupil size (mm)")
-
-sns.kdeplot(ax=axes[1], x=speeds[1],y=pupilSizes[1], fill=True, cmap="Blues", levels=10, thresh=0.05)
-ax=axes[1].set_ylim(1, 4)
-ax=axes[1].set_xlim(0, 800)
-ax=axes[1].set_xlabel("speed (mm/s)")
-
-sns.kdeplot(ax=axes[2], x=speeds[0],y=pupilSizes[0], fill=True, cmap="Blues", levels=10, thresh=0.05)
-ax=axes[2].set_ylim(1, 4)
-ax=axes[2].set_xlim(0, 800)
-ax=axes[2].set_xlabel("speed (mm/s)")
-
-
-# %% GMM to look when running or not running 
-# develop state machine in the future?
-
-from sklearn.mixture import GaussianMixture
-from scipy.stats import norm
-
-data = speeds[0]
-
-# Fit the model
-gmm = GaussianMixture(n_components=2, random_state=100)
-gmm.fit(data.reshape(-1, 1))  # needs shape (n_samples, n_features)
-
-# Extract the estimates
-means = gmm.means_.flatten()
-stds = np.sqrt(gmm.covariances_.flatten())
-weights = gmm.weights_ 
-
-x = np.linspace(data.min(), data.max(), 500)
-
-# Plot histogram
-plt.hist(data, bins=100, density=True, alpha=0.4, label='Data')
-
-# Plot each component and the mixture
-for i in range(2):
-    component = weights[i] * norm.pdf(x, means[i], stds[i])
-    plt.plot(x, component, label=f'Component {i+1} (μ={means[i]:.2f})')
-
-# Total mixture
-total = sum(weights[i] * norm.pdf(x, means[i], stds[i]) for i in range(2))
-plt.plot(x, total, 'k--', label='Mixture')
-plt.legend()
-plt.show()
-
-
-# %% binocular statistics

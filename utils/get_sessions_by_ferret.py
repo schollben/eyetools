@@ -1,5 +1,11 @@
 import re
+import sys
 from pathlib import Path
+
+_utils_dir = Path(__file__).parent
+if str(_utils_dir) not in sys.path:
+    sys.path.insert(0, str(_utils_dir))
+
 from config import DATA_DIR
 
 _ANALYZABLE_OUTPUTS = DATA_DIR

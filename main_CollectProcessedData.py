@@ -8,6 +8,7 @@ from pathlib import Path
 
 # set these paths for your machine: where is the data and where do you want to save figures?
 os.environ["EYETOOLS_DATA_DIR"] = "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/VisBehavDev/data/analyzable_outputs"
+os.environ["EYETOOLS_PYTHON_CODE_DIR"] = "/Users/benjaminscholl/Documents/bs"
 saveloc = "/Users/benjaminscholl/Dropbox/projects/VisBehavDev/rawfigures/"
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -38,7 +39,7 @@ for session in SESSION:
     Results.append(R)
 
 # to look at data execute: launch_viewer(load_session_data(SESSION[n]))
-# or launch_viewer(load_session_data(SESSION)) if there is only 1 session in the list
+# or launch_viewer(R) if there is only 1 session in the list
 
 
 # %% collect data on eye kinematic changes over development (added to Results object)

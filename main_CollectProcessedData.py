@@ -6,7 +6,8 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
-from utils import load_session_data, removeBadData, extract_saccades, saccade_triggered_average, saccade_andHead_triggered_average
+from utils import load_session_data, removeBadData, extract_saccades, get_sessions_by_ferret
+from utils import saccade_triggered_average, saccade_triggered_average, saccade_andHead_triggered_average
 import plotly.graph_objects as go
 import numpy as np
 
@@ -17,20 +18,16 @@ plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
-saveloc = "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/VisBehavDev/rawfigures/"
+saveloc = "/Users/benjaminscholl/Dropbox/projects/VisBehavDev/rawfigures/"
 
 from data_viewer import launch_viewer
 # to check the data and extracted saccades for a session, use:
 # launch_viewer(R)
 
 # load data
-SESSION = [
-"session_2025-07-07_ferret_757_EyeCameras_P39_E11_analyzable_output",
-"session_2025-07-05_ferret_757_EyeCameras_P37_EO9_analyzable_output",
-"session_2025-07-01_ferret_757_EyeCameras_P33_EO5_analyzable_output",
-"session_2025-06-29_ferret_757_EyeCameras_P31_EO3__1_analyzable_output",
-"session_2025-06-28_ferret_757_EyeCameras_P30_EO2_analyzable_output",
-]
+# delayed vision: 416,411,403
+#SESSION = get_sessions_by_ferret(757)          # one ferret
+SESSION = get_sessions_by_ferret(402, 420)     # multiple — preserves order by ferret
 
 Results = []
 for session in SESSION:

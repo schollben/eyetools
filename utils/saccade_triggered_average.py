@@ -5,120 +5,123 @@ import pandas as pd
 from utils.session_data import SessionData
 
 
+LE_COLOR   = "green"
+RE_COLOR   = "#2166ac"
+HEAD_COLOR = "#BE2323"
+
+
+def _traces_for_eye(df, x_arr, pre, window, baseline_slice):
+    """Align x_arr to onsets in df, baseline-subtract, and flip to positive."""
+    traces = []
+    n_frames = len(x_arr)
+    for _, row in df.iterrows():
+        onset = int(row["onset"])
+        start, end = onset - pre, onset + window
+        if start < 0 or end > n_frames:
+            continue
+        if not np.all(np.isfinite(x_arr[start:end])):
+            continue
+        tr = np.array(x_arr[start:end], dtype=float)
+        tr -= np.mean(tr[baseline_slice])
+        if np.nanmean(tr[20:min(40, len(tr))]) < 0:
+            tr = -tr
+        traces.append(tr)
+    return traces
+
+
+def _plot_mean_se(ax, t, traces, color, label):
+    if not traces:
+        return
+    arr = np.array(traces)
+    m  = np.nanmean(arr, axis=0)
+    se = np.nanstd(arr,  axis=0) / np.sqrt(arr.shape[0])
+    ax.plot(t, m, color=color, linewidth=1, label=f"{label} (n={arr.shape[0]})")
+    ax.fill_between(t, m - se, m + se, color=color, alpha=0.3)
+
+
 def saccade_triggered_average(
     session: SessionData,
-    df_saccades: pd.DataFrame,
+    df_LE: pd.DataFrame,
+    df_RE: pd.DataFrame,
     window: int = 60,
     pre: int = 2,
     eye_ylim: float = 10,
+    binocular: str = "separate",  # "separate" = LE and RE overlaid; "combined" = pool into one trace
 ):
-    eye_traces = []
-    n_frames = len(session.LE_x)
+    t = np.arange(-pre, window) / 120
+    baseline = slice(pre - 2, pre)
 
-    for _, row in df_saccades.iterrows():
-        onset = int(row["onset"])
-        start = onset - pre
-        end = onset + window
-        if start < 0 or end > n_frames:
-            continue
-        if not np.all(np.isfinite(session.LE_x[start:end])):
-            continue
-
-        eye = np.array(session.LE_x[start:end], dtype=float)
-        eye -= eye[pre]
-        # if np.cos(np.radians(row["direction_deg"])) < 0:
-        #     eye = -eye
-        if np.nanmean(eye[20:40]) < 0:
-            eye = -eye  
-        eye_traces.append(eye)
-
-    eye_traces = np.array(eye_traces)   # (n_saccades, pre + window)
-    n = eye_traces.shape[0]
-    t = np.arange(-pre, window)/120
-
-    eye_m  = np.nanmean(eye_traces, axis=0)
-    eye_se = np.nanstd(eye_traces,  axis=0) / np.sqrt(n)
+    le_traces = _traces_for_eye(df_LE, session.LE_x, pre, window, baseline)
+    re_traces = _traces_for_eye(df_RE, session.RE_x, pre, window, baseline)
 
     fig, ax = plt.subplots(figsize=(2, 2))
-    ax.plot(t, eye_m, color="green", linewidth=1, label="LE horizontal")
-    ax.fill_between(t, eye_m - eye_se, eye_m + eye_se, color="green", alpha=0.3)
+
+    if binocular == "combined":
+        _plot_mean_se(ax, t, le_traces + re_traces, LE_COLOR, "LE+RE")
+    else:
+        _plot_mean_se(ax, t, le_traces, LE_COLOR, "LE")
+        _plot_mean_se(ax, t, re_traces, RE_COLOR,  "RE")
+
     ax.set_ylim(-1, eye_ylim)
     ax.set_xlabel("Time (sec)")
     ax.set_ylabel("Eye position (deg)")
+    ax.legend(fontsize=5)
     plt.tight_layout()
-
     return fig
 
 
 def saccade_andHead_triggered_average(
     session: SessionData,
-    df_head_saccades: pd.DataFrame,
+    df_head: pd.DataFrame,
+    df_LE: pd.DataFrame,
+    df_RE: pd.DataFrame,
     window: int = 60,
     pre: int = 10,
     ylim: float = 10,
+    binocular: str = "separate",  # "separate" = LE and RE overlaid; "combined" = pool into one trace
 ):
-    eye_traces, head_traces = [], []
     n_frames = len(session.LE_x)
-
-    # unwrap full yaw signal to remove degree wrap-around discontinuities
     yaw = np.unwrap(np.array(session.yaw, dtype=float), period=360)
+    baseline = slice(pre - 5, pre)
 
-    for _, row in df_head_saccades.iterrows():
+    # head traces aligned to head saccade onsets
+    head_traces = []
+    for _, row in df_head.iterrows():
         onset = int(row["onset"])
-        start = onset - pre
-        end = onset + window
+        start, end = onset - pre, onset + window
         if start < 0 or end > n_frames:
-            continue
-        if not np.all(np.isfinite(session.LE_x[start:end])):
             continue
         if not np.all(np.isfinite(yaw[start:end])):
             continue
+        h = yaw[start:end].copy()
+        h -= np.mean(h[baseline])
+        if np.mean(h[30:min(60, len(h))]) < 0:
+            h = -h
+        head_traces.append(h)
 
-        eye  = np.array(session.LE_x[start:end], dtype=float)
-        head = yaw[start:end].copy()
+    # eye traces aligned to their own saccade onsets
+    le_traces = _traces_for_eye(df_LE, session.LE_x, pre, window, baseline)
+    re_traces = _traces_for_eye(df_RE, session.RE_x, pre, window, baseline)
 
-        eye  -= np.mean(eye[pre - 5:pre])
-        head -= np.mean(head[pre - 5:pre])
-
-        if np.mean(head[30:60]) < 0:
-            head = -head
-
-        if np.mean(eye[20:40]) < 0:
-            eye = -eye  
-
-        eye_traces.append(eye)
-        head_traces.append(head)
-
-    eye_traces  = np.array(eye_traces)   # (n_saccades, pre + window)
-    head_traces = np.array(head_traces)
-
-    n = eye_traces.shape[0]
-    t = np.arange(-pre, window)/120
-
-    eye_m   = np.nanmean(eye_traces,   axis=0)
-    eye_se  = np.nanstd(eye_traces,    axis=0) / np.sqrt(n)
-    head_m  = np.nanmean(head_traces,  axis=0)
-    head_se = np.nanstd(head_traces,   axis=0) / np.sqrt(n)
+    t = np.arange(-pre, window) / 120
 
     fig, ax_eye = plt.subplots(figsize=(2, 3))
     ax_head = ax_eye.twinx()
 
-    ax_eye.plot(t, eye_m,  color="green", linewidth=1, alpha=0.7, label="LE horizontal")
-    ax_eye.fill_between(t, eye_m - eye_se, eye_m + eye_se, color="green", alpha=0.3)
+    if binocular == "combined":
+        _plot_mean_se(ax_eye, t, le_traces + re_traces, LE_COLOR, "LE+RE")
+    else:
+        _plot_mean_se(ax_eye, t, le_traces, LE_COLOR, "LE")
+        _plot_mean_se(ax_eye, t, re_traces, RE_COLOR,  "RE")
 
-    ax_head.plot(t, head_m, color="#BE2323", linewidth=1, alpha=0.7, label="Head yaw")
-    ax_head.fill_between(t, head_m - head_se, head_m + head_se, color="#BE2323", alpha=0.3)
+    _plot_mean_se(ax_head, t, head_traces, HEAD_COLOR, "Head yaw")
 
     ax_eye.set_ylim(-1, ylim)
-    ax_eye.set_xticks([0, window/120])
+    ax_eye.set_xticks([0, window / 120])
     ax_eye.set_xlabel("Time (sec)")
-    ax_eye.set_ylabel("Eye position (deg)", color="green")
-    ax_head.set_ylabel("Head yaw (deg)", color="#BE2323")
-    ax_eye.tick_params(axis='y', colors="green")
-    ax_head.tick_params(axis='y', colors="#BE2323")
-
-    lines = [plt.Line2D([0], [0], color="green", label="LE horizontal"),
-             plt.Line2D([0], [0], color="#BE2323", label="Head yaw")]
+    ax_eye.set_ylabel("Eye position (deg)")
+    ax_head.set_ylabel("Head yaw (deg)", color=HEAD_COLOR)
+    ax_head.tick_params(axis='y', colors=HEAD_COLOR)
+    ax_eye.legend(fontsize=5)
     plt.tight_layout()
-
     return fig

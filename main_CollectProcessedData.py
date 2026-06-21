@@ -44,9 +44,11 @@ for session in SESSION:
 
 # %% collect data on eye kinematic changes over development (added to Results object)
 eos = []
-eyeRates = []
+eyeRatesLE = []
+eyeRatesRE = []
 speeds = []
-gazeRate = []
+gazeRateLE = []
+gazeRateRE = []
 angVelocities = []
 pupilSizes = []
 
@@ -76,7 +78,10 @@ for n in range(len(Results)):
     eos.append(Results[n].eo)
 
     rate = np.array([(1/10) * np.sum((df_LE.onset >= s) & (df_LE.onset < s + window_len)) for s in starts])
-    eyeRates.append(rate)
+    eyeRatesLE.append(rate)
+
+    rate = np.array([(1/10) * np.sum((df_RE.onset >= s) & (df_RE.onset < s + window_len)) for s in starts])
+    eyeRatesRE.append(rate)
 
     vv = np.sqrt( Results[n].linearVel_x ** 2 + Results[n].linearVel_y ** 2 ).astype(int)
     
@@ -90,11 +95,22 @@ for n in range(len(Results)):
     speeds.append(vv[indFrames])
 
     rate = np.array([(1/10) * np.sum((df_LEgaze.onset >= s) & (df_LEgaze.onset < s + window_len)) for s in starts])
-    gazeRate.append(rate)
+    gazeRateLE.append(rate)
+
+    rate = np.array([(1/10) * np.sum((df_REgaze.onset >= s) & (df_REgaze.onset < s + window_len)) for s in starts])
+    gazeRateRE.append(rate)
     
-    fig = saccade_triggered_average(Results[n], df_LE, window=30)
+    fig = saccade_triggered_average(Results[n], 
+                                    df_LE, df_RE, 
+                                    window=30, 
+                                    binocular="combined")
     # plt.savefig(f'{saveloc}/LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
-    fig = saccade_andHead_triggered_average(Results[n], df_head, window=120)
+    
+    fig = saccade_andHead_triggered_average(Results[n], 
+                                            df_head, 
+                                            df_LE, df_RE, 
+                                            window=120, 
+                                            binocular="combined")
     # plt.savefig(f'{saveloc}/head_and_LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
 
 
@@ -112,8 +128,20 @@ axes.set_xlabel("Pupil size (mm)")
 
 # %% BASIC PLOTS: saccade rate distribution
 n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
-pL = eyeRates[n]
-pR = eyeRates[n]
+pL = eyeRatesLE[n]
+pR = eyeRatesRE[n]
+
+fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
+fig.tight_layout(w_pad=2)
+sns.despine(fig=fig)
+sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
+sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
+axes.set_xlabel("Pupil size (mm)")
+
+# %% BASIC PLOTS: gaze rate distribution
+n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
+pL = gazeRateLE[n]
+pR = gazeRateRE[n]
 
 fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
 fig.tight_layout(w_pad=2)

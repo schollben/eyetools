@@ -1,8 +1,9 @@
-
 # NOTE: this is a scratch script to check the data and parameters for saccade detection. It is not meant to be run as a whole, but rather to be run in parts to check the data and parameters.
 # must run the main script to load the data before running this script and import functions from the main script
-
-# %% CHECK eye saccades or gaze shifts
+#
+# 
+# 
+# # %% CHECK eye saccades or gaze shifts
 # do the threshold parameters make sense for this animal and/or session?
 n = 0
 df = extract_saccades(Results[n],

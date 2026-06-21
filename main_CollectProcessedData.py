@@ -1,16 +1,16 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
-
 # main init
+
 %load_ext autoreload
 %autoreload 2
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
-from utils import load_session_data, removeBadData, extract_saccades, get_sessions_by_ferret
+from utils import load_session_data, removeBadData, extract_saccades, get_sessions_by_ferret, get_sessions
 from utils import saccade_triggered_average, saccade_triggered_average, saccade_andHead_triggered_average
 import plotly.graph_objects as go
 import numpy as np
-
+from data_viewer import launch_viewer
 # plotting setup
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -18,16 +18,15 @@ plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
+dataloc = "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/VisBehavDev/data/analyzable_outputs/"
 saveloc = "/Users/benjaminscholl/Dropbox/projects/VisBehavDev/rawfigures/"
 
-from data_viewer import launch_viewer
-# to check the data and extracted saccades for a session, use:
-# launch_viewer(R)
+# %% load data, delayed vision: 416,411,403
 
-# load data
-# delayed vision: 416,411,403
-#SESSION = get_sessions_by_ferret(757)          # one ferret
-SESSION = get_sessions_by_ferret(402, 420)     # multiple — preserves order by ferret
+#SESSION = get_sessions_by_ferret(402, 420)    # multiple — preserves order by ferret
+#SESSION = get_sessions_by_ferret(420)          # or load sessions from an inidividual ID
+# SESSION = get_sessions("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
+SESSION = get_sessions("session_2026-03-16_ferret_403_P49_E7_analyzable_output") # or load a specific session by name
 
 Results = []
 for session in SESSION:
@@ -35,9 +34,11 @@ for session in SESSION:
     removeBadData(R)
     Results.append(R)
 
+# to look at data execute: launch_viewer(load_session_data(SESSION[n]))
+# or launch_viewer(load_session_data(SESSION)) if there is only 1 session in the list
 
-# %% examing eye kinematic changes over development
 
+# %% collect data on eye kinematic changes over development (added to Results object)
 eos = []
 eyeRates = []
 speeds = []
@@ -81,10 +82,9 @@ for n in range(len(Results)):
     rate = np.array([(1/10) * np.sum((df_LEgaze.onset >= s) & (df_LEgaze.onset < s + window_len)) for s in starts])
     gazeRate.append(rate)
     
-    # fig = saccade_triggered_average(Results[n], df_LE, window=30)
+    fig = saccade_triggered_average(Results[n], df_LE, window=30)
     # plt.savefig(f'{saveloc}/LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
-
-    # fig = saccade_andHead_triggered_average(Results[n], df_head, window=120)
+    fig = saccade_andHead_triggered_average(Results[n], df_head, window=120)
     # plt.savefig(f'{saveloc}/head_and_LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
 
 
@@ -134,8 +134,7 @@ axes[3].set_xlabel("Gaze rate (Hz)")
 axes[3].set_xlim(0, 5)
 axes[3].set_ylim(0, 0.2)
 
-
-plt.savefig(f'{saveloc}/histPlots.svg', format='svg', bbox_inches='tight')
+# plt.savefig(f'{saveloc}/histPlots.svg', format='svg', bbox_inches='tight')
 
 
 
@@ -262,3 +261,6 @@ total = sum(weights[i] * norm.pdf(x, means[i], stds[i]) for i in range(2))
 plt.plot(x, total, 'k--', label='Mixture')
 plt.legend()
 plt.show()
+
+
+# %% binocular statistics

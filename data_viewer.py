@@ -19,13 +19,14 @@ SKULL_VEL_OPTIONS = [
 ]
 
 SUBPLOT_TITLES = [
-    "Left Eye Position (deg)",
+    "",  # Row 1: set dynamically to session name
     "Right Eye Position (deg)",
     "Eye Velocity (deg/s)",
     "Skull Rotation (deg)",
     "Skull Angular Velocity (deg/s)",
     "Locomotion Speed (mm/s)",
     "Pupil Size (mm)",
+    "Eye Quality",
 ]
 
 # fixed y-ranges (None = auto)
@@ -37,6 +38,7 @@ Y_RANGES = {
     5: None,       # dynamic — set per window based on selected component
     6: [0, 800],
     7: [1, 5],
+    8: [-0.5, 3.5],
 }
 
 
@@ -45,6 +47,7 @@ def _window_mask(ts, t_start, window_sec):
 
 
 def launch_viewer(Results):
+    print(f"Session: {Results.session}")
     # precompute toy velocity from position differences
     toy_dt = np.diff(Results.skull_timestamps)
     toy_dx = np.diff(Results.toy_x)
@@ -141,12 +144,15 @@ def launch_viewer(Results):
     def update(t_start, window_sec, skull_vel_key, toy_on):
         window_sec = float(window_sec)
 
+        subplot_titles = list(SUBPLOT_TITLES)
+        subplot_titles[0] = f"Left Eye Position (deg) — {Results.session}"
+
         fig = make_subplots(
-            rows=7, cols=1,
+            rows=8, cols=1,
             shared_xaxes=True,
-            subplot_titles=SUBPLOT_TITLES,
-            vertical_spacing=0.035,
-            row_heights=[1, 1, 1, 0.9, 0.9, 0.8, 0.7],
+            subplot_titles=subplot_titles,
+            vertical_spacing=0.03,
+            row_heights=[1, 1, 1, 0.9, 0.9, 0.8, 0.7, 0.4],
         )
 
         # eye mask
@@ -222,6 +228,18 @@ def launch_viewer(Results):
             fig.add_trace(go.Scatter(x=ts_eye, y=arr[me], name=name,
                                      line=dict(color=color, width=1.2),
                                      legendgroup="pupil"), row=7, col=1)
+
+        # --- Row 8: Eye quality (LEQ offset by 2 so both visible) ---
+        meq = _window_mask(Results.EQtimestamps, t_start, window_sec)
+        ts_eq = Results.EQtimestamps[meq]
+        fig.add_trace(go.Scatter(x=ts_eq, y=Results.LEQ[meq].astype(float),
+                                 name="LEQ", line=dict(color=LE_X_COLOR, width=1.2),
+                                 legendgroup="eq"), row=8, col=1)
+        fig.add_trace(go.Scatter(x=ts_eq, y=Results.REQ[meq].astype(float) + 2,
+                                 name="REQ", line=dict(color=RE_X_COLOR, width=1.2),
+                                 legendgroup="eq"), row=8, col=1)
+        fig.update_yaxes(tickvals=[0, 1, 2, 3], ticktext=["LE 0", "LE 1", "RE 0", "RE 1"],
+                         row=8, col=1)
 
         # --- Axis ranges ---
         fig.update_xaxes(range=[t_start, t_start + window_sec])

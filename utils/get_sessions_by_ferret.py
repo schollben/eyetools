@@ -1,9 +1,8 @@
 import re
 from pathlib import Path
+from config import DATA_DIR
 
-_ANALYZABLE_OUTPUTS = Path(
-    "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/VisBehavDev/data/analyzable_outputs"
-)
+_ANALYZABLE_OUTPUTS = DATA_DIR
 _FERRET_ID_RE = re.compile(r"_ferret_(\d+)_")
 
 

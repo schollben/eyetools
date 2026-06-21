@@ -1,18 +1,12 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/Users/benjaminscholl/Documents/bs")
-
-DATA_DIR = Path(
-    "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/VisBehavDev"
-    "/data/analyzable_outputs"
-)
-
 # Add .utils to path so sub-loaders can be imported directly
 _utils_dir = Path(__file__).parent
 if str(_utils_dir) not in sys.path:
     sys.path.insert(0, str(_utils_dir))
 
+from config import DATA_DIR
 from load_skull_data import load_skull_data
 from load_eye_quality import load_eye_quality
 from load_eye_kinematics import load_eye_kinematics

@@ -3,8 +3,13 @@
 
 %load_ext autoreload
 %autoreload 2
-import sys
+import os, sys
 from pathlib import Path
+
+# set these paths for your machine: where is the data and where do you want to save figures?
+os.environ["EYETOOLS_DATA_DIR"] = "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/VisBehavDev/data/analyzable_outputs"
+saveloc = "/Users/benjaminscholl/Dropbox/projects/VisBehavDev/rawfigures/"
+
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import load_session_data, removeBadData, extract_saccades, get_sessions_by_ferret, get_sessions
 from utils import saccade_triggered_average, saccade_triggered_average, saccade_andHead_triggered_average
@@ -18,8 +23,6 @@ plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
-dataloc = "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/VisBehavDev/data/analyzable_outputs/"
-saveloc = "/Users/benjaminscholl/Dropbox/projects/VisBehavDev/rawfigures/"
 
 # %% load data, delayed vision: 416,411,403
 

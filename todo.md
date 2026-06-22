@@ -1,11 +1,12 @@
+# filter our bad head movements
+not implemented by philip yet, but can filter out based on extreme values
 
-1. NaN out bad frames from quality. convolve with box filter to make sure there are not single bad frames?
-difference between low/high threshold?
+# finish processing datasets and then assess general stats across all
+total good frames
+binocular data
+notes on behavior or data
+age, ect
 
-2. saccade detection: velocity and acceleration peak (with threshold), binocular coordination? 
-
-3. head saccade detection: same principle as (2) but may need different parameters. combine yaw/pitch? maybe just examine yaw.
-
-4. gaze shift detection: same principle for 2 & 3 but only consider horizontal gaze (head + eye). is gaze collected?
-
-5. combine data across ages/EOs in the same data structure? or build a new 'processed' data structure from loaded?
+# collect hunting annotations to analyze specific periods
+from emily
+start/stop?

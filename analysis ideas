@@ -1,0 +1,51 @@
+
+Monocular (all events, combine eyes):
+
+1. MAIN sequence (examine per animal)
+  1a. amplitude vs peak velocity
+  1b. amplitude vs duration
+  1c. amplitude vs peak velocity * duration
+
+2. eye-head coupling
+  2a. head saccade onset compared to during rotation? compare acceleration and velocity?
+  2b.
+
+3. VOR characteristics
+  3a. head pitch vs LE/RE horizontal/vertical position
+  3b. head ROLL (?) vs LE/RE horizontal/vertical position
+  3c. head velocity vs eye velocity
+  3d. 
+
+- mean saccade angular speed profiles binned by net amplitude
+- mean angular displacement profiles binned by net amplitude
+
+
+Binocular:
+
+1. correlation in position and velocity between the two eyes during saccades
+  1a. LE vs RE horizontal position 
+
+2. correlation in position and velocity between the two eyes OUTSIDE of saccades (fixations and smooth pursuit)
+
+3. interocular peak velocity coupling. 2D binnning?
+
+4. saccade amplitude distribution for monocular/bincoualr events
+
+5. eye end-point density for monocular/binocular events
+
+6. 
+
+* notes--
+head linear speed (running or not)
+head angular speed
+
+
+Arousal: 
+
+define active and passive states based on head speed and/or pupil size
+probability density distribution pupil size during 'active'
+relationship between running, head rotations, pupil size (how to define states)
+
+* notes--
+z-scored pupil size? why are eyes not same on same animals?
+

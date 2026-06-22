@@ -5,3 +5,4 @@ from .session_data import SessionData
 from .extract_saccades import extract_saccades
 from .saccade_triggered_average import saccade_triggered_average, saccade_andHead_triggered_average
 from .summarize_dataset import summarize_dataset
+from .classify_saccades import classify_saccades

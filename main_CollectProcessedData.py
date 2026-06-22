@@ -83,11 +83,11 @@ for n in range(len(Results)):
     rate = np.array([(1/10) * np.sum((df_RE.onset >= s) & (df_RE.onset < s + window_len)) for s in starts])
     eyeRatesRE.append(rate)
 
-    vv = np.sqrt( Results[n].linearVel_x ** 2 + Results[n].linearVel_y ** 2 ).astype(int)
+    vv = np.sqrt( Results[n].linearVel_x ** 2 + Results[n].linearVel_y ** 2 )
     
     indFrames = (vv >= 0) & (vv < 800) & (Results[n].LE_pupil < 4) # need to go understand why there are negative values in the linear velocity, which should be absolute value of speed. For now, just remove them.
 
-    angVel =  np.sqrt(Results[n].roll_v ** 2 + Results[n].pitch_v ** 2 + Results[n].yaw_v ** 2 ).astype(int) #total angular velocity -> use to examine stablization?
+    angVel =  np.sqrt(Results[n].roll_v ** 2 + Results[n].pitch_v ** 2 + Results[n].yaw_v ** 2 ) #total angular velocity -> use to examine stablization?
     angVelocities.append(angVel[indFrames])
 
     pupilSizes.append(Results[n].LE_pupil[indFrames]) # examine pupil size changes over development, as a proxy for arousal or cognitive effort. Need to check if there are any differences in the eye tracking quality that could affect this metric.
@@ -126,6 +126,7 @@ sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.04, li
 sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
 axes.set_xlabel("Pupil size (mm)")
 
+
 # %% BASIC PLOTS: saccade rate distribution
 n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
 pL = eyeRatesLE[n]
@@ -134,9 +135,10 @@ pR = eyeRatesRE[n]
 fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
 fig.tight_layout(w_pad=2)
 sns.despine(fig=fig)
-sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
-sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
-axes.set_xlabel("Pupil size (mm)")
+sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
+sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
+axes.set_xlabel("Saccade rate (Hz)")
+
 
 # %% BASIC PLOTS: gaze rate distribution
 n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
@@ -146,9 +148,9 @@ pR = gazeRateRE[n]
 fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
 fig.tight_layout(w_pad=2)
 sns.despine(fig=fig)
-sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
-sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
-axes.set_xlabel("Pupil size (mm)")
+sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
+sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
+axes.set_xlabel("Gaze rate (Hz)")
 
 
 # %% BASIC PLOTS: speed distribution
@@ -163,37 +165,40 @@ axes.set_xlabel("speed (mm/s")
 
 
 
-# %% examine total angular velocity or head rotations
+# %% BASIC PLOT: speed vs angular velocity of head rotations
 
-n = 2
+n = 0
 x = speeds[n]
 y = np.abs(angVelocities[n])
 sns.scatterplot(x=x, y=y)
 
-
-
-
-
 # %% 2D scatters comparing speed and pupil size distributions between ages (young to old)
 
-fig, axes = plt.subplots(1, 3, figsize=(6, 2), sharex=False)
+fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
+fig.tight_layout(w_pad=2)
+n = 0
+sns.kdeplot(ax=axes, x=speeds[n],y=pupilSizes[n], fill=True, cmap="Blues", levels=10, thresh=0.05)
+ax=axes.set_xlabel("speed (mm/s)")
+ax=axes.set_ylabel("pupil size (mm)")
+
+ # %% examine binocular coordination of eye movements
+
+fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
 fig.tight_layout(w_pad=2)
 
-sns.kdeplot(ax=axes[0], x=speeds[4],y=pupilSizes[4], fill=True, cmap="Blues", levels=10, thresh=0.05)
-ax=axes[0].set_ylim(1, 4)
-ax=axes[0].set_xlim(0, 800)
-ax=axes[0].set_xlabel("speed (mm/s)")
-ax=axes[0].set_ylabel("pupil size (mm)")
+velocity_threshold = 0
+inds = (Results[n].LE_vx > velocity_threshold) & (Results[n].RE_vx > velocity_threshold)
+x = Results[n].LE_x[inds]
+y = -Results[n].RE_x[inds]
 
-sns.kdeplot(ax=axes[1], x=speeds[1],y=pupilSizes[1], fill=True, cmap="Blues", levels=10, thresh=0.05)
-ax=axes[1].set_ylim(1, 4)
-ax=axes[1].set_xlim(0, 800)
-ax=axes[1].set_xlabel("speed (mm/s)")
+sns.kdeplot(ax=axes, x=x, y=y, fill=True, cmap="Blues", levels=10, thresh=0.05)
+ax=axes.set_xlabel("LE_x")
+ax=axes.set_ylabel("RE_x")
 
-sns.kdeplot(ax=axes[2], x=speeds[0],y=pupilSizes[0], fill=True, cmap="Blues", levels=10, thresh=0.05)
-ax=axes[2].set_ylim(1, 4)
-ax=axes[2].set_xlim(0, 800)
-ax=axes[2].set_xlabel("speed (mm/s)")
+
+
+
+
 
 
 # %% GMM to look when running or not running 

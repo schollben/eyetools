@@ -6,15 +6,21 @@ Monocular (all events, combine eyes):
   1b. amplitude vs duration
   1c. amplitude vs peak velocity * duration
 
-2. eye-head coupling
+2. eye-head coupling & gaze shifts
   2a. head saccade onset compared to during rotation? compare acceleration and velocity?
-  2b.
+  2b. amplitude of eye saccades vs gaze shifts (eye + head)
+  2c. compare properties of gaze shifts over time.  set a fixed gaze velocity threshold (? ~180 ˚/sec ?), based on gaze velocity distribution (log).
+  2d. stablization: Root Mean Squared (RMS) histograms for head yaw and gaze (and mean/SD between gaze and head)
 
 3. VOR characteristics
   3a. head pitch vs LE/RE horizontal/vertical position
   3b. head ROLL (?) vs LE/RE horizontal/vertical position
-  3c. head velocity vs eye velocity
-  3d. 
+  3c. head velocity vs eye velocity OUTSIDE of gaze/eye shifts
+  3d. horizontal eye velocity VS running speed (scatter or distributions)
+
+4. counter-rotations
+  4a. peak velocity vs peak negative velocity of eye movements during head rotation (kerr 2026)
+  4b. consider head saccade onset vs during head rotation?  
 
 - mean saccade angular speed profiles binned by net amplitude
 - mean angular displacement profiles binned by net amplitude
@@ -24,6 +30,10 @@ Binocular:
 
 1. correlation in position and velocity between the two eyes during saccades
   1a. LE vs RE horizontal position 
+  1b. Log-scaled joint distribution of horizontal saccade velocity
+  1c.  Log-scaled joint distribution of horizontal saccade velocity AND angular head velocity (or horizontal?)
+  1d. simple idea: Cross correlation of horizontal eye position across the two eyes
+
 
 2. correlation in position and velocity between the two eyes OUTSIDE of saccades (fixations and smooth pursuit)
 
@@ -33,7 +43,15 @@ Binocular:
 
 5. eye end-point density for monocular/binocular events
 
-6. 
+6. binocular stability during "fixation" periods
+  6a. compute LE - RE velocity in between gaze/eye shifts during head movements
+  6b. keep track of CW and CCW
+  6b. also consider outside head rotations (head pitch and roll magnitude < 10 deg)?
+
+7. vergence = LE - RE position (deg)
+  7a. propotion of time over development
+  7b. pitch vs vergence (compensation)
+
 
 * notes--
 head linear speed (running or not)

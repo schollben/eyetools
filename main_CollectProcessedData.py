@@ -71,7 +71,7 @@ for n in range(len(Results)):
 
     #sliding window to calculate saccade rate
     #minimum amplitude saccade?
-    window_len = 120 * 10
+    window_len = 120 * 5
     n_frames = len(Results[n].EQframes)
     starts = np.arange(0, n_frames - window_len + 1, window_len // 2)
 
@@ -84,8 +84,9 @@ for n in range(len(Results)):
     eyeRatesRE.append(rate)
 
     vv = np.sqrt( Results[n].linearVel_x ** 2 + Results[n].linearVel_y ** 2 )
-    
-    indFrames = (vv >= 0) & (vv < 800) & (Results[n].LE_pupil < 4) # need to go understand why there are negative values in the linear velocity, which should be absolute value of speed. For now, just remove them.
+    indFrames = (vv >= 0) & (vv < 800) # need to go understand why there are negative values in the linear velocity, which should be absolute value of speed. For now, just remove them.
+
+    # nan out values above 800 mm/s, which are likely artifacts. Need to check the raw data to understand why these values are present and if there is a way to clean them up without just removing them.
 
     angVel =  np.sqrt(Results[n].roll_v ** 2 + Results[n].pitch_v ** 2 + Results[n].yaw_v ** 2 ) #total angular velocity -> use to examine stablization?
     angVelocities.append(angVel[indFrames])
@@ -185,15 +186,22 @@ ax=axes.set_ylabel("pupil size (mm)")
 
 fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
 fig.tight_layout(w_pad=2)
+n = 0
 
-velocity_threshold = 0
-inds = (Results[n].LE_vx > velocity_threshold) & (Results[n].RE_vx > velocity_threshold)
+# velocity_threshold = 0
+# inds = (Results[n].LE_vx > velocity_threshold) & (Results[n].RE_vx > velocity_threshold)
+# x = Results[n].LE_x[inds]
+# y = -Results[n].RE_x[inds]
+
+speed_threshold = 0
+inds = (speeds[n] > speed_threshold)
 x = Results[n].LE_x[inds]
 y = -Results[n].RE_x[inds]
 
 sns.kdeplot(ax=axes, x=x, y=y, fill=True, cmap="Blues", levels=10, thresh=0.05)
 ax=axes.set_xlabel("LE_x")
 ax=axes.set_ylabel("RE_x")
+
 
 
 
@@ -240,6 +248,8 @@ total = sum(weights[i] * norm.pdf(x, means[i], stds[i]) for i in range(2))
 plt.plot(x, total, 'k--', label='Mixture')
 plt.legend()
 plt.show()
+
+
 
 
 

@@ -3,7 +3,7 @@
 #
 # 
 # 
-# # %% CHECK eye saccades or gaze shifts
+# %% CHECK eye saccades or gaze shifts
 # do the threshold parameters make sense for this animal and/or session?
 n = 0
 df = extract_saccades(Results[n],

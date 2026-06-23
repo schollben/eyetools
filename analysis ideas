@@ -2,28 +2,38 @@
 Monocular (all events, combine eyes):
 
 1. MAIN sequence (examine per animal)
-  1a. amplitude vs peak velocity
-  1b. amplitude vs duration
-  1c. amplitude vs peak velocity * duration
+  a. amplitude vs peak velocity
+  b. amplitude vs duration
+  c. amplitude vs peak velocity * duration
+  *** amplitude == distance between 2 furtherest points on trajectory
 
 2. eye-head coupling & gaze shifts
-  2a. head saccade onset compared to during rotation? compare acceleration and velocity?
-  2b. amplitude of eye saccades vs gaze shifts (eye + head)
-  2c. compare properties of gaze shifts over time.  set a fixed gaze velocity threshold (? ~180 ˚/sec ?), based on gaze velocity distribution (log).
-  2d. stablization: Root Mean Squared (RMS) histograms for head yaw and gaze (and mean/SD between gaze and head)
+  a. head saccade onset compared to during rotation? compare acceleration and velocity?
+  b. amplitude of eye saccades vs gaze shifts (eye + head)
+  c. compare properties of gaze shifts over time.  set a fixed gaze velocity threshold (? ~180 ˚/sec ?), based on gaze velocity distribution (log).
+  d. stablization: Root Mean Squared (RMS) histograms for head yaw and gaze (and mean/SD between gaze and head)
+  e. inter-saccade interval distributions
+  f. head VS eye -> which came first? categorize types? saccades different?
 
 3. VOR characteristics
-  3a. head pitch vs LE/RE horizontal/vertical position
-  3b. head ROLL (?) vs LE/RE horizontal/vertical position
-  3c. head velocity vs eye velocity OUTSIDE of gaze/eye shifts
-  3d. horizontal eye velocity VS running speed (scatter or distributions)
+  a. head pitch vs LE/RE horizontal/vertical position
+  b. head ROLL (?) vs LE/RE horizontal/vertical position
+  c. head velocity (total ang or horizontal) vs LE/RE velocity (should see VOR and gaze shifts)
+  d. head velocity vs eye velocity OUTSIDE of gaze/eye shifts
+  e. horizontal eye velocity VS running speed (scatter or distributions)
 
 4. counter-rotations
-  4a. peak velocity vs peak negative velocity of eye movements during head rotation (kerr 2026)
-  4b. consider head saccade onset vs during head rotation?  
+  a. peak velocity vs peak negative velocity of eye movements during head rotation (kerr 2026)
+  b. consider head saccade onset vs during head rotation?  
 
-- mean saccade angular speed profiles binned by net amplitude
-- mean angular displacement profiles binned by net amplitude
+5. INTEGRATOR ('saccade free periods')
+  a. eye position vs velocity (X/Y or combine?)
+  b. biases or shifts over time for animals?
+
+6. saccades
+  a. mean saccade angular speed profiles binned by net amplitude
+  b. mean angular displacement profiles binned by net amplitude
+
 
 
 Binocular:

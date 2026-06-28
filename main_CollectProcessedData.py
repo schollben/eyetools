@@ -1,16 +1,16 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
 # main init
 
-%load_ext autoreload
-%autoreload 2
+# %load_ext autoreload
+# %autoreload 2
 import sys
-from pathlib import Path
-
-# Paths are auto-detected. If detection fails, see local_config.py.example.
-sys.path.insert(0, str(Path(__file__).parent))
+# Set your paths in local_config.py (copy local_config.py.example to get started).
+sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
+import local_config  # type: ignore
+sys.path.insert(0, local_config.EYETOOLS_ROOT)
 from utils import load_session_data, removeBadData, extract_saccades, get_sessions_by_ferret, get_sessions
 from utils import saccade_triggered_average, saccade_triggered_average, saccade_andHead_triggered_average
-from utils.config import SAVELOC   # figure output dir, or None if not set in local_config.py
+from utils.config import SAVELOC
 import plotly.graph_objects as go
 import numpy as np
 from data_viewer import launch_viewer
@@ -190,6 +190,7 @@ fig, axes = plt.subplots(2, m,
                          figsize=(2*m, 4), 
                          sharex=False, 
                          squeeze=False)
+axes = axes.flatten()
 fig.tight_layout(w_pad=2)
 
 for n in range(n_sesh):
@@ -201,8 +202,8 @@ for n in range(n_sesh):
 
     # speed_threshold = 0
     # inds = (speeds[n] > speed_threshold)
-    x = Results[n].LE_x
-    y = -Results[n].RE_x
+    x = Results[n].LE_vx
+    y = -Results[n].RE_vx
 
     sns.kdeplot(ax=axes[n], x=x, y=y, fill=True, cmap="Blues", levels=10, thresh=0.05)
     axes[n].axis([-20, 20, -20, 20])  # [xmin, xmax, ymin, ymax]

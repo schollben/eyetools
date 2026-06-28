@@ -1,11 +1,7 @@
 # local_config.py — copy this file, remove the .example suffix, and fill in your paths.
 # This file is gitignored and will NOT be committed.
-#
-# Only needed if auto-detection fails. The project will automatically look for:
-#   - The 'bs' repo as a sibling of the eyetools folder (e.g. ../bs/)
-#   - The data directory at projects/VisBehavDev/data/analyzable_outputs
-#     under ~/Library/CloudStorage/Dropbox* or ~/Dropbox
 
+EYETOOLS_ROOT            = "/path/to/eyetools"
 EYETOOLS_DATA_DIR        = "/path/to/VisBehavDev/data/analyzable_outputs"
-EYETOOLS_PYTHON_CODE_DIR = "/path/to/bs"           # only if bs/ is not a sibling of eyetools/
+EYETOOLS_PYTHON_CODE_DIR = "/path/to/bs"
 SAVELOC                  = "/path/to/rawfigures"   # optional — for saving figures

@@ -186,7 +186,10 @@ ax=axes.set_ylabel("pupil size (mm)")
 
  # %% examine binocular coordination of eye movements
 m = int(np.ceil(n_sesh/2))
-fig, axes = plt.subplots(2, m, figsize=(2*m, 4), sharex=False)
+fig, axes = plt.subplots(2, m, 
+                         figsize=(2*m, 4), 
+                         sharex=False, 
+                         squeeze=False)
 fig.tight_layout(w_pad=2)
 
 for n in range(n_sesh):

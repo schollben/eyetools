@@ -1,21 +1,11 @@
 import os
 import sys
 import importlib.util
+import warnings
 from pathlib import Path
 
-# ── Paths derived from repo layout ───────────────────────────────────────────
-_EYETOOLS_ROOT = Path(__file__).resolve().parent.parent   # .../eyetools/
-_BS_DIR = _EYETOOLS_ROOT.parent / "bs"                   # sibling bs/ repo
-
-if not _BS_DIR.exists():
-    import warnings
-    warnings.warn(
-        f"Expected 'bs' repo not found at {_BS_DIR} — "
-        "imports from python_code.* will fail.",
-        stacklevel=2,
-    )
-
 # ── Optional local_config.py (gitignored, for paths that can't be auto-detected)
+_EYETOOLS_ROOT = Path(__file__).resolve().parent.parent   # .../eyetools/
 _local_cfg: dict = {}
 _local_file = _EYETOOLS_ROOT / "local_config.py"
 if _local_file.exists():
@@ -23,6 +13,25 @@ if _local_file.exists():
     _mod = importlib.util.module_from_spec(_spec)
     _spec.loader.exec_module(_mod)
     _local_cfg = vars(_mod)
+
+# ── Resolve bs/ (python_code package) ────────────────────────────────────────
+# Priority: local_config.py → env var → sibling repo auto-detection
+_bs_dir = (
+    _local_cfg.get("EYETOOLS_PYTHON_CODE_DIR")
+    or os.environ.get("EYETOOLS_PYTHON_CODE_DIR")
+    or str(_EYETOOLS_ROOT.parent / "bs")
+)
+
+if not Path(_bs_dir).exists():
+    warnings.warn(
+        f"'bs' repo not found at {_bs_dir} — imports from python_code.* will fail.\n"
+        "If it's in a different location, add to local_config.py:\n"
+        "    EYETOOLS_PYTHON_CODE_DIR = '/path/to/bs'",
+        stacklevel=2,
+    )
+
+if _bs_dir not in sys.path:
+    sys.path.insert(0, _bs_dir)
 
 # ── Resolve EYETOOLS_DATA_DIR ─────────────────────────────────────────────────
 _RELATIVE_DATA = Path("projects/VisBehavDev/data/analyzable_outputs")
@@ -60,8 +69,3 @@ DATA_DIR = Path(_data_dir)
 
 # Expose SAVELOC from local_config.py if provided (used for saving figures)
 SAVELOC = Path(_local_cfg["SAVELOC"]) if _local_cfg.get("SAVELOC") else None
-
-# ── Add bs/ to sys.path so python_code.* imports work ────────────────────────
-_bs = str(_BS_DIR)
-if _bs not in sys.path:
-    sys.path.insert(0, _bs)

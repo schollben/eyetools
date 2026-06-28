@@ -6,5 +6,6 @@
 #   - The data directory at projects/VisBehavDev/data/analyzable_outputs
 #     under ~/Library/CloudStorage/Dropbox* or ~/Dropbox
 
-EYETOOLS_DATA_DIR = "/path/to/VisBehavDev/data/analyzable_outputs"
-SAVELOC           = "/path/to/rawfigures"   # optional — for saving figures
+EYETOOLS_DATA_DIR        = "/path/to/VisBehavDev/data/analyzable_outputs"
+EYETOOLS_PYTHON_CODE_DIR = "/path/to/bs"           # only if bs/ is not a sibling of eyetools/
+SAVELOC                  = "/path/to/rawfigures"   # optional — for saving figures

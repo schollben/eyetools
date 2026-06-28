@@ -21,6 +21,7 @@ Monocular (all events, combine eyes):
   c. head velocity (total ang or horizontal) vs LE/RE velocity (should see VOR and gaze shifts)
   d. head velocity vs eye velocity OUTSIDE of gaze/eye shifts
   e. horizontal eye velocity VS running speed (scatter or distributions)
+*** need to compare peak velocity timepoints for saccades? or can we examine continuous data?
 
 4. counter-rotations
   a. peak velocity vs peak negative velocity of eye movements during head rotation (kerr 2026)

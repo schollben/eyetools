@@ -3,17 +3,14 @@
 
 %load_ext autoreload
 %autoreload 2
-import os, sys
+import sys
 from pathlib import Path
 
-# set these paths for your machine: where is the data and where do you want to save figures?
-os.environ["EYETOOLS_DATA_DIR"] = "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/VisBehavDev/data/analyzable_outputs"
-os.environ["EYETOOLS_PYTHON_CODE_DIR"] = "/Users/benjaminscholl/Documents/bs"
-saveloc = "/Users/benjaminscholl/Dropbox/projects/VisBehavDev/rawfigures/"
-
+# Paths are auto-detected. If detection fails, see local_config.py.example.
 sys.path.insert(0, str(Path(__file__).parent))
 from utils import load_session_data, removeBadData, extract_saccades, get_sessions_by_ferret, get_sessions
 from utils import saccade_triggered_average, saccade_triggered_average, saccade_andHead_triggered_average
+from utils.config import SAVELOC   # figure output dir, or None if not set in local_config.py
 import plotly.graph_objects as go
 import numpy as np
 from data_viewer import launch_viewer
@@ -29,8 +26,8 @@ plt.rcParams['svg.fonttype'] = 'none'
 # %% load data, delayed vision: 416,411,403
 
 #SESSION = get_sessions_by_ferret(402, 420)    # multiple — preserves order by ferret
-#SESSION = get_sessions_by_ferret(420)          # or load sessions from an inidividual ID
-SESSION = get_sessions("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
+SESSION = get_sessions_by_ferret(420)          # or load sessions from an inidividual ID
+#SESSION = get_sessions("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
 # SESSION = get_sessions("session_2026-03-16_ferret_403_P49_E7_analyzable_output") # or load a specific session by name
 
 Results = []
@@ -38,6 +35,8 @@ for session in SESSION:
     R = load_session_data(session)
     removeBadData(R)
     Results.append(R)
+n_sesh = len(Results)
+print(n_sesh, "sessions loaded")
 
 # to look at data execute: launch_viewer(load_session_data(SESSION[n]))
 # or launch_viewer(R) if there is only 1 session in the list
@@ -106,7 +105,8 @@ for n in range(len(Results)):
                                     df_LE, df_RE, 
                                     window=30, 
                                     binocular="combined")
-    # plt.savefig(f'{saveloc}/LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
+    if SAVELOC:
+        plt.savefig(f'{SAVELOC}/LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
     
     fig = saccade_andHead_triggered_average(Results[n], 
                                             df_head, 
@@ -183,27 +183,37 @@ sns.kdeplot(ax=axes, x=speeds[n],y=pupilSizes[n], fill=True, cmap="Blues", level
 ax=axes.set_xlabel("speed (mm/s)")
 ax=axes.set_ylabel("pupil size (mm)")
 
+
  # %% examine binocular coordination of eye movements
-
-fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
+m = int(np.ceil(n_sesh/2))
+fig, axes = plt.subplots(2, m, figsize=(2*m, 4), sharex=False)
 fig.tight_layout(w_pad=2)
-n = 0
 
-# velocity_threshold = 0
-# inds = (Results[n].LE_vx > velocity_threshold) & (Results[n].RE_vx > velocity_threshold)
-# x = Results[n].LE_x[inds]
-# y = -Results[n].RE_x[inds]
+for n in range(n_sesh):
 
-speed_threshold = 0
-inds = (speeds[n] > speed_threshold)
-x = Results[n].LE_x[inds]
-y = -Results[n].RE_x[inds]
+    # velocity_threshold = 0
+    # inds = (Results[n].LE_vx > velocity_threshold) & (Results[n].RE_vx > velocity_threshold)
+    # x = Results[n].LE_x[inds]
+    # y = -Results[n].RE_x[inds]
 
-sns.kdeplot(ax=axes, x=x, y=y, fill=True, cmap="Blues", levels=10, thresh=0.05)
-ax=axes.set_xlabel("LE_x")
-ax=axes.set_ylabel("RE_x")
+    # speed_threshold = 0
+    # inds = (speeds[n] > speed_threshold)
+    x = Results[n].LE_x
+    y = -Results[n].RE_x
+
+    sns.kdeplot(ax=axes[n], x=x, y=y, fill=True, cmap="Blues", levels=10, thresh=0.05)
+    axes[n].axis([-20, 20, -20, 20])  # [xmin, xmax, ymin, ymax]
+    
 
 
+ # %%
+n = 4
+velocity_threshold = 25
+inds = (np.abs(Results[n].LE_vx) > velocity_threshold) & (
+    np.abs(Results[n].RE_vx) > velocity_threshold)
+x = Results[n].yaw_v[~inds]
+y = Results[n].RE_vx[~inds]
+sns.scatterplot(x=x, y=y)
 
 
 

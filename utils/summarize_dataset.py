@@ -1,14 +1,5 @@
-import os
 import sys
 from pathlib import Path
-
-# ── Configure for your machine ────────────────────────────────────────────────
-os.environ.setdefault("EYETOOLS_DATA_DIR",
-    "/Users/benjaminscholl/Library/CloudStorage/Dropbox/projects/VisBehavDev/data/analyzable_outputs")
-os.environ.setdefault("EYETOOLS_PYTHON_CODE_DIR",
-    "/Users/benjaminscholl/Documents/bs")
-PLOT = True   # set to False to skip the figure
-# ─────────────────────────────────────────────────────────────────────────────
 
 import numpy as np
 import pandas as pd
@@ -50,8 +41,8 @@ def summarize_dataset(plot: bool = False):
     if not DATA_DIR.exists():
         print(
             f"\nWarning: data directory not found:\n  {DATA_DIR}\n"
-            "Please update EYETOOLS_DATA_DIR (or the hardcoded path at the top of this file) "
-            "to match your machine.\n"
+            "Please update EYETOOLS_DATA_DIR or create a local_config.py "
+            "in the eyetools project root. See local_config.py.example.\n"
         )
         return None
 
@@ -153,6 +144,7 @@ def summarize_dataset(plot: bool = False):
 
 
 if __name__ == "__main__":
+    PLOT = True   # set to False to skip the figure
     result = summarize_dataset(plot=PLOT)
     if result is None:
         sys.exit(1)

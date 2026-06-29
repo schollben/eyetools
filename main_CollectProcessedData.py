@@ -56,17 +56,29 @@ fig = saccade_andHead_triggered_average(Results, window=120, binocular="combined
 
 
 
-# %% BASIC PLOTS: pupil distribution
-n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
-pL = Results[n].LE_pupil[ Results[n].LE_pupil < 10 ]
-pR = Results[n].RE_pupil[ Results[n].RE_pupil < 10 ]
+# %% BASIC PLOTS: pupil distribution across sessions 
 
-fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
-fig.tight_layout(w_pad=2)
+m = int(np.ceil(n_sesh/2))
+fig, axes = plt.subplots(2, m, 
+                         figsize=(2*m, 4), 
+                         sharex=False, 
+                         squeeze=False)
+axes = axes.flatten()
 sns.despine(fig=fig)
-sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
-sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
-axes.set_xlabel("Pupil size (mm)")
+
+thresh_for_bad_data = 6
+
+for n in range(n_sesh):
+
+    pL = Results[n].LE_pupil[ Results[n].LE_pupil < thresh_for_bad_data ]
+    pR = Results[n].RE_pupil[ Results[n].RE_pupil < thresh_for_bad_data ]
+
+    sns.histplot(pL, ax=axes[n], color="#725EE7", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
+    sns.histplot(pR, ax=axes[n], color="#E93115", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
+    
+    # axes[n].set_xlabel("Pupil size (mm)")
+    axes[n].set_title(f"EO: {Results[n].eo}")
+    axes[n].axis([1.5, 4.5, 0, 0.2])  # [xmin, xmax, ymin, ymax]
 
 
 # %% BASIC PLOTS: saccade rate distribution
@@ -97,7 +109,7 @@ axes.set_xlabel("Gaze rate (Hz)")
 
 # %% BASIC PLOTS: speed distribution
 n = 0 
-dat = speeds[n]
+dat = Results[n].speed
 
 fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
 fig.tight_layout(w_pad=2)
@@ -119,7 +131,7 @@ sns.scatterplot(x=x, y=y)
 fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
 fig.tight_layout(w_pad=2)
 n = 0
-sns.kdeplot(ax=axes, x=speeds[n],y=pupilSizes[n], fill=True, cmap="Blues", levels=10, thresh=0.05)
+sns.kdeplot(ax=axes, x=Results[n].speed, y=Results[n].pupilSize, fill=True, cmap="Blues", levels=10, thresh=0.05)
 ax=axes.set_xlabel("speed (mm/s)")
 ax=axes.set_ylabel("pupil size (mm)")
 

@@ -1,6 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import pandas as pd
 
 from utils.session_data import SessionData
 
@@ -41,8 +40,6 @@ def _plot_mean_se(ax, t, traces, color, label):
 
 def saccade_triggered_average(
     session: SessionData,
-    df_LE: pd.DataFrame,
-    df_RE: pd.DataFrame,
     window: int = 60,
     pre: int = 2,
     eye_ylim: float = 10,
@@ -51,8 +48,8 @@ def saccade_triggered_average(
     t = np.arange(-pre, window) / 120
     baseline = slice(pre - 2, pre)
 
-    le_traces = _traces_for_eye(df_LE, session.LE_x, pre, window, baseline)
-    re_traces = _traces_for_eye(df_RE, session.RE_x, pre, window, baseline)
+    le_traces = _traces_for_eye(session.df_LE, session.LE_x, pre, window, baseline)
+    re_traces = _traces_for_eye(session.df_RE, session.RE_x, pre, window, baseline)
 
     fig, ax = plt.subplots(figsize=(2, 2))
 
@@ -72,9 +69,6 @@ def saccade_triggered_average(
 
 def saccade_andHead_triggered_average(
     session: SessionData,
-    df_head: pd.DataFrame,
-    df_LE: pd.DataFrame,
-    df_RE: pd.DataFrame,
     window: int = 60,
     pre: int = 10,
     ylim: float = 10,
@@ -86,7 +80,7 @@ def saccade_andHead_triggered_average(
 
     # head traces aligned to head saccade onsets
     head_traces = []
-    for _, row in df_head.iterrows():
+    for _, row in session.df_head.iterrows():
         onset = int(row["onset"])
         start, end = onset - pre, onset + window
         if start < 0 or end > n_frames:
@@ -100,8 +94,8 @@ def saccade_andHead_triggered_average(
         head_traces.append(h)
 
     # eye traces aligned to their own saccade onsets
-    le_traces = _traces_for_eye(df_LE, session.LE_x, pre, window, baseline)
-    re_traces = _traces_for_eye(df_RE, session.RE_x, pre, window, baseline)
+    le_traces = _traces_for_eye(session.df_LE, session.LE_x, pre, window, baseline)
+    re_traces = _traces_for_eye(session.df_RE, session.RE_x, pre, window, baseline)
 
     t = np.arange(-pre, window) / 120
 

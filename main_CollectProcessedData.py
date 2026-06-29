@@ -1,14 +1,14 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
 # main init
 
-# %load_ext autoreload
-# %autoreload 2
+%load_ext autoreload
+%autoreload 2
 import sys
 # Set your paths in local_config.py (copy local_config.py.example to get started).
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-from utils import load_session_data, removeBadData, extract_saccades, get_sessions_by_ferret, get_sessions
+from utils import load_session_data, process_session, removeBadData, get_sessions_by_ferret, get_sessions 
 from utils import saccade_triggered_average, saccade_triggered_average, saccade_andHead_triggered_average
 from utils.config import SAVELOC
 import plotly.graph_objects as go
@@ -32,88 +32,33 @@ SESSION = get_sessions_by_ferret(420)          # or load sessions from an inidiv
 
 Results = []
 for session in SESSION:
+    
     R = load_session_data(session)
     removeBadData(R)
+    process_session(R, window_in_sec=5,
+                    velocity_threshold_eye=40, velocity_threshold_gaze=2,
+                    velocity_threshold_head=2, min_duration=12, min_inter_event=12)
     Results.append(R)
+
 n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
 
 # to look at data execute: launch_viewer(load_session_data(SESSION[n]))
 # or launch_viewer(R) if there is only 1 session in the list
 
+# %% BASIC PLOTS: saccade-triggered average of eye position and head rotation
 
-# %% collect data on eye kinematic changes over development (added to Results object)
-eos = []
-eyeRatesLE = []
-eyeRatesRE = []
-speeds = []
-gazeRateLE = []
-gazeRateRE = []
-angVelocities = []
-pupilSizes = []
+n = 0 # need to specify which session to plot
+fig = saccade_triggered_average(Results[n],
+                                window=30,
+                                binocular="combined")
+# plt.savefig(f'{SAVELOC}/LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
 
-for n in range(len(Results)):
+fig = saccade_andHead_triggered_average(Results[n],
+                                        window=120,
+                                        binocular="combined")
+# plt.savefig(f'{saveloc}/head_and_LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
 
-    df_LE = extract_saccades(Results[n], 'eye', eye='LE',
-                             velocity_threshold=40, min_duration=12, min_inter_event=12)
-
-    df_RE = extract_saccades(Results[n], 'eye', eye='RE',
-                             velocity_threshold=40, min_duration=12, min_inter_event=12)
-
-    df_head = extract_saccades(Results[n],'skull', 
-                        velocity_threshold=2, min_duration=12, max_duration=600, min_inter_event=12)
-
-    df_LEgaze = extract_saccades(Results[n], 'gaze', eye='LE',
-                             velocity_threshold=2, min_duration=12, min_inter_event=12)
-    
-    df_REgaze = extract_saccades(Results[n], 'gaze', eye='RE',
-                             velocity_threshold=2, min_duration=12, min_inter_event=12)
-
-    #sliding window to calculate saccade rate
-    #minimum amplitude saccade?
-    window_len = 120 * 5
-    n_frames = len(Results[n].EQframes)
-    starts = np.arange(0, n_frames - window_len + 1, window_len // 2)
-
-    eos.append(Results[n].eo)
-
-    rate = np.array([(1/10) * np.sum((df_LE.onset >= s) & (df_LE.onset < s + window_len)) for s in starts])
-    eyeRatesLE.append(rate)
-
-    rate = np.array([(1/10) * np.sum((df_RE.onset >= s) & (df_RE.onset < s + window_len)) for s in starts])
-    eyeRatesRE.append(rate)
-
-    vv = np.sqrt( Results[n].linearVel_x ** 2 + Results[n].linearVel_y ** 2 )
-    indFrames = (vv >= 0) & (vv < 800) # need to go understand why there are negative values in the linear velocity, which should be absolute value of speed. For now, just remove them.
-
-    # nan out values above 800 mm/s, which are likely artifacts. Need to check the raw data to understand why these values are present and if there is a way to clean them up without just removing them.
-
-    angVel =  np.sqrt(Results[n].roll_v ** 2 + Results[n].pitch_v ** 2 + Results[n].yaw_v ** 2 ) #total angular velocity -> use to examine stablization?
-    angVelocities.append(angVel[indFrames])
-
-    pupilSizes.append(Results[n].LE_pupil[indFrames]) # examine pupil size changes over development, as a proxy for arousal or cognitive effort. Need to check if there are any differences in the eye tracking quality that could affect this metric.
-
-    speeds.append(vv[indFrames])
-
-    rate = np.array([(1/10) * np.sum((df_LEgaze.onset >= s) & (df_LEgaze.onset < s + window_len)) for s in starts])
-    gazeRateLE.append(rate)
-
-    rate = np.array([(1/10) * np.sum((df_REgaze.onset >= s) & (df_REgaze.onset < s + window_len)) for s in starts])
-    gazeRateRE.append(rate)
-    
-    fig = saccade_triggered_average(Results[n], 
-                                    df_LE, df_RE, 
-                                    window=30, 
-                                    binocular="combined")
-    if SAVELOC:
-        plt.savefig(f'{SAVELOC}/LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
-    
-    fig = saccade_andHead_triggered_average(Results[n], 
-                                            df_head, 
-                                            df_LE, df_RE, 
-                                            window=120, 
-                                            binocular="combined")
-    # plt.savefig(f'{saveloc}/head_and_LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
 
 
 # %% BASIC PLOTS: pupil distribution

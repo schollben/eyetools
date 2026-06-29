@@ -1,4 +1,4 @@
-
+##########################
 Monocular (all events, combine eyes):
 
 1. MAIN sequence (examine per animal)
@@ -36,15 +36,14 @@ Monocular (all events, combine eyes):
   b. mean angular displacement profiles binned by net amplitude
 
 
-
+##########################
 Binocular:
 
 1. correlation in position and velocity between the two eyes during saccades
   1a. LE vs RE horizontal position 
   1b. Log-scaled joint distribution of horizontal saccade velocity
-  1c.  Log-scaled joint distribution of horizontal saccade velocity AND angular head velocity (or horizontal?)
+  1c. Log-scaled joint distribution of horizontal saccade velocity AND angular head velocity (or horizontal?)
   1d. simple idea: Cross correlation of horizontal eye position across the two eyes
-
 
 2. correlation in position and velocity between the two eyes OUTSIDE of saccades (fixations and smooth pursuit)
 
@@ -69,6 +68,7 @@ head linear speed (running or not)
 head angular speed
 
 
+##########################
 Arousal: 
 
 define active and passive states based on head speed and/or pupil size

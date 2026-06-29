@@ -38,47 +38,47 @@ def _plot_mean_se(ax, t, traces, color, label):
     ax.fill_between(t, m - se, m + se, color=color, alpha=0.3)
 
 
+def _draw_saccade_triggered_average(ax, session, pre, window, eye_ylim, binocular):
+    t = np.arange(-pre, window) / 120
+    baseline = slice(pre - 2, pre)
+    le_traces = _traces_for_eye(session.df_LE, session.LE_x, pre, window, baseline)
+    re_traces = _traces_for_eye(session.df_RE, session.RE_x, pre, window, baseline)
+    if binocular == "combined":
+        _plot_mean_se(ax, t, le_traces + re_traces, LE_COLOR, "LE+RE")
+    else:
+        _plot_mean_se(ax, t, le_traces, LE_COLOR, "LE")
+        _plot_mean_se(ax, t, re_traces, RE_COLOR, "RE")
+    ax.set_ylim(-1, eye_ylim)
+    ax.set_xlabel("Time (sec)")
+    ax.set_ylabel("Eye position (deg)")
+    ax.set_title(f"EO{session.eo}", fontsize=7)
+    ax.legend(fontsize=5)
+
+
 def saccade_triggered_average(
-    session: SessionData,
+    sessions,
     window: int = 60,
     pre: int = 2,
     eye_ylim: float = 10,
     binocular: str = "separate",  # "separate" = LE and RE overlaid; "combined" = pool into one trace
 ):
-    t = np.arange(-pre, window) / 120
-    baseline = slice(pre - 2, pre)
-
-    le_traces = _traces_for_eye(session.df_LE, session.LE_x, pre, window, baseline)
-    re_traces = _traces_for_eye(session.df_RE, session.RE_x, pre, window, baseline)
-
-    fig, ax = plt.subplots(figsize=(2, 2))
-
-    if binocular == "combined":
-        _plot_mean_se(ax, t, le_traces + re_traces, LE_COLOR, "LE+RE")
-    else:
-        _plot_mean_se(ax, t, le_traces, LE_COLOR, "LE")
-        _plot_mean_se(ax, t, re_traces, RE_COLOR,  "RE")
-
-    ax.set_ylim(-1, eye_ylim)
-    ax.set_xlabel("Time (sec)")
-    ax.set_ylabel("Eye position (deg)")
-    ax.legend(fontsize=5)
+    if not isinstance(sessions, list):
+        sessions = [sessions]
+    n = len(sessions)
+    fig, axes = plt.subplots(1, n, figsize=(2 * n, 2), squeeze=False)
+    for ax, session in zip(axes[0], sessions):
+        _draw_saccade_triggered_average(ax, session, pre, window, eye_ylim, binocular)
     plt.tight_layout()
     return fig
 
 
-def saccade_andHead_triggered_average(
-    session: SessionData,
-    window: int = 60,
-    pre: int = 10,
-    ylim: float = 10,
-    binocular: str = "separate",  # "separate" = LE and RE overlaid; "combined" = pool into one trace
-):
+def _draw_saccade_andHead_triggered_average(ax_eye, session, pre, window, ylim, binocular):
     n_frames = len(session.LE_x)
     yaw = np.unwrap(np.array(session.yaw, dtype=float), period=360)
     baseline = slice(pre - 5, pre)
+    t = np.arange(-pre, window) / 120
+    ax_head = ax_eye.twinx()
 
-    # head traces aligned to head saccade onsets
     head_traces = []
     for _, row in session.df_head.iterrows():
         onset = int(row["onset"])
@@ -93,20 +93,14 @@ def saccade_andHead_triggered_average(
             h = -h
         head_traces.append(h)
 
-    # eye traces aligned to their own saccade onsets
     le_traces = _traces_for_eye(session.df_LE, session.LE_x, pre, window, baseline)
     re_traces = _traces_for_eye(session.df_RE, session.RE_x, pre, window, baseline)
-
-    t = np.arange(-pre, window) / 120
-
-    fig, ax_eye = plt.subplots(figsize=(2, 3))
-    ax_head = ax_eye.twinx()
 
     if binocular == "combined":
         _plot_mean_se(ax_eye, t, le_traces + re_traces, LE_COLOR, "LE+RE")
     else:
         _plot_mean_se(ax_eye, t, le_traces, LE_COLOR, "LE")
-        _plot_mean_se(ax_eye, t, re_traces, RE_COLOR,  "RE")
+        _plot_mean_se(ax_eye, t, re_traces, RE_COLOR, "RE")
 
     _plot_mean_se(ax_head, t, head_traces, HEAD_COLOR, "Head yaw")
 
@@ -116,6 +110,22 @@ def saccade_andHead_triggered_average(
     ax_eye.set_ylabel("Eye position (deg)")
     ax_head.set_ylabel("Head yaw (deg)", color=HEAD_COLOR)
     ax_head.tick_params(axis='y', colors=HEAD_COLOR)
+    ax_eye.set_title(f"EO{session.eo}", fontsize=7)
     ax_eye.legend(fontsize=5)
+
+
+def saccade_andHead_triggered_average(
+    sessions,
+    window: int = 60,
+    pre: int = 10,
+    ylim: float = 10,
+    binocular: str = "separate",  # "separate" = LE and RE overlaid; "combined" = pool into one trace
+):
+    if not isinstance(sessions, list):
+        sessions = [sessions]
+    n = len(sessions)
+    fig, axes = plt.subplots(1, n, figsize=(2 * n, 3), squeeze=False)
+    for ax, session in zip(axes[0], sessions):
+        _draw_saccade_andHead_triggered_average(ax, session, pre, window, ylim, binocular)
     plt.tight_layout()
     return fig

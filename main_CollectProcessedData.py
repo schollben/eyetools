@@ -3,8 +3,8 @@
 
 %load_ext autoreload
 %autoreload 2
-import sys
 # Set your paths in local_config.py (copy local_config.py.example to get started).
+import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
@@ -24,7 +24,6 @@ plt.rcParams['svg.fonttype'] = 'none'
 
 
 # %% load data, delayed vision: 416,411,403
-
 #SESSION = get_sessions_by_ferret(402, 420)    # multiple — preserves order by ferret
 SESSION = get_sessions_by_ferret(420)          # or load sessions from an inidividual ID
 #SESSION = get_sessions("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
@@ -46,18 +45,14 @@ print(n_sesh, "sessions loaded")
 # to look at data execute: launch_viewer(load_session_data(SESSION[n]))
 # or launch_viewer(R) if there is only 1 session in the list
 
+
 # %% BASIC PLOTS: saccade-triggered average of eye position and head rotation
 
-n = 0 # need to specify which session to plot
-fig = saccade_triggered_average(Results[n],
-                                window=30,
-                                binocular="combined")
-# plt.savefig(f'{SAVELOC}/LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
+fig = saccade_triggered_average(Results, window=30, binocular="combined")
+# plt.savefig(f'{SAVELOC}/LE_pos_eo.svg', format='svg', bbox_inches='tight')
 
-fig = saccade_andHead_triggered_average(Results[n],
-                                        window=120,
-                                        binocular="combined")
-# plt.savefig(f'{saveloc}/head_and_LE_pos_eo_{n}.svg', format='svg', bbox_inches='tight')
+fig = saccade_andHead_triggered_average(Results, window=120, binocular="combined")
+# plt.savefig(f'{SAVELOC}/head_and_LE_pos_eo.svg', format='svg', bbox_inches='tight')
 
 
 
@@ -76,8 +71,8 @@ axes.set_xlabel("Pupil size (mm)")
 
 # %% BASIC PLOTS: saccade rate distribution
 n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
-pL = eyeRatesLE[n]
-pR = eyeRatesRE[n]
+pL = Results[n].eyeRateLE
+pR = Results[n].eyeRateRE
 
 fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
 fig.tight_layout(w_pad=2)
@@ -89,8 +84,8 @@ axes.set_xlabel("Saccade rate (Hz)")
 
 # %% BASIC PLOTS: gaze rate distribution
 n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
-pL = gazeRateLE[n]
-pR = gazeRateRE[n]
+pL = Results[n].gazeRateLE
+pR = Results[n].gazeRateRE
 
 fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
 fig.tight_layout(w_pad=2)

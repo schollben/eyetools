@@ -8,8 +8,9 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-from utils import load_session_data, process_session, removeBadData, get_sessions_by_ferret, get_sessions 
+from utils import create_subplot_grid, load_session_data, process_session, removeBadData, get_sessions_by_ferret, get_sessions 
 from utils import saccade_triggered_average, saccade_triggered_average, saccade_andHead_triggered_average
+from utils import create_subplot_grid
 from utils.config import SAVELOC
 import plotly.graph_objects as go
 import numpy as np
@@ -51,6 +52,7 @@ print(n_sesh, "sessions loaded")
 fig = saccade_triggered_average(Results, window=30, binocular="combined")
 # plt.savefig(f'{SAVELOC}/LE_pos_eo.svg', format='svg', bbox_inches='tight')
 
+#note: head saccades events are ANCHORED to initiation of head movement
 fig = saccade_andHead_triggered_average(Results, window=120, binocular="combined")
 # plt.savefig(f'{SAVELOC}/head_and_LE_pos_eo.svg', format='svg', bbox_inches='tight')
 
@@ -58,13 +60,7 @@ fig = saccade_andHead_triggered_average(Results, window=120, binocular="combined
 
 # %% BASIC PLOTS: pupil distribution across sessions 
 
-m = int(np.ceil(n_sesh/2))
-fig, axes = plt.subplots(2, m, 
-                         figsize=(2*m, 4), 
-                         sharex=False, 
-                         squeeze=False)
-axes = axes.flatten()
-sns.despine(fig=fig)
+fig, axes = create_subplot_grid(n_sesh)
 
 thresh_for_bad_data = 6
 
@@ -79,6 +75,8 @@ for n in range(n_sesh):
     # axes[n].set_xlabel("Pupil size (mm)")
     axes[n].set_title(f"EO: {Results[n].eo}")
     axes[n].axis([1.5, 4.5, 0, 0.2])  # [xmin, xmax, ymin, ymax]
+    axes[n].set_xticks([2, 3, 4])
+    axes[n].set_yticks([0, 0.2])
 
 
 # %% BASIC PLOTS: saccade rate distribution

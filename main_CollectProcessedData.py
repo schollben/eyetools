@@ -62,7 +62,8 @@ fig = saccade_andHead_triggered_average(Results, window=120, binocular="combined
 
 fig, axes = create_subplot_grid(n_sesh)
 
-thresh_for_bad_data = 6
+thresh_for_bad_data = 6 #what is happening when pupil size is > 6 mm? 
+# (maybe the eye is closed and the pupil is not visible, so the software is returning a large value for pupil size)
 
 for n in range(n_sesh):
 

@@ -10,6 +10,7 @@ import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
 from utils import create_subplot_grid, load_session_data, process_session, removeBadData, get_sessions_by_ferret, get_sessions 
 from utils import saccade_triggered_average, saccade_triggered_average, saccade_andHead_triggered_average
+from utils import eye_head_correlogram, eye_head_coincidence, plot_eye_head_timing
 from utils import create_subplot_grid
 from utils.config import SAVELOC
 import plotly.graph_objects as go
@@ -58,7 +59,7 @@ fig = saccade_andHead_triggered_average(Results, window=120, binocular="combined
 
 
 
-# %% BASIC PLOTS: pupil distribution across sessions 
+# %% BASIC PLOTS: pupil distribution across sessions
 
 fig, axes = create_subplot_grid(n_sesh)
 
@@ -171,6 +172,17 @@ y = Results[n].RE_vx[~inds]
 sns.scatterplot(x=x, y=y)
 
 
+# %% EYE-HEAD TIMING: cross-correlogram + coincidence
+n = 0  # which session
+
+fig = plot_eye_head_timing(Results[n], eye="LE")
+# plt.savefig(f'{SAVELOC}/eye_head_timing_LE_{n}.svg', format='svg', bbox_inches='tight')
+
+# raw numbers if wanted directly:
+# lags, counts_all, counts_same, counts_opp = eye_head_correlogram(Results[n], eye="LE", max_lag=120, bin_size=6)
+# coinc = eye_head_coincidence(Results[n], eye="LE", window=12, n_shuffles=1000)
+# print(f"head accompanied by eye: {coinc['frac_head_with_eye']:.2f}")
+# print(f"eye near head: {coinc['frac_eye_with_head']:.2f} (chance {coinc['chance_eye_with_head']:.2f})")
 
 
 

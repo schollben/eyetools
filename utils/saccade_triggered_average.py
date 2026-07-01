@@ -75,26 +75,41 @@ def saccade_triggered_average(
 def _draw_saccade_andHead_triggered_average(ax_eye, session, pre, window, ylim, binocular):
     n_frames = len(session.LE_x)
     yaw = np.unwrap(np.array(session.yaw, dtype=float), period=360)
+    le_x = np.array(session.LE_x, dtype=float)
+    re_x = np.array(session.RE_x, dtype=float)
     baseline = slice(pre - 5, pre)
     t = np.arange(-pre, window) / 120
     ax_head = ax_eye.twinx()
 
     head_traces = []
+    le_traces   = []
+    re_traces   = []
+
+    post_check = slice(pre, min(pre + 60, pre + window))
+
     for _, row in session.df_head.iterrows():
         onset = int(row["onset"])
         start, end = onset - pre, onset + window
         if start < 0 or end > n_frames:
             continue
-        if not np.all(np.isfinite(yaw[start:end])):
-            continue
         h = yaw[start:end].copy()
+        if not np.all(np.isfinite(h)):
+            continue
         h -= np.mean(h[baseline])
-        if np.mean(h[30:min(60, len(h))]) < 0:
-            h = -h
+
+        # fold by head direction so head is canonically positive
+        s = 1 if np.mean(h[post_check]) >= 0 else -1
+        h *= s
         head_traces.append(h)
 
-    le_traces = _traces_for_eye(session.df_LE, session.LE_x, pre, window, baseline)
-    re_traces = _traces_for_eye(session.df_RE, session.RE_x, pre, window, baseline)
+        # align eye to same head onset, apply same sign flip
+        for x_arr, tlist in ((le_x, le_traces), (re_x, re_traces)):
+            seg = x_arr[start:end].copy()
+            if not np.all(np.isfinite(seg)):
+                continue
+            seg -= np.mean(seg[baseline])
+            seg *= s
+            tlist.append(seg)
 
     if binocular == "combined":
         _plot_mean_se(ax_eye, t, le_traces + re_traces, LE_COLOR, "LE+RE")
@@ -104,7 +119,7 @@ def _draw_saccade_andHead_triggered_average(ax_eye, session, pre, window, ylim, 
 
     _plot_mean_se(ax_head, t, head_traces, HEAD_COLOR, "Head yaw")
 
-    ax_eye.set_ylim(-1, ylim)
+    ax_eye.set_ylim(-ylim, ylim)
     ax_eye.set_xticks([0, window / 120])
     ax_eye.set_xlabel("Time (sec)")
     ax_eye.set_ylabel("Eye position (deg)")

@@ -9,3 +9,4 @@ from .saccade_triggered_average import saccade_triggered_average, saccade_andHea
 from .summarize_dataset import summarize_dataset
 from .classify_saccades import classify_saccades
 from .create_subplot_grid import create_subplot_grid
+from .eye_head_timing import eye_head_correlogram, eye_head_coincidence, plot_eye_head_timing

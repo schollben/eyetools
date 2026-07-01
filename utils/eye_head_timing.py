@@ -75,7 +75,7 @@ def eye_head_coincidence(session, eye="LE", window=12, n_shuffles=1000):
 
     def _fracs(e_on, h_on):
         fh = np.mean([np.any(np.abs(e_on - ho) <= window) for ho in h_on]) if len(h_on) else 0.0
-        fe = np.mean([np.any(np.abs(ho - eo) <= window) for eo in e_on]) if len(e_on) else 0.0
+        fe = np.mean([np.any(np.abs(h_on - eo) <= window) for eo in e_on]) if len(e_on) else 0.0
         return fh, fe
 
     obs_fh, obs_fe = _fracs(eye_onsets, head_onsets)
@@ -97,8 +97,11 @@ def eye_head_coincidence(session, eye="LE", window=12, n_shuffles=1000):
     }
 
 
-def plot_eye_head_timing(session, eye="LE", max_lag=120, bin_size=6, window=12, n_shuffles=1000):
-    """PETH (cross-correlogram split by direction) + coincidence fractions.
+def plot_eye_head_correlogram(session, eye="LE", max_lag=120, bin_size=6, window=12, n_shuffles=1000):
+    """Plot cross-correlogram of eye-saccade onsets relative to head-saccade onsets.
+
+    Bars split by same-direction vs opposite-direction. Coincidence fractions
+    with shuffle baseline annotated on the plot.
 
     Returns a matplotlib figure.
     """

@@ -56,11 +56,13 @@ def _draw_saccade_triggered_average(ax, session, pre, window, eye_ylim, binocula
 
 
 def saccade_triggered_average(
+    
     sessions,
     window: int = 60,
     pre: int = 2,
     eye_ylim: float = 10,
     binocular: str = "separate",  # "separate" = LE and RE overlaid; "combined" = pool into one trace
+
 ):
     if not isinstance(sessions, list):
         sessions = [sessions]
@@ -73,6 +75,7 @@ def saccade_triggered_average(
 
 
 def _draw_saccade_andHead_triggered_average(ax_eye, session, pre, window, ylim, binocular):
+    
     n_frames = len(session.LE_x)
     yaw = np.unwrap(np.array(session.yaw, dtype=float), period=360)
     le_x = np.array(session.LE_x, dtype=float)

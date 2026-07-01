@@ -8,15 +8,16 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
+# tools
 from utils import create_subplot_grid, load_session_data, process_session, removeBadData, get_sessions_by_ferret, get_sessions 
 from utils import saccade_triggered_average, saccade_triggered_average, saccade_andHead_triggered_average
-from utils import eye_head_correlogram, eye_head_coincidence, plot_eye_head_timing
+from utils import eye_head_correlogram, eye_head_coincidence, plot_eye_head_correlogram
 from utils import create_subplot_grid
-from utils.config import SAVELOC
-import plotly.graph_objects as go
 import numpy as np
 from data_viewer import launch_viewer
 # plotting setup
+import plotly.graph_objects as go
+from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
 plt.rcParams['font.family'] = 'sans-serif'
@@ -50,11 +51,11 @@ print(n_sesh, "sessions loaded")
 
 # %% BASIC PLOTS: saccade-triggered average of eye position and head rotation
 
-fig = saccade_triggered_average(Results, window=30, binocular="combined")
+fig = saccade_triggered_average(Results, window=30, binocular="separate")
 # plt.savefig(f'{SAVELOC}/LE_pos_eo.svg', format='svg', bbox_inches='tight')
 
 #note: head saccades events are ANCHORED to initiation of head movement
-fig = saccade_andHead_triggered_average(Results, window=120, binocular="combined")
+fig = saccade_andHead_triggered_average(Results, window=120, binocular="separate")
 # plt.savefig(f'{SAVELOC}/head_and_LE_pos_eo.svg', format='svg', bbox_inches='tight')
 
 
@@ -175,14 +176,14 @@ sns.scatterplot(x=x, y=y)
 # %% EYE-HEAD TIMING: cross-correlogram + coincidence
 n = 0  # which session
 
-fig = plot_eye_head_timing(Results[n], eye="LE")
+fig = plot_eye_head_correlogram(Results[n], eye="RE")
 # plt.savefig(f'{SAVELOC}/eye_head_timing_LE_{n}.svg', format='svg', bbox_inches='tight')
 
 # raw numbers if wanted directly:
-# lags, counts_all, counts_same, counts_opp = eye_head_correlogram(Results[n], eye="LE", max_lag=120, bin_size=6)
-# coinc = eye_head_coincidence(Results[n], eye="LE", window=12, n_shuffles=1000)
-# print(f"head accompanied by eye: {coinc['frac_head_with_eye']:.2f}")
-# print(f"eye near head: {coinc['frac_eye_with_head']:.2f} (chance {coinc['chance_eye_with_head']:.2f})")
+lags, counts_all, counts_same, counts_opp = eye_head_correlogram(Results[n], eye="RE", max_lag=120, bin_size=6)
+coinc = eye_head_coincidence(Results[n], eye="RE", window=12, n_shuffles=1000)
+print(f"head accompanied by eye: {coinc['frac_head_with_eye']:.2f}")
+print(f"eye near head: {coinc['frac_eye_with_head']:.2f} (chance {coinc['chance_eye_with_head']:.2f})")
 
 
 

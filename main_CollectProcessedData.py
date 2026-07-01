@@ -2,7 +2,7 @@
 # main init
 
 %load_ext autoreload
-%autoreload 2
+%autoreload
 # Set your paths in local_config.py (copy local_config.py.example to get started).
 import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
@@ -59,7 +59,6 @@ fig = saccade_andHead_triggered_average(Results, window=120, binocular="separate
 # plt.savefig(f'{SAVELOC}/head_and_LE_pos_eo.svg', format='svg', bbox_inches='tight')
 
 
-
 # %% BASIC PLOTS: pupil distribution across sessions
 
 fig, axes = create_subplot_grid(n_sesh)
@@ -83,49 +82,55 @@ for n in range(n_sesh):
 
 
 # %% BASIC PLOTS: saccade rate distribution
-n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
-pL = Results[n].eyeRateLE
-pR = Results[n].eyeRateRE
+fig, axes = create_subplot_grid(n_sesh)
 
-fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
-fig.tight_layout(w_pad=2)
-sns.despine(fig=fig)
-sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
-sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
-axes.set_xlabel("Saccade rate (Hz)")
+for n in range(n_sesh):
+
+    pL = Results[n].eyeRateLE
+    pR = Results[n].eyeRateRE
+
+    sns.histplot(pL, ax=axes[n], color="#725EE7", stat="probability", binwidth=0.25, linewidth=0, alpha=0.6)
+    sns.histplot(pR, ax=axes[n], color="#E93115", stat="probability", binwidth=0.25, linewidth=0, alpha=0.6)
+    axes[n].axis([0, 4, 0, 0.5])  # [xmin, xmax, ymin, ymax]
 
 
 # %% BASIC PLOTS: gaze rate distribution
-n = 0 # need to specify which session to plot (n = 0 for a single session, or n = 0,1,2,3 for multiple sessions)
-pL = Results[n].gazeRateLE
-pR = Results[n].gazeRateRE
+fig, axes = create_subplot_grid(n_sesh)
 
-fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
-fig.tight_layout(w_pad=2)
-sns.despine(fig=fig)
-sns.histplot(pL, ax=axes, color="#725EE7", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
-sns.histplot(pR, ax=axes, color="#E93115", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
-axes.set_xlabel("Gaze rate (Hz)")
+for n in range(n_sesh):
 
+    pL = Results[n].gazeRateLE
+    pR = Results[n].gazeRateRE
 
-# %% BASIC PLOTS: speed distribution
-n = 0 
-dat = Results[n].speed
-
-fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
-fig.tight_layout(w_pad=2)
-sns.despine(fig=fig)
-sns.histplot(dat, ax=axes, color="#000000", stat="probability", binwidth=20, linewidth=0, alpha=0.6)
-axes.set_xlabel("speed (mm/s")
+    sns.histplot(pL, ax=axes[n], color="#725EE7", stat="probability", binwidth=0.25, linewidth=0, alpha=0.6)
+    sns.histplot(pR, ax=axes[n], color="#E93115", stat="probability", binwidth=0.25, linewidth=0, alpha=0.6)
+    axes[n].axis([0, 4, 0, 0.5])  # [xmin, xmax, ymin, ymax]
 
 
+# %% BASIC PLOTS: speed distribution (mm/s)
+fig, axes = create_subplot_grid(n_sesh)
 
-# %% BASIC PLOT: speed vs angular velocity of head rotations
+for n in range(n_sesh):
 
-n = 0
-x = speeds[n]
-y = np.abs(angVelocities[n])
-sns.scatterplot(x=x, y=y)
+    dat = Results[n].speed
+    sns.histplot(dat, ax=axes[n], color="#000000", stat="probability", binwidth=20, linewidth=0, alpha=0.6)
+    # axes[n].set_xscale("log") #need to remove 0s first
+
+
+# %% BASIC PLOT: speed vs angular velocity of head rotations (all 3 axes    )
+fig, axes = create_subplot_grid(n_sesh)
+
+for n in range(n_sesh):
+
+    inds = (Results[n].speed > 0) & (np.abs( Results[n].angVelocities) > 0)
+    x = Results[n].speed[inds]
+    y = np.abs( Results[n].angVelocities[inds])
+    x = np.log10(x)
+    y = np.log10(y)
+    sns.scatterplot(ax=axes[n], x=x, y=y, s=1, alpha=0.1)
+    # axes[n].axis([1, 800, 0, 50])  # [xmin, xmax, ymin, ymax]
+
+
 
 # %% 2D scatters comparing speed and pupil size distributions between ages (young to old)
 

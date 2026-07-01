@@ -9,6 +9,6 @@ def windowed_rate(df, n_frames, window_in_sec):
     window_len = int(window_in_sec * samplingFreq)
     starts = np.arange(0, n_frames - window_len + 1, window_len // 2)
 
-    values = np.array([ (1 / window_len) * np.sum((df.onset >= s) & (df.onset < s + window_len)) for s in starts ])
+    values = np.array([ (1 / window_in_sec) * np.sum((df.onset >= s) & (df.onset < s + window_len)) for s in starts ])
 
     return values

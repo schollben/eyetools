@@ -25,7 +25,6 @@ plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
 
-
 # %% load data, delayed vision: 416,411,403
 #SESSION = get_sessions_by_ferret(402, 420)    # multiple — preserves order by ferret
 SESSION = get_sessions_by_ferret(420)          # or load sessions from an inidividual ID

@@ -51,7 +51,7 @@ def _draw_saccade_triggered_average(ax, session, pre, window, eye_ylim, binocula
     ax.set_ylim(-1, eye_ylim)
     ax.set_xlabel("Time (sec)")
     ax.set_ylabel("Eye position (deg)")
-    ax.set_title(f"EO{session.eo}", fontsize=7)
+    ax.set_title(f"Ferret {session.id} | EO{session.eo}", fontsize=7)
     ax.legend(fontsize=5)
 
 
@@ -128,7 +128,7 @@ def _draw_saccade_andHead_triggered_average(ax_eye, session, pre, window, ylim, 
     ax_eye.set_ylabel("Eye position (deg)")
     ax_head.set_ylabel("Head yaw (deg)", color=HEAD_COLOR)
     ax_head.tick_params(axis='y', colors=HEAD_COLOR)
-    ax_eye.set_title(f"EO{session.eo}", fontsize=7)
+    ax_eye.set_title(f"Ferret {session.id} | EO{session.eo}", fontsize=7)
     ax_eye.legend(fontsize=5)
 
 

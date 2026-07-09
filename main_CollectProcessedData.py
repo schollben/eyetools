@@ -27,11 +27,11 @@ plt.rcParams['svg.fonttype'] = 'none'
 
 # %% load data, delayed vision: 416,411,403
 #SESSION = getSesh.by_ferret(402, 420)    # multiple — preserves order by ferret
-# SESSION = getSesh.by_ferret(420)          # or load sessions from an inidividual ID
+#SESSION = getSesh.by_ferret(420)          # or load sessions from an inidividual ID
 #SESSION = getSesh.by_name("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
 #SESSION = getSesh.by_name("session_2026-03-16_ferret_403_P49_E7_analyzable_output") # or load a specific session by name
 #SESSION = getSesh.by_eo(7)      # or load sessions by a single EO number
-SESSION = getSesh.by_eo(0, 4)   # or load sessions by an EO range (inclusive)
+SESSION = getSesh.by_eo(0,1)   # or load sessions by an EO range (inclusive)
 
 Results = []
 for session in SESSION:
@@ -80,7 +80,8 @@ for n in range(n_sesh):
     axes[n].axis([1.5, 4.5, 0, 0.2])  # [xmin, xmax, ymin, ymax]
     axes[n].set_xticks([2, 3, 4])
     axes[n].set_yticks([0, 0.2])
-    axes[n].set_title(f"Ferret {Results[n].id} | EO {Results[n].eo}")
+
+    axes[n].set_title(f"Ferret {Results[n].id}")# | EO {Results[n].eo}")
 
 
 # %% BASIC PLOTS: saccade rate distribution
@@ -95,6 +96,8 @@ for n in range(n_sesh):
     sns.histplot(pR, ax=axes[n], color="#E93115", stat="probability", binwidth=0.25, linewidth=0, alpha=0.6)
     axes[n].axis([0, 4, 0, 0.5])  # [xmin, xmax, ymin, ymax]
 
+    axes[n].set_title(f"Ferret {Results[n].id}")# | EO {Results[n].eo}")
+
 
 # %% BASIC PLOTS: gaze rate distribution
 fig, axes = create_subplot_grid(n_sesh)
@@ -108,6 +111,8 @@ for n in range(n_sesh):
     sns.histplot(pR, ax=axes[n], color="#E93115", stat="probability", binwidth=0.25, linewidth=0, alpha=0.6)
     axes[n].axis([0, 4, 0, 0.5])  # [xmin, xmax, ymin, ymax]
 
+    axes[n].set_title(f"Ferret {Results[n].id}")# | EO {Results[n].eo}")
+
 
 # %% BASIC PLOTS: speed distribution (mm/s)
 fig, axes = create_subplot_grid(n_sesh)
@@ -117,9 +122,12 @@ for n in range(n_sesh):
     dat = Results[n].speed
     sns.histplot(dat, ax=axes[n], color="#000000", stat="probability", binwidth=20, linewidth=0, alpha=0.6)
     # axes[n].set_xscale("log") #need to remove 0s first
+    
+    axes[n].set_title(f"Ferret {Results[n].id}")# | EO {Results[n].eo}")
 
 
-# %% BASIC PLOT: speed vs angular velocity of head rotations (all 3 axes    )
+# %% BASIC PLOT: speed vs angular velocity of head rotations (total ang vel)
+# log-log plot here
 fig, axes = create_subplot_grid(n_sesh)
 
 for n in range(n_sesh):
@@ -132,42 +140,45 @@ for n in range(n_sesh):
     sns.scatterplot(ax=axes[n], x=x, y=y, s=1, alpha=0.1)
     # axes[n].axis([1, 800, 0, 50])  # [xmin, xmax, ymin, ymax]
 
+    axes[n].set_title(f"Ferret {Results[n].id}")# | EO {Results[n].eo}")
 
 
 # %% 2D scatters comparing speed and pupil size distributions between ages (young to old)
 
-fig, axes = plt.subplots(1, 1, figsize=(2, 2), sharex=False)
-fig.tight_layout(w_pad=2)
-n = 0
-sns.kdeplot(ax=axes, x=Results[n].speed, y=Results[n].pupilSize, fill=True, cmap="Blues", levels=10, thresh=0.05)
-ax=axes.set_xlabel("speed (mm/s)")
-ax=axes.set_ylabel("pupil size (mm)")
-
-
- # %% examine binocular coordination of eye movements
-m = int(np.ceil(n_sesh/2))
-fig, axes = plt.subplots(2, m, 
-                         figsize=(2*m, 4), 
-                         sharex=False, 
-                         squeeze=False)
-axes = axes.flatten()
-fig.tight_layout(w_pad=2)
+fig, axes = create_subplot_grid(n_sesh)
 
 for n in range(n_sesh):
 
-    # velocity_threshold = 0
-    # inds = (Results[n].LE_vx > velocity_threshold) & (Results[n].RE_vx > velocity_threshold)
-    # x = Results[n].LE_x[inds]
-    # y = -Results[n].RE_x[inds]
+    inds = (Results[n].speed > 0) & (np.abs(Results[n].LE_pupil) < 6) & (np.abs(Results[n].RE_pupil) < 6)
+    x = Results[n].speed[inds]
+    y1 = np.abs(Results[n].LE_pupil[inds])
+    y2 = np.abs(Results[n].RE_pupil[inds])
+    sns.scatterplot(ax=axes[n], x=x, y=y1, s=1, alpha=0.1)
+    sns.scatterplot(ax=axes[n], x=x, y=y2, s=1, alpha=0.1)
+
+    axes[n].set_title(f"Ferret {Results[n].id}")# | EO {Results[n].eo}")
+
+
+ # %% examine binocular coordination of eye movements
+fig, axes = create_subplot_grid(n_sesh)
+
+for n in range(n_sesh):
+
+    velocity_threshold = 10 #threshold when eye movement is happening?
+    inds = (Results[n].LE_vx > velocity_threshold) & (Results[n].RE_vx > velocity_threshold)
+    x = Results[n].LE_x[inds]
+    y = -Results[n].RE_x[inds]
 
     # speed_threshold = 0
     # inds = (speeds[n] > speed_threshold)
-    x = Results[n].LE_vx
-    y = -Results[n].RE_vx
+    # x = Results[n].LE_vx
+    # y = -Results[n].RE_vx
 
     sns.kdeplot(ax=axes[n], x=x, y=y, fill=True, cmap="Blues", levels=10, thresh=0.05)
     axes[n].axis([-20, 20, -20, 20])  # [xmin, xmax, ymin, ymax]
     
+    axes[n].set_title(f"Ferret {Results[n].id}")# | EO {Results[n].eo}")
+
 
 
  # %%
@@ -235,52 +246,3 @@ plt.plot(x, total, 'k--', label='Mixture')
 plt.legend()
 plt.show()
 
-
-
-
-
-# %% COMPARE distributions of metrics amplitudes between 2 ages
-
-fig, axes = plt.subplots(1, 4, figsize=(8, 3), sharex=False)
-fig.tight_layout(w_pad=2)
-sns.despine(fig=fig)
-
-n = 3
-p1 = Results[n].LE_pupil[ Results[n].LE_pupil < 10 ]
-n = 1
-p2 = Results[n].LE_pupil[ Results[n].LE_pupil < 10 ]
-sns.histplot(p1, ax=axes[0], color="#848484", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
-sns.histplot(p2, ax=axes[0], color="#000000", stat="probability", binwidth=0.04, linewidth=0, alpha=0.6)
-axes[0].set_xlabel("Pupil size (mm)")
-axes[0].set_xlim(1, 4)
-axes[0].set_xticks([1, 2, 3, 4])
-axes[0].set_ylim(0, 0.12)
-axes[0].set_yticks([0, 0.06, 0.12])
-
-n = 3
-sns.histplot(speeds[n], ax=axes[1], color="#848484", stat="probability", binwidth=20, linewidth=0, alpha=0.6)
-n = 1
-sns.histplot(speeds[n], ax=axes[1], color="#000000", stat="probability", binwidth=20, linewidth=0, alpha=0.6)
-axes[1].set_title("")
-axes[1].set_xlabel("speed (mm/s)")
-axes[1].set_xlim(0, 600)
-axes[1].set_xticks([0,300,600])
-axes[1].set_ylim(0, 0.2)
-
-n = 3
-sns.histplot(eyeRates[n], ax=axes[2], color="#848484", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
-n = 1
-sns.histplot(eyeRates[n], ax=axes[2], color="#000000", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
-axes[2].set_xlabel("Saccade rate (Hz)")
-axes[2].set_xlim(0, 5)
-axes[2].set_ylim(0, 0.3)
-
-n = 3
-sns.histplot(gazeRate[n], ax=axes[3], color="#848484", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
-n = 1
-sns.histplot(gazeRate[n], ax=axes[3], color="#000000", stat="probability", binwidth=0.1, linewidth=0, alpha=0.6)
-axes[3].set_xlabel("Gaze rate (Hz)")
-axes[3].set_xlim(0, 5)
-axes[3].set_ylim(0, 0.2)
-
-# plt.savefig(f'{saveloc}/histPlots.svg', format='svg', bbox_inches='tight')

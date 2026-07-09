@@ -10,3 +10,5 @@ age, ect
 # collect hunting annotations to analyze specific periods
 from emily
 start/stop?
+
+# create new load session function that loads based on EO age RANGE

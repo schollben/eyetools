@@ -1,5 +1,8 @@
 from .load_session_data import load_session_data
-from .get_sessions_by_ferret import get_sessions, get_sessions_by_ferret
+from .get_sessions import get_sessions
+from .get_sessions_by_ferret import get_sessions_by_ferret
+from .get_sessions_by_eo import get_sessions_by_eo
+from .getSesh import getSesh
 from .removeBadData import removeBadData
 from .session_data import SessionData
 from .extract_saccades import extract_saccades

@@ -31,7 +31,7 @@ plt.rcParams['svg.fonttype'] = 'none'
 #SESSION = getSesh.by_name("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
 #SESSION = getSesh.by_name("session_2026-03-16_ferret_403_P49_E7_analyzable_output") # or load a specific session by name
 #SESSION = getSesh.by_eo(7)      # or load sessions by a single EO number
-SESSION = getSesh.by_eo(0,1)   # or load sessions by an EO range (inclusive)
+SESSION = getSesh.by_eo(10,20)   # or load sessions by an EO range (inclusive)
 
 Results = []
 for session in SESSION:
@@ -77,8 +77,8 @@ for n in range(n_sesh):
     
     # axes[n].set_xlabel("Pupil size (mm)")
     axes[n].set_title(f"EO: {Results[n].eo}")
-    axes[n].axis([1.5, 4.5, 0, 0.2])  # [xmin, xmax, ymin, ymax]
-    axes[n].set_xticks([2, 3, 4])
+    axes[n].axis([1.5, 6.5, 0, 0.2])  # [xmin, xmax, ymin, ymax]
+    axes[n].set_xticks([2, 4, 6])
     axes[n].set_yticks([0, 0.2])
 
     axes[n].set_title(f"Ferret {Results[n].id}")# | EO {Results[n].eo}")
@@ -160,28 +160,32 @@ for n in range(n_sesh):
 
 
  # %% examine binocular coordination of eye movements
+from scipy.stats import spearmanr
+
 fig, axes = create_subplot_grid(n_sesh)
 
 for n in range(n_sesh):
 
-    velocity_threshold = 10 #threshold when eye movement is happening?
+    velocity_threshold = 20 #threshold when eye movement is happening?
     inds = (Results[n].LE_vx > velocity_threshold) & (Results[n].RE_vx > velocity_threshold)
     x = Results[n].LE_x[inds]
     y = -Results[n].RE_x[inds]
 
-    # speed_threshold = 0
-    # inds = (speeds[n] > speed_threshold)
-    # x = Results[n].LE_vx
-    # y = -Results[n].RE_vx
+    # speed_threshold = 100
+    # inds = (Results[n].speed < speed_threshold)
+    # x = Results[n].LE_vx[inds]
+    # y = Results[n].RE_vx[inds]
 
     sns.kdeplot(ax=axes[n], x=x, y=y, fill=True, cmap="Blues", levels=10, thresh=0.05)
-    axes[n].axis([-20, 20, -20, 20])  # [xmin, xmax, ymin, ymax]
+    # axes[n].axis([-20, 20, -20, 20])  # [xmin, xmax, ymin, ymax]
+    
+    correlation, p_value = spearmanr(x, y)
+    axes[n].text(0.05, 0.95, f"ρ = {correlation:.2f}\np = {p_value:.2g}", transform=axes[n].transAxes, verticalalignment='top')
     
     axes[n].set_title(f"Ferret {Results[n].id}")# | EO {Results[n].eo}")
 
 
-
- # %%
+ # %% head vs eye velocity scatter (trying to isolate horizontal)
 n = 4
 velocity_threshold = 25
 inds = (np.abs(Results[n].LE_vx) > velocity_threshold) & (
@@ -189,6 +193,12 @@ inds = (np.abs(Results[n].LE_vx) > velocity_threshold) & (
 x = Results[n].yaw_v[~inds]
 y = Results[n].RE_vx[~inds]
 sns.scatterplot(x=x, y=y)
+
+
+
+# %% ------------ XX --------------
+
+
 
 
 # %% EYE-HEAD TIMING: cross-correlogram + coincidence

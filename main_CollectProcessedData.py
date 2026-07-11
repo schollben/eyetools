@@ -31,7 +31,7 @@ plt.rcParams['svg.fonttype'] = 'none'
 #SESSION = getSesh.by_name("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
 #SESSION = getSesh.by_name("session_2026-03-16_ferret_403_P49_E7_analyzable_output") # or load a specific session by name
 #SESSION = getSesh.by_eo(7)      # or load sessions by a single EO number
-SESSION = getSesh.by_eo(10,20)   # or load sessions by an EO range (inclusive)
+#SESSION = getSesh.by_eo(10,20)   # or load sessions by an EO range (inclusive)
 
 Results = []
 for session in SESSION:
@@ -196,8 +196,73 @@ sns.scatterplot(x=x, y=y)
 
 
 
-# %% ------------ XX --------------
+# %% ------------ BEGIN ADDING NEW ANALYSES HERE --------------
 
+
+# %% MAIN SEQUENCE: amplitude vs peak velocity (log-log), eyes combined
+pool_by_eo = False  # False: one panel per session | True: one panel per EO
+
+if pool_by_eo:
+
+    unique_eos = sorted(set(R.eo for R in Results))
+    fig, axes = create_subplot_grid(len(unique_eos))
+    groups = [[R for R in Results if R.eo == eo] for eo in unique_eos]
+    titles = [f"EO {eo}" for eo in unique_eos]
+
+else:
+
+    fig, axes = create_subplot_grid(n_sesh)
+    groups = [[R] for R in Results]
+    titles = [f"Ferret {R.id}" for R in Results]
+
+for ax, group, title in zip(axes, groups, titles):
+
+    amp = np.concatenate([np.concatenate([R.df_LE["amplitude_deg"].to_numpy(),
+                                          R.df_RE["amplitude_deg"].to_numpy()]) for R in group])
+    pkv = np.concatenate([np.concatenate([R.df_LE["peak_velocity_deg_s"].to_numpy(),
+                                          R.df_RE["peak_velocity_deg_s"].to_numpy()]) for R in group])
+
+    inds = (amp > 0) & (pkv > 0)
+    x = np.log10(amp[inds])
+    y = np.log10(pkv[inds])
+
+    if x.size:
+        sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3)
+    ax.set_title(title)
+    ax.set_xlabel("log10 amplitude (deg)")
+    ax.set_ylabel("log10 peak velocity (deg/s)")
+
+
+# %% MAIN SEQUENCE: amplitude vs duration (ms), eyes combined
+pool_by_eo = False  # False: one panel per session | True: one panel per EO
+
+if pool_by_eo:
+    unique_eos = sorted(set(R.eo for R in Results))
+    fig, axes = create_subplot_grid(len(unique_eos))
+    groups = [[R for R in Results if R.eo == eo] for eo in unique_eos]
+    titles = [f"EO {eo}" for eo in unique_eos]
+else:
+    fig, axes = create_subplot_grid(n_sesh)
+    groups = [[R] for R in Results]
+    titles = [f"Ferret {R.id}" for R in Results]
+
+for ax, group, title in zip(axes, groups, titles):
+
+    amp = np.concatenate([np.concatenate([R.df_LE["amplitude_deg"].to_numpy(),
+                                          R.df_RE["amplitude_deg"].to_numpy()]) for R in group])
+    dur = np.concatenate([np.concatenate([(R.df_LE["peak"] - R.df_LE["onset"]).to_numpy(),
+                                          (R.df_RE["peak"] - R.df_RE["onset"]).to_numpy()]) for R in group])
+    dur_ms = dur / 120.0 * 1000.0
+
+    inds = (amp > 0) & np.isfinite(dur_ms)
+    x = amp[inds]
+    y = dur_ms[inds]
+
+    if x.size:
+        sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3)
+    ax.set_title(title)
+    ax.set_xlabel("Amplitude (deg)")
+    ax.set_ylabel("Duration (ms)")
 
 
 

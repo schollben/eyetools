@@ -17,7 +17,7 @@ Monocular (all events, combine eyes):
 
 3. VOR characteristics
   a. head pitch vs LE/RE horizontal/vertical position
-  b. head ROLL (?) vs LE/RE horizontal/vertical position
+  b. head ROLL vs LE/RE horizontal/vertical position
   c. head velocity (total ang or horizontal) vs LE/RE velocity (should see VOR and gaze shifts)
   d. head velocity vs eye velocity OUTSIDE of gaze/eye shifts
   e. horizontal eye velocity VS running speed (scatter or distributions)

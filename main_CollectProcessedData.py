@@ -274,6 +274,159 @@ for ax, group, title in zip(axes, groups, titles):
     ax.set_ylabel("Duration (ms)")
 
 
+# %% VOR: head velocity vs eye velocity (LE purple, RE red)
+
+pool_by_eo = False  # False: one panel per session | True: one panel per EO range
+eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+
+axis = "horizontal"   # "horizontal": yaw_v vs vx | "vertical": pitch_v vs vy
+subset = "all"        # "all" | "fast" | "slow" | "saccade" | "non_saccade"
+speed_threshold = 100  # mm/s, boundary for fast vs slow
+
+if pool_by_eo:
+    fig, axes = create_subplot_grid(len(eo_bins))
+    groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
+    titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
+else:
+    fig, axes = create_subplot_grid(n_sesh)
+    groups = [[R] for R in Results]
+    titles = [f"Ferret {R.id}" for R in Results]
+
+for ax, group, title in zip(axes, groups, titles):
+
+    if not group:
+        ax.set_title(title)
+        continue
+
+    for eye, color in (("LE", "#725EE7"), ("RE", "#E93115")):
+
+        if axis == "horizontal":
+            head = np.concatenate([R.yaw_v for R in group]).astype(float)
+            eyev = np.concatenate([getattr(R, f"{eye}_vx") for R in group]).astype(float)
+        else:
+            head = np.concatenate([R.pitch_v for R in group]).astype(float)
+            eyev = np.concatenate([getattr(R, f"{eye}_vy") for R in group]).astype(float)
+
+        subs = []
+        for R in group:
+            n_frames = len(R.LE_vx)
+            if subset == "fast":
+                m = R.speed > speed_threshold
+            elif subset == "slow":
+                m = R.speed < speed_threshold
+            elif subset in ("saccade", "non_saccade"):
+                sacc = np.zeros(n_frames, bool)
+                df = R.df_LE if eye == "LE" else R.df_RE
+                for onset, peak in zip(df["onset"].to_numpy(), df["peak"].to_numpy()):
+                    sacc[onset:peak + 1] = True
+                m = sacc if subset == "saccade" else ~sacc
+            else:
+                m = np.ones(n_frames, bool)
+            subs.append(m)
+        sub = np.concatenate(subs)
+
+        inds = np.isfinite(head) & np.isfinite(eyev) & sub
+        sns.scatterplot(ax=ax, x=head[inds], y=eyev[inds], color=color, s=3, alpha=0.3)
+
+    ax.set_title(title)
+    # ax.axis([-200, 200, -200, 200])  # [xmin, xmax, ymin, ymax]
+    ax.set_xlabel(f"head {'yaw' if axis == 'horizontal' else 'pitch'} vel (deg/s)")
+    ax.set_ylabel(f"eye {'vx' if axis == 'horizontal' else 'vy'} (deg/s)")
+
+
+# %% VOR: horizontal eye velocity vs running speed (LE purple, RE red)
+
+pool_by_eo = False  # False: one panel per session | True: one panel per EO range
+eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+
+subset = "all"        # "all" | "fast" | "slow" | "saccade" | "non_saccade"
+speed_threshold = 100  # mm/s, boundary for fast vs slow
+
+if pool_by_eo:
+    fig, axes = create_subplot_grid(len(eo_bins))
+    groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
+    titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
+else:
+    fig, axes = create_subplot_grid(n_sesh)
+    groups = [[R] for R in Results]
+    titles = [f"Ferret {R.id}" for R in Results]
+
+for ax, group, title in zip(axes, groups, titles):
+
+    if not group:
+        ax.set_title(title)
+        continue
+
+    for eye, color in (("LE", "#725EE7"), ("RE", "#E93115")):
+
+        speed = np.concatenate([R.speed for R in group]).astype(float)
+        eyev = np.concatenate([getattr(R, f"{eye}_vx") for R in group]).astype(float)
+
+        subs = []
+        for R in group:
+            n_frames = len(R.LE_vx)
+            if subset == "fast":
+                m = R.speed > speed_threshold
+            elif subset == "slow":
+                m = R.speed < speed_threshold
+            elif subset in ("saccade", "non_saccade"):
+                sacc = np.zeros(n_frames, bool)
+                df = R.df_LE if eye == "LE" else R.df_RE
+                for onset, peak in zip(df["onset"].to_numpy(), df["peak"].to_numpy()):
+                    sacc[onset:peak + 1] = True
+                m = sacc if subset == "saccade" else ~sacc
+            else:
+                m = np.ones(n_frames, bool)
+            subs.append(m)
+        sub = np.concatenate(subs)
+
+        inds = np.isfinite(speed) & np.isfinite(eyev) & sub
+        sns.scatterplot(ax=ax, x=speed[inds], y=eyev[inds], color=color, s=3, alpha=0.3)
+
+    ax.set_title(title)
+    # ax.axis([0, 300, -200, 200])  # [xmin, xmax, ymin, ymax]
+    ax.set_xlabel("running speed (mm/s)")
+    ax.set_ylabel("eye vx (deg/s)")
+
+
+# %% VOR STATIC: head tilt vs eye position (LE purple, RE red)
+
+pool_by_eo = False  # False: one panel per session | True: one panel per EO range
+eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+
+tilt = "roll"   # "pitch": pitch vs eye _y | "roll": roll vs eye _x
+
+if pool_by_eo:
+    fig, axes = create_subplot_grid(len(eo_bins))
+    groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
+    titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
+else:
+    fig, axes = create_subplot_grid(n_sesh)
+    groups = [[R] for R in Results]
+    titles = [f"Ferret {R.id}" for R in Results]
+
+for ax, group, title in zip(axes, groups, titles):
+
+    if not group:
+        ax.set_title(title)
+        continue
+
+    for eye, color in (("LE", "#725EE7"), ("RE", "#E93115")):
+
+        if tilt == "pitch":
+            head = np.concatenate([R.pitch for R in group]).astype(float)
+            pos = np.concatenate([getattr(R, f"{eye}_y") for R in group]).astype(float)
+        else:
+            head = np.concatenate([R.roll for R in group]).astype(float)
+            pos = np.concatenate([getattr(R, f"{eye}_x") for R in group]).astype(float)
+
+        inds = np.isfinite(head) & np.isfinite(pos)
+        sns.scatterplot(ax=ax, x=head[inds], y=pos[inds], color=color, s=3, alpha=0.3)
+
+    ax.set_title(title)
+    # ax.axis([-30, 30, -20, 20])  # [xmin, xmax, ymin, ymax]
+    ax.set_xlabel(f"head {tilt} (deg)")
+    ax.set_ylabel(f"eye {'y' if tilt == 'pitch' else 'x'} (deg)")
 
 
 

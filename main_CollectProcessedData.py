@@ -104,8 +104,12 @@ for n in range(n_sesh):
     pL = Results[n].gazeRateLE
     pR = Results[n].gazeRateRE
 
-    sns.histplot(pL, ax=axes[n], color="#725EE7", stat="probability", binwidth=0.25, linewidth=0, alpha=0.6)
-    sns.histplot(pR, ax=axes[n], color="#E93115", stat="probability", binwidth=0.25, linewidth=0, alpha=0.6)
+    if sum(pL) > 0:
+        sns.histplot(pL, ax=axes[n], color="#725EE7", stat="probability", binwidth=0.25, linewidth=0, alpha=0.6)
+
+    if sum(pR) > 0:
+        sns.histplot(pR, ax=axes[n], color="#E93115", stat="probability", binwidth=0.25, linewidth=0, alpha=0.6)
+
     axes[n].axis([0, 4, 0, 0.5])  # [xmin, xmax, ymin, ymax]
 
     axes[n].set_title(f"Ferret {Results[n].id}")# | EO {Results[n].eo}")
@@ -235,7 +239,7 @@ for ax, group, title in zip(axes, groups, titles):
 
 # %% MAIN SEQUENCE: amplitude vs duration (ms), eyes combined
 
-pool_by_eo = False  # False: one panel per session | True: one panel per EO range
+pool_by_eo = True  # False: one panel per session | True: one panel per EO range
 eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
 
 if pool_by_eo:
@@ -353,7 +357,7 @@ for ax, group, title in zip(axes, groups, titles):
 pool_by_eo = False  # False: one panel per session | True: one panel per EO range
 eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
 
-subset = "all"        # "all" | "fast" | "slow" | "saccade" | "non_saccade"
+subset = "non_saccade"        # "all" | "fast" | "slow" | "saccade" | "non_saccade"
 speed_threshold = 100  # mm/s, boundary for fast vs slow
 
 if pool_by_eo:
@@ -410,7 +414,7 @@ for ax, group, title in zip(axes, groups, titles):
 pool_by_eo = False  # False: one panel per session | True: one panel per EO range
 eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
 
-tilt = "roll"   # "pitch": pitch vs eye _y | "roll": roll vs eye _x
+tilt = "pitch"   # "pitch": pitch vs eye _y | "roll": roll vs eye _x
 
 if pool_by_eo:
     fig, axes = create_subplot_grid(len(eo_bins))
@@ -436,7 +440,8 @@ for ax, group, title in zip(axes, groups, titles):
             head = np.concatenate([R.roll for R in group]).astype(float)
             pos = np.concatenate([getattr(R, f"{eye}_x") for R in group]).astype(float)
 
-        inds = np.isfinite(head) & np.isfinite(pos)
+        nonsacc = np.concatenate([non_saccade_mask(R) for R in group])
+        inds = np.isfinite(head) & np.isfinite(pos) & nonsacc
         sns.scatterplot(ax=ax, x=head[inds], y=pos[inds], color=color, s=3, alpha=0.3)
 
     ax.set_title(title)

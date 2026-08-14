@@ -8,6 +8,7 @@ from .session_data import SessionData
 from .extract_saccades import extract_saccades
 from .ComputeWindowedRate import windowed_rate
 from .process_session import process_session
+from .non_saccade_mask import non_saccade_mask
 from .saccade_triggered_average import saccade_triggered_average, saccade_andHead_triggered_average
 from .summarize_dataset import summarize_dataset
 from .classify_saccades import classify_saccades

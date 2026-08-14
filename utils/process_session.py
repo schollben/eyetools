@@ -27,6 +27,9 @@ def process_session(R, window_in_sec=5,
 
     n_frames = len(R.EQframes)
 
+    # extraction params kept for downstream helpers (e.g. non_saccade_mask padding)
+    R.min_inter_event = min_inter_event
+
     # saccade dataframes
     R.df_LE     = df_LE
     R.df_RE     = df_RE

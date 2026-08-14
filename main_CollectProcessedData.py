@@ -10,6 +10,7 @@ import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
 # tools
 from utils import create_subplot_grid, load_session_data, process_session, removeBadData, getSesh
+from utils import non_saccade_mask
 from utils import saccade_triggered_average, saccade_triggered_average, saccade_andHead_triggered_average
 from utils import eye_head_correlogram, eye_head_coincidence, plot_eye_head_correlogram
 from utils import create_subplot_grid
@@ -276,6 +277,9 @@ for ax, group, title in zip(axes, groups, titles):
 
 # %% VOR: head velocity vs eye velocity (LE purple, RE red)
 
+# non_saccade should be outside of saccade events (onset to peak and beyond) and need some averaging
+# how getting velocities during saccade? 
+
 pool_by_eo = False  # False: one panel per session | True: one panel per EO range
 eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
 
@@ -333,11 +337,7 @@ for ax, group, title in zip(axes, groups, titles):
                 elif subset == "slow":
                     m = R.speed < speed_threshold
                 elif subset == "non_saccade":
-                    sacc = np.zeros(n_frames, bool)
-                    df = R.df_LE if eye == "LE" else R.df_RE
-                    for onset, peak in zip(df["onset"].to_numpy(), df["peak"].to_numpy()):
-                        sacc[onset:peak + 1] = True
-                    m = ~sacc
+                    m = non_saccade_mask(R)   # both eyes, padded
                 else:
                     m = np.ones(n_frames, bool)
                 subs.append(m)
@@ -387,12 +387,14 @@ for ax, group, title in zip(axes, groups, titles):
                 m = R.speed > speed_threshold
             elif subset == "slow":
                 m = R.speed < speed_threshold
-            elif subset in ("saccade", "non_saccade"):
+            elif subset == "saccade":
                 sacc = np.zeros(n_frames, bool)
                 df = R.df_LE if eye == "LE" else R.df_RE
                 for onset, peak in zip(df["onset"].to_numpy(), df["peak"].to_numpy()):
                     sacc[onset:peak + 1] = True
-                m = sacc if subset == "saccade" else ~sacc
+                m = sacc
+            elif subset == "non_saccade":
+                m = non_saccade_mask(R)   # both eyes, padded
             else:
                 m = np.ones(n_frames, bool)
             subs.append(m)

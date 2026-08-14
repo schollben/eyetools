@@ -1,13 +1,19 @@
 import re
 
-# Expected format: session_YYYY-MM-DD_ferret_ID_[EyeCameras_][PAGE_]EON_analyzable_output
+# Expected: session_<date>_ferret_<id>_[<descriptor>_...][P<age>_]E[O]<eo>[__<run>]_analyzable_output
 _PATTERN = re.compile(
-    r"session_(?P<date>\d{4}-\d{2}-\d{2})_ferret_(?P<id>\d+)_(?:EyeCameras_)?(?:P(?P<age>\d+)_)?EO?(?P<eo>\d+)(?:_+\d+)?_analyzable_output"
+    r"session_(?P<date>\d{4}-\d{2}-\d{2})_ferret_(?P<id>\d+)_"
+    r"(?:[^_]+_)*?"          # optional descriptor tokens: EyeCameras / EyeCamera / future variants
+    r"(?:P(?P<age>\d+)_)?"   # optional postnatal age
+    r"EO?(?P<eo>\d+)"        # EO / E / E0 + number  (int() collapses leading zeros: E011 -> 11)
+    r"(?:_+\d+)?"            # optional trailing run index: __1 / __2
+    r"_analyzable_output"
 )
 
 def parse_session_name(session: str) -> dict:
     m = _PATTERN.match(session)
-    assert m, f"Session name did not match expected format: {session}"
+    if not m:
+        raise ValueError(f"Session name did not match expected format: {session}")
     return {
         "session":      session,
         "date":     m.group("date"),

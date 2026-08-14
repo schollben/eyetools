@@ -1,8 +1,5 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
 # main init
-
-%load_ext autoreload
-%autoreload
 # Set your paths in local_config.py (copy local_config.py.example to get started).
 import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
@@ -46,7 +43,6 @@ for session in SESSION:
 
 n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
-
 # to look at data execute: launch_viewer(load_session_data(SESSION[n]))
 # or launch_viewer(R) if there is only 1 session in the list
 

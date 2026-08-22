@@ -25,11 +25,11 @@ plt.rcParams['svg.fonttype'] = 'none'
 
 # %% load data, delayed vision: 416,411,403
 #SESSION = getSesh.by_ferret(402, 420)    # multiple — preserves order by ferret
-SESSION = getSesh.by_ferret(753)          # or load sessions from an inidividual ID
+# SESSION = getSesh.by_ferret(753)          # or load sessions from an inidividual ID
 #SESSION = getSesh.by_name("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
 #SESSION = getSesh.by_name("session_2026-03-16_ferret_403_P49_E7_analyzable_output") # or load a specific session by name
 #SESSION = getSesh.by_eo(7)      # or load sessions by a single EO number
-#SESSION = getSesh.by_eo(10,20)   # or load sessions by an EO range (inclusive)
+SESSION = getSesh.by_eo(10,12)   # or load sessions by an EO range (inclusive)
 
 Results = []
 for session in SESSION:

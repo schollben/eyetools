@@ -88,6 +88,38 @@ def pooled_events(group, signal, condition, column,
     return np.concatenate(out) if out else np.array([])
 
 
+def pooled_intervals(group, signal, condition="all", speed_threshold=100,
+                     min_bout=30, head_still_thresh=50):
+    """Quiescent intervals (ms) between consecutive events, pooled over eyes and sessions.
+
+    Measured peak[i] -> onset[i+1]: the gap between the end of one movement and the start
+    of the next. Both events must satisfy `condition`, and the gap must be free of NaNs —
+    4.5% of gaps span a tracking dropout and would otherwise dominate the tail (median
+    1425 ms vs 275 ms for clean gaps, max 119.8 s).
+
+    Note: extraction enforces min_inter_event frames between events, so this distribution
+    is truncated at min_inter_event / FS seconds (100 ms at the default 12 frames).
+    """
+    out = []
+    for R in group:
+        for eye, df in zip(("LE", "RE"), event_dfs(R, signal)):
+            if len(df) < 2:
+                continue
+            keep = event_condition(R, df, condition, speed_threshold, min_bout,
+                                   head_still_thresh)
+            onsets = df["onset"].to_numpy().astype(int)
+            peaks = df["peak"].to_numpy().astype(int)
+            pos = np.asarray(getattr(R, f"{eye}_x" if signal == "eye"
+                                     else f"{eye}_gaze_horizontal_deg"), float)
+            for i in range(len(df) - 1):
+                a, b = peaks[i], onsets[i + 1]
+                if not (keep[i] and keep[i + 1]) or b <= a:
+                    continue
+                if np.all(np.isfinite(pos[a:b + 1])):
+                    out.append((b - a) / FS * 1000)
+    return np.array(out)
+
+
 def event_traces(R, signal, kind, lo, hi, bin_col, condition, pre, post,
                  flip_eye=None, speed_threshold=100, min_bout=30, head_still_thresh=50):
     """Onset-aligned traces for one session's events falling in one bin.

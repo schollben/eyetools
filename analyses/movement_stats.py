@@ -65,7 +65,8 @@ print(n_sesh, "sessions loaded")
 # NOTE: gaze angular velocity fields ARE already rad2deg-converted at load, unlike the
 # skull _v fields. Do NOT pass them through head_signal() — that would double-convert.
 
-from analyses.helper_functions import (FS, eo_groups, pooled_events, event_traces)
+from analyses.helper_functions import (FS, eo_groups, pooled_events, pooled_intervals,
+                                       event_traces)
 
 # how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
@@ -263,3 +264,55 @@ for kind in ("speed", "displacement"):
         ax.set_xlabel("time from onset (ms)")
         ax.set_ylabel("speed (deg/s)" if kind == "speed" else "displacement (deg)")
         ax.legend(fontsize=4)
+
+
+# %% 5. inter-event interval distributions (timing, not magnitude)
+# Interval = peak of one event -> onset of the next: the quiescent gap between movements.
+# Cell 2's rate panel gives a mean events/s; a mean collapses the timing structure, and
+# this is the shape it discards.
+#
+# Two features of this distribution are extraction artifacts, not biology:
+# 1. HARD FLOOR. process_session(min_inter_event=12) drops any event starting within 12
+#    frames of the previous peak, so no interval below 100 ms can exist and 3-5% sit
+#    exactly on it. The dotted line marks it — it is not a real mode.
+# 2. NaN GAPS. pooled_intervals requires the gap to be NaN-free. Gaps spanning a tracking
+#    dropout are 4.5% of pairs with median 1425 ms vs 275 ms, the largest 119.8 s (a
+#    recording gap, not a fixation). Keeping them would dominate the tail.
+# Bins are log-spaced: intervals span 100 ms to ~8 s, so linear bins collapse the
+# distribution into the leftmost few.
+
+condition = "all"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
+
+floor_ms = 1000 * Results[0].min_inter_event / FS
+bins = np.logspace(np.log10(floor_ms), np.log10(10000), 40)
+
+fig, axes = plt.subplots(1, 2, figsize=(6, 2))
+
+for ax, signal in zip(axes, ("eye", "gaze")):
+
+    for group, title in zip(groups, titles):
+
+        if not group:
+            continue
+
+        isi = pooled_intervals(group, signal, condition,
+                               speed_threshold, min_bout, head_still_thresh)
+        if len(isi) < 20:
+            print(f"{signal:5s} {title:10s} only {len(isi)} intervals, skipped")
+            continue
+
+        sns.histplot(ax=ax, x=isi, bins=bins, element="step", fill=False,
+                     stat="density", label=f"{title} (n={len(isi)})")
+
+        print(f"{signal:5s} {title:10s} n={len(isi):6d}  "
+              f"median={np.median(isi):7.0f} ms  "
+              f"IQR={np.subtract(*np.percentile(isi, [75, 25])):7.0f}  "
+              f"at floor={np.mean(isi <= floor_ms + 0.5) * 100:4.1f}%")
+
+    ax.axvline(floor_ms, color="0.6", ls=":", lw=0.5)
+    ax.set_xscale("log")
+    ax.set_xlabel(f"{signal} inter-event interval (ms)")
+    ax.legend(fontsize=4)
+
+sns.despine(fig)
+fig.tight_layout()

@@ -77,7 +77,6 @@ Note 2: we should only examine combined eye (LE and RE) statistics or an individ
 - head saccade onset compared to during rotation? compare acceleration and velocity?
 - head-rotation (yaw) triggered saccade average waveform (collapsed across eyes- combine left and right eye). 
 - examine timing of head rotations (yaw) and eye movements to characterize 
-- compare properties of gaze shifts over time.  set a fixed gaze velocity threshold (? ~180 ˚/sec ?), based on gaze velocity distribution (log).
 - head VS eye -> which came first? categorize types? saccades different?
 
 ** counter-rotations (like in the 2026 current biology Jason Kerr paper) **
@@ -85,37 +84,51 @@ Note 2: we should only examine combined eye (LE and RE) statistics or an individ
 - peak velocity vs peak positive velocity of eye movements during head rotation
 -  consider head saccade onset vs during head rotation?  
 
+what about examining timing of head rotations (yaw) and eye movements? which cell does this?
+in addition, what about categorizing the different head-eye relationships? which cell does this?
 
 
 
 ##########################
-Binocular:
+
+Following the organization and structure of main_sequence.py build a cell-based script to examine BINOCULARITY
+Data should be able to be examined on a an animal by animal basis and then pooled across animals for different age groups: 
+pool_by_eo = True  # False: one panel per session | True: one panel per EO range
+eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+Each section/number below should be a separate cell. 
+As much as possible, keep cells contained and without defined helper functions.
 
 1. correlation in position and velocity between the two eyes during saccades
   1a. LE vs RE horizontal position 
   1b. Log-scaled joint distribution of horizontal saccade velocity
   1c. Log-scaled joint distribution of horizontal saccade velocity AND angular head velocity (or horizontal?)
-  1d. simple idea: Cross correlation of horizontal eye position across the two eyes
+  1d. Cross correlation of horizontal eye position across the two eyes (purely for exploratin of data, dont have a specific hypothesis)
 
-2. correlation in position and velocity between the two eyes OUTSIDE of saccades (fixations and smooth pursuit)
+2. correlation in position and velocity between the two eyes OUTSIDE of saccades (this would likely include fixations and smooth pursuit)
+- flag for locomotion (stationary vs running)
 
-3. interocular peak velocity coupling. 2D binnning?
+3. interocular peak velocity coupling. 
+- use 2D binnning?
+- examine joint distribution of LE and RE amplitude/velocity (example: LE is x-axis, RE is y -axis)
+- need to condsider focusing only on horizontal/vertical movements OR total angular displacement/position/velocity (combining X and Y).
+perhaps this should be a flag throughout.
 
-4. saccade amplitude distribution for monocular/bincoualr events
+4. eye end-point density for monocular/binocular events
+  Note: this section not well thought out
 
-5. eye end-point density for monocular/binocular events
-
-6. binocular stability during "fixation" periods
+5. binocular stability during "fixation" periods
   6a. compute LE - RE velocity in between gaze/eye shifts during head movements
-  6b. keep track of CW and CCW
+  6b. keep track of CW and CCW turns
   6b. also consider outside head rotations (head pitch and roll magnitude < 10 deg)?
 
-7. vergence = LE - RE position (deg)
+6. vergence = LE - RE position (deg)
   7a. propotion of time over development
-  7b. pitch vs vergence (compensation)
+  7b. examine pitch vs vergence (compensation)
+  Note: this section not well thought out
 
+##########################
 
-* notes--
+* locomotion notes--
 head linear speed (running or not)
 head angular speed
 

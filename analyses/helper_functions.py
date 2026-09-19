@@ -1,9 +1,15 @@
 import numpy as np
+import pandas as pd
+from scipy.signal import savgol_filter
 
 from utils import non_saccade_mask
+from utils.extract_saccades import _detect, _COLS
 
 FS = 120.0
 LOCO_COLORS = {"all": "#444444", "stationary": "#725EE7", "running": "#E93115"}
+
+# Wallace et al. 2025 (Curr Biol 35:761-775) Figure 4 colors
+HEAD_COLOR, LE_COLOR, RE_COLOR = "#D81B8C", "#2C7FB8", "#31A354"
 
 
 def running_mask(R, speed_threshold=100, min_bout=30):
@@ -292,3 +298,95 @@ def fit_line(ax, x, y, color="k", min_n=500):
     xl = np.array([x.min(), x.max()])
     ax.plot(xl, slope * xl + intercept, color=color, lw=1)
     return slope, intercept
+
+
+def head_saccades(R, velocity_threshold=50, min_duration=12, max_duration=60,
+                  min_inter_event=12, smooth=11):
+    """Head-saccade table, extracted here because R.df_head is not usable.
+
+    Same columns as R.df_LE. Thresholds are in deg/s.
+
+    TODO — UPSTREAM FIX. R.df_head is unusable because of three bugs in utils/:
+      1. extract_saccades._get_arrays smooths skull velocity with savgol_filter(L=121)
+         = 1.01 s at 120 Hz, while the eye branch uses raw velocity (corr = 0.715).
+      2. process_session passes max_duration=600 (5 s) for skull vs 60 for eyes.
+      3. velocity_threshold_head=2 is rad/s (~115 deg/s), not deg/s.
+    Measured on 402/420: current df_head = 449 events, median 692 ms, 47 deg.
+    This function = 2363 events, median 225 ms, 18 deg. Fixing utils/ would change
+    df_head for every existing script, so the correction lives here for now.
+    """
+    sg = lambda a: np.rad2deg(savgol_filter(np.asarray(a, float), smooth, 3))
+    events = _detect(sg(R.yaw_v), sg(R.pitch_v), sg(R.yaw_a), sg(R.pitch_a),
+                     np.asarray(R.yaw, float), np.asarray(R.pitch, float),
+                     velocity_threshold, min_duration, max_duration, min_inter_event)
+    return pd.DataFrame(events, columns=_COLS)
+
+
+def _aligned_windows(R, eye, head_df, flip_eye, pre, post):
+    """Yield (onset, amplitude, head_pos, eye_pos, head_vel, eye_vel, sign, lag) per
+    eye saccade. Traces are baseline-subtracted at onset and sign-aligned so the head's
+    dominant rotation is positive — the convention Wallace Fig 4D requires."""
+    df = R.df_LE if eye == "LE" else R.df_RE
+    px = eye_signal(R, eye, "x", flip_eye)
+    vx = eye_signal(R, eye, "vx", flip_eye)
+    yaw = np.asarray(R.yaw, float)
+    yv = np.rad2deg(savgol_filter(np.asarray(R.yaw_v, float), 11, 3))
+    h_on = head_df["onset"].to_numpy() if len(head_df) else np.array([], int)
+
+    for onset, amp in zip(df["onset"].to_numpy().astype(int),
+                          df["amplitude_deg"].to_numpy().astype(float)):
+        a, b = onset - pre, onset + post
+        if a < 0 or b > len(px):
+            continue
+        hp, ep, hv, ev = yaw[a:b], px[a:b], yv[a:b], vx[a:b]
+        if not (np.all(np.isfinite(hp)) and np.all(np.isfinite(ep))
+                and np.all(np.isfinite(hv)) and np.all(np.isfinite(ev))):
+            continue
+        sign = np.sign(hv[np.argmax(np.abs(hv))]) or 1.0
+        lag = np.nan if not len(h_on) else float(h_on[np.argmin(np.abs(h_on - onset))] - onset)
+        yield (onset, amp, (hp - hp[pre]) * sign, (ep - ep[pre]) * sign,
+               hv * sign, ev * sign, sign, lag)
+
+
+def head_eye_events(R, head_df, flip_eye=None, pre=24, post=72):
+    """One row per eye saccade with its head context.
+
+    Columns: onset, eye, amplitude_deg, peak_velocity_deg_s, lag_ms (head onset minus eye
+    onset; NaN if the session has no head saccades), same_direction, head_peak_pos_vel,
+    eye_peak_neg_vel. Velocities are sign-aligned to the head's dominant direction, so
+    "peak positive head" and "peak negative eye" are well defined (Wallace Fig 4D).
+    """
+    rows = []
+    for eye in ("LE", "RE"):
+        df = R.df_LE if eye == "LE" else R.df_RE
+        pkv = dict(zip(df["onset"].to_numpy().astype(int),
+                       df["peak_velocity_deg_s"].to_numpy().astype(float)))
+        for onset, amp, _, _, hv, ev, _, lag in _aligned_windows(
+                R, eye, head_df, flip_eye, pre, post):
+            rows.append((onset, eye, amp, pkv.get(onset, np.nan),
+                         lag / FS * 1000 if np.isfinite(lag) else np.nan,
+                         np.sign(ev[np.argmax(np.abs(ev))]) > 0,
+                         hv.max(), ev.min()))
+    return pd.DataFrame(rows, columns=["onset", "eye", "amplitude_deg",
+                                       "peak_velocity_deg_s", "lag_ms", "same_direction",
+                                       "head_peak_pos_vel", "eye_peak_neg_vel"])
+
+
+def head_eye_traces(R, head_df, lo, hi, flip_eye=None, pair_window=30, pre=24, post=72):
+    """Onset-aligned traces for eye saccades with amplitude in [lo, hi), paired with a head
+    saccade within pair_window frames. Returns a dict of lists keyed
+    head_pos/LE_pos/RE_pos/head_vel/LE_vel/RE_vel — head traces are collected once per
+    eye saccade, so head_pos aligns with whichever eye contributed it (Wallace Fig 4A/4C).
+    """
+    out = {k: [] for k in ("head_pos", "LE_pos", "RE_pos",
+                           "head_vel", "LE_vel", "RE_vel")}
+    for eye in ("LE", "RE"):
+        for _, amp, hp, ep, hv, ev, _, lag in _aligned_windows(
+                R, eye, head_df, flip_eye, pre, post):
+            if not (lo <= amp < hi) or not np.isfinite(lag) or abs(lag) > pair_window:
+                continue
+            out["head_pos"].append(hp)
+            out["head_vel"].append(hv)
+            out[f"{eye}_pos"].append(ep)
+            out[f"{eye}_vel"].append(ev)
+    return out

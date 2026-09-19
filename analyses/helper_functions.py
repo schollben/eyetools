@@ -393,3 +393,129 @@ def head_eye_traces(R, head_df, lo, hi, flip_eye=None, pair_window=30, pre=24, p
             out[f"{eye}_pos"].append(ep)
             out[f"{eye}_vel"].append(ev)
     return out
+
+
+def paired_saccades(R, pair_window=12, flip_eye="RE", axis="horizontal"):
+    """One row per LE saccade matched to its nearest RE saccade by onset.
+
+    LE and RE saccades are detected independently and do NOT co-occur reliably (only 0.39
+    of LE saccades have an RE partner within 100 ms on ferrets 402/420, range 0.02-0.76
+    across sessions), so binocular measures must pair explicitly. Failure to pair is mostly
+    tracking dropout: of unpaired LE saccades the fraction where RE is NaN rises
+    0.10 -> 0.34 -> 0.58 across EO 0-4 / 5-9 / 10-20, and the unpaired eye still exceeds
+    40 deg/s in 74-89% of cases. `paired` is a data-quality flag, not monocular movement.
+
+    Greedy nearest-onset matching within pair_window FRAMES, each RE saccade used once.
+    axis: "horizontal" -> x | "vertical" -> y | "total" -> 2D magnitude.
+    eye_signal flips only keys ending in "x", so flip_eye is a no-op for "vertical" and is
+    bypassed for "total" — correct, since those axes are already shared.
+
+    Columns: LE_onset, RE_onset, lag_ms, paired, LE_disp, RE_disp (signed displacement
+    pos[peak]-pos[onset], deg), LE_amp, RE_amp, LE_pkv, RE_pkv, other_nan, other_max_speed.
+    Unpaired rows keep their LE columns and carry NaN for the RE ones.
+    """
+    key = {"horizontal": "x", "vertical": "y", "total": "x"}[axis]
+    lx = eye_signal(R, "LE", key, flip_eye)
+    rx = eye_signal(R, "RE", key, flip_eye)
+    rs = eye_signal(R, "RE", "speed")
+    a, b = R.df_LE, R.df_RE
+    ao = a["onset"].to_numpy().astype(int)
+    ap = a["peak"].to_numpy().astype(int)
+    bo = b["onset"].to_numpy().astype(int)
+    bp = b["peak"].to_numpy().astype(int)
+
+    taken = set()
+    rows = []
+    for i in range(len(ao)):
+        j, lag = -1, np.nan
+        if len(bo):
+            d = bo - ao[i]
+            order = np.argsort(np.abs(d))
+            for k in order:
+                if abs(d[k]) <= pair_window and k not in taken:
+                    j, lag = k, d[k]
+                    taken.add(k)
+                    break
+        w = rs[ao[i]:ap[i] + 1]
+        rows.append((ao[i], bo[j] if j >= 0 else np.nan,
+                     lag / FS * 1000 if np.isfinite(lag) else np.nan, j >= 0,
+                     lx[ap[i]] - lx[ao[i]],
+                     rx[bp[j]] - rx[bo[j]] if j >= 0 else np.nan,
+                     a["amplitude_deg"].to_numpy()[i],
+                     b["amplitude_deg"].to_numpy()[j] if j >= 0 else np.nan,
+                     a["peak_velocity_deg_s"].to_numpy()[i],
+                     b["peak_velocity_deg_s"].to_numpy()[j] if j >= 0 else np.nan,
+                     not np.all(np.isfinite(w)) if len(w) else True,
+                     np.nanmax(w) if len(w) and np.any(np.isfinite(w)) else np.nan))
+
+    return pd.DataFrame(rows, columns=["LE_onset", "RE_onset", "lag_ms", "paired",
+                                       "LE_disp", "RE_disp", "LE_amp", "RE_amp",
+                                       "LE_pkv", "RE_pkv", "other_nan", "other_max_speed"])
+
+
+def pooled_pairs(group, pair_window=12, flip_eye="RE", axis="horizontal"):
+    """paired_saccades concatenated over a session group, plus `id` and `eo` columns so
+    per-session spread stays visible inside a pooled EO panel."""
+    out = []
+    for R in group:
+        P = paired_saccades(R, pair_window, flip_eye, axis)
+        out.append(P.assign(id=R.id, eo=R.eo))
+    return pd.concat(out, ignore_index=True) if out else pd.DataFrame()
+
+
+def conjugate_samples(group, data_mode="events", signal="velocity", flip_eye="RE",
+                      axis="horizontal", pair_window=12, frame_sacc="saccade",
+                      frame_loco="all", head_range=None, speed_threshold=100, min_bout=30):
+    """(LE, RE) sample pairs for a session group, selected by data_mode.
+
+    The one place the events-vs-continuous choice is resolved, so every cell asks the same
+    question of the same data and only the mode differs.
+
+    data_mode "events"     -> one pair per paired saccade: signed displacement
+                              pos[peak]-pos[onset] (signal ignored; a displacement is a
+                              position DIFFERENCE and so is registration-free).
+              "continuous" -> one pair per retained frame, from frame_mask(frame_sacc,
+                              frame_loco), further gated by head_range.
+              "both"       -> (ev_LE, ev_RE, co_LE, co_RE).
+
+    signal "velocity" -> vx (recommended) | "position" -> x. Continuous POSITION is known
+    not to work: per-session corr(LE_x, RE_x) spans -0.35..+0.21 and flips sign within one
+    animal across consecutive days, and no curation tried removes it (non-saccade +
+    stationary + head-still, head-moving, and saccade-only frames all sit near zero). The
+    registration error is a per-session DC offset, which differencing removes and averaging
+    does not — hence velocity works and position does not. Kept as an option so the
+    assumption can be re-tested after any loading or threshold change.
+
+    head_range: None, or (lo, hi) in deg/s on head_signal(R, "speed"), continuous only.
+    Non-finite pairs are dropped. Returns equal-length float arrays.
+    """
+    ax_key = {"horizontal": "x", "vertical": "y", "total": "x"}[axis]
+    key = ax_key if signal == "position" else "v" + ax_key
+
+    ev_l, ev_r, co_l, co_r = [], [], [], []
+
+    for R in group:
+        if data_mode in ("events", "both"):
+            P = paired_saccades(R, pair_window, flip_eye, axis)
+            P = P[P.paired]
+            ev_l.append(P.LE_disp.to_numpy().astype(float))
+            ev_r.append(P.RE_disp.to_numpy().astype(float))
+
+        if data_mode in ("continuous", "both"):
+            m = frame_mask(R, frame_sacc, frame_loco, speed_threshold, min_bout)
+            if head_range is not None:
+                hs = head_signal(R, "speed")
+                m = m & (hs >= head_range[0]) & (hs < head_range[1])
+            co_l.append(eye_signal(R, "LE", key, flip_eye)[m])
+            co_r.append(eye_signal(R, "RE", key, flip_eye)[m])
+
+    def finite(ls, rs):
+        if not ls:
+            return np.array([]), np.array([])
+        x, y = np.concatenate(ls), np.concatenate(rs)
+        ok = np.isfinite(x) & np.isfinite(y)
+        return x[ok], y[ok]
+
+    if data_mode == "both":
+        return finite(ev_l, ev_r) + finite(co_l, co_r)
+    return finite(ev_l, ev_r) if data_mode == "events" else finite(co_l, co_r)

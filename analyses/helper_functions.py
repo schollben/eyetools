@@ -69,6 +69,78 @@ def event_condition(R, df, condition, speed_threshold=100, min_bout=30,
     return keep
 
 
+def event_dfs(R, signal):
+    """The two per-eye event tables: 'eye' -> eye saccades, 'gaze' -> gaze shifts."""
+    return (R.df_LE, R.df_RE) if signal == "eye" else (R.df_LEgaze, R.df_REgaze)
+
+
+def pooled_events(group, signal, condition, column,
+                  speed_threshold=100, min_bout=30, head_still_thresh=50):
+    """One scalar column (e.g. 'amplitude_deg') pooled over both eyes and all sessions."""
+    out = []
+    for R in group:
+        for df in event_dfs(R, signal):
+            if not len(df):
+                continue
+            keep = event_condition(R, df, condition, speed_threshold, min_bout,
+                                   head_still_thresh)
+            out.append(df[column].to_numpy().astype(float)[keep])
+    return np.concatenate(out) if out else np.array([])
+
+
+def event_traces(R, signal, kind, lo, hi, bin_col, condition, pre, post,
+                 flip_eye=None, speed_threshold=100, min_bout=30, head_still_thresh=50):
+    """Onset-aligned traces for one session's events falling in one bin.
+
+    kind: "speed" -> sqrt(vx^2 + vy^2); "displacement" -> distance from position at onset.
+    Returns (traces, nominal_amplitudes). Events too near a recording edge, or whose window
+    contains NaN, are dropped.
+
+    NOTE: gaze angular-velocity fields are already rad2deg-converted at load, unlike the
+    skull _v fields — they are read directly here and must never go through head_signal().
+    """
+    traces, nominal = [], []
+
+    for eye, df in zip(("LE", "RE"), event_dfs(R, signal)):
+        if not len(df):
+            continue
+
+        if signal == "eye":
+            vx = eye_signal(R, eye, "vx", flip_eye)
+            vy = eye_signal(R, eye, "vy", flip_eye)
+            px = eye_signal(R, eye, "x", flip_eye)
+            py = eye_signal(R, eye, "y", flip_eye)
+        else:
+            vx = np.asarray(getattr(R, f"{eye}_ang_vel_local_x_deg_s"), float)
+            vy = np.asarray(getattr(R, f"{eye}_ang_vel_local_y_deg_s"), float)
+            px = np.asarray(getattr(R, f"{eye}_gaze_horizontal_deg"), float)
+            py = np.asarray(getattr(R, f"{eye}_gaze_vertical_deg"), float)
+
+        speed = np.sqrt(vx ** 2 + vy ** 2) if kind == "speed" else None
+
+        keep = event_condition(R, df, condition, speed_threshold, min_bout,
+                               head_still_thresh)
+        amp = df[bin_col].to_numpy().astype(float)
+        onsets = df["onset"].to_numpy().astype(int)
+        sel = keep & (amp >= lo) & (amp < hi)
+
+        for o, a_nom in zip(onsets[sel], amp[sel]):
+            start, stop = o - pre, o + post
+            if start < 0 or stop > len(px):
+                continue
+            if kind == "speed":
+                tr = speed[start:stop]
+            else:
+                tr = np.sqrt((px[start:stop] - px[o]) ** 2
+                             + (py[start:stop] - py[o]) ** 2)
+            if not np.all(np.isfinite(tr)):
+                continue
+            traces.append(tr)
+            nominal.append(a_nom)
+
+    return traces, nominal
+
+
 def eye_signal(R, eye, key, flip_eye=None):
     """One eye signal. 'speed' is sqrt(vx^2 + vy^2).
 

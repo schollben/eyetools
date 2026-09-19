@@ -39,8 +39,8 @@ print(n_sesh, "sessions loaded")
 
 # %% settings for every plot below
 # Quantifies degree and frequency of eye (eye-in-head) and gaze (eye+head) movements.
-# Cells 1-4 use only the per-event scalars already in the dataframes (amplitude_deg,
-# peak_velocity_deg_s) — no window, no alignment. Cell 5 is the only one that averages
+# Cells 1-3 use only the per-event scalars already in the dataframes (amplitude_deg,
+# peak_velocity_deg_s) — no window, no alignment. Cell 4 is the only one that averages
 # kinematic traces, so it is the only one that needs a window.
 
 # TODO — HEAD SACCADES (revisit later)
@@ -65,7 +65,7 @@ print(n_sesh, "sessions loaded")
 # NOTE: gaze angular velocity fields ARE already rad2deg-converted at load, unlike the
 # skull _v fields. Do NOT pass them through head_signal() — that would double-convert.
 
-from analyses.helper_functions import (FS, eo_groups, event_condition, eye_signal)
+from analyses.helper_functions import (FS, eo_groups, pooled_events, event_traces)
 
 # how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
@@ -81,32 +81,16 @@ head_still_thresh = 50   # deg/s
 conditions = ["all", "stationary", "head_still", "stationary_and_head_still"]
 COND_COLORS = dict(zip(conditions, ["#444444", "#725EE7", "#E93115", "#1B9E77"]))
 
-pre, post = 12, 48       # frames: -100 to +400 ms from onset (cell 5 only)
-bin_by = "amplitude"     # "amplitude" | "peak_velocity" (cell 5 only)
+pre, post = 12, 48       # frames: -100 to +400 ms from onset (cell 4 only)
+bin_by = "amplitude"     # "amplitude" | "peak_velocity" (cell 4 only)
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
 
-def event_dfs(R, signal):
-    """The two per-eye event tables for 'eye' or 'gaze'."""
-    return (R.df_LE, R.df_RE) if signal == "eye" else (R.df_LEgaze, R.df_REgaze)
-
-
-def pooled_events(group, signal, condition, column):
-    """One scalar column pooled over both eyes and all sessions in a group."""
-    out = []
-    for R in group:
-        for df in event_dfs(R, signal):
-            if not len(df):
-                continue
-            keep = event_condition(R, df, condition, speed_threshold, min_bout,
-                                   head_still_thresh)
-            out.append(df[column].to_numpy().astype(float)[keep])
-    return np.concatenate(out) if out else np.array([])
-
-
 for R in Results:
-    counts = [len(pooled_events([R], "eye", c, "amplitude_deg")) for c in conditions]
+    counts = [len(pooled_events([R], "eye", c, "amplitude_deg",
+                                speed_threshold, min_bout, head_still_thresh))
+              for c in conditions]
     print(f"ferret {R.id} EO{R.eo:<3d} eye events by condition  " +
           "  ".join(f"{c}={n}" for c, n in zip(conditions, counts)))
 
@@ -121,8 +105,10 @@ for signal, ls in (("eye", "-"), ("gaze", "--")):
         if not group:
             continue
 
-        amp = pooled_events(group, signal, "all", "amplitude_deg")
-        pkv = pooled_events(group, signal, "all", "peak_velocity_deg_s")
+        amp = pooled_events(group, signal, "all", "amplitude_deg",
+                            speed_threshold, min_bout, head_still_thresh)
+        pkv = pooled_events(group, signal, "all", "peak_velocity_deg_s",
+                            speed_threshold, min_bout, head_still_thresh)
         if len(amp) < 20:
             continue
 
@@ -142,36 +128,8 @@ sns.despine(fig)
 fig.tight_layout()
 
 
-# %% 2. movement frequency (rate)
-
-fig, ax = plt.subplots(figsize=(4, 2))
-labels, rates, sigs = [], [], []
-
-for signal in ("eye", "gaze"):
-    for group, title in zip(groups, titles):
-
-        if not group:
-            continue
-
-        # both eyes contribute events, so divide by 2 for a per-eye rate
-        n_events = len(pooled_events(group, signal, "all", "amplitude_deg")) / 2
-        seconds = sum(len(R.LE_vx) for R in group) / FS
-
-        labels.append(title)
-        rates.append(n_events / seconds)
-        sigs.append(signal)
-
-        print(f"{signal:5s} {title:10s} rate={n_events / seconds:.2f} events/s  "
-              f"({n_events:.0f} events over {seconds:.0f} s)")
-
-sns.barplot(ax=ax, x=labels, y=rates, hue=sigs)
-ax.set_ylabel("saccade rate (events/s)")
-ax.tick_params(axis="x", rotation=45)
-sns.despine(fig)
-fig.tight_layout()
-
-
-# %% 3. condition comparison (scalars)
+# %% 2. condition comparison (amplitude, peak velocity, rate)
+# The "all" bars here are the unconditioned rate/medians, so there is no separate rate cell.
 
 fig, axes = plt.subplots(1, 3, figsize=(8, 2))
 
@@ -184,8 +142,10 @@ for signal in ("eye",):   # set to ("eye", "gaze") to compare both
 
         seconds = sum(len(R.LE_vx) for R in group) / FS
         for cond in conditions:
-            amp = pooled_events(group, signal, cond, "amplitude_deg")
-            pkv = pooled_events(group, signal, cond, "peak_velocity_deg_s")
+            amp = pooled_events(group, signal, cond, "amplitude_deg",
+                                speed_threshold, min_bout, head_still_thresh)
+            pkv = pooled_events(group, signal, cond, "peak_velocity_deg_s",
+                                speed_threshold, min_bout, head_still_thresh)
             if len(amp) < 20:
                 print(f"{title:10s} {cond:26s} only {len(amp)} events, skipped")
                 continue
@@ -210,7 +170,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 
-# %% 4. amplitude vs peak velocity by condition
+# %% 3. amplitude vs peak velocity by condition
 
 signal = "eye"
 
@@ -223,8 +183,10 @@ for ax, group, title in zip(axes, groups, titles):
         continue
 
     for cond in conditions:
-        amp = pooled_events(group, signal, cond, "amplitude_deg")
-        pkv = pooled_events(group, signal, cond, "peak_velocity_deg_s")
+        amp = pooled_events(group, signal, cond, "amplitude_deg",
+                            speed_threshold, min_bout, head_still_thresh)
+        pkv = pooled_events(group, signal, cond, "peak_velocity_deg_s",
+                            speed_threshold, min_bout, head_still_thresh)
         if len(amp) < 20:
             continue
 
@@ -245,7 +207,7 @@ for ax, group, title in zip(axes, groups, titles):
     ax.legend(fontsize=4)
 
 
-# %% 5. mean kinematic traces (the only cell needing a window)
+# %% 4. mean kinematic traces (the only cell needing a window)
 # Onset-aligned, so displacement traces start at zero by construction.
 #
 # NOTE on displacement magnitude: traces are read at a FIXED offset from onset, while
@@ -277,43 +239,11 @@ for kind in ("speed", "displacement"):
 
             traces, nominal = [], []
             for R in group:
-                for eye, df in zip(("LE", "RE"), event_dfs(R, signal)):
-                    if not len(df):
-                        continue
-
-                    if signal == "eye":
-                        vx = eye_signal(R, eye, "vx", flip_eye)
-                        vy = eye_signal(R, eye, "vy", flip_eye)
-                        px = eye_signal(R, eye, "x", flip_eye)
-                        py = eye_signal(R, eye, "y", flip_eye)
-                    else:
-                        vx = np.asarray(getattr(R, f"{eye}_ang_vel_local_x_deg_s"), float)
-                        vy = np.asarray(getattr(R, f"{eye}_ang_vel_local_y_deg_s"), float)
-                        px = np.asarray(getattr(R, f"{eye}_gaze_horizontal_deg"), float)
-                        py = np.asarray(getattr(R, f"{eye}_gaze_vertical_deg"), float)
-
-                    sig = np.sqrt(vx ** 2 + vy ** 2) if kind == "speed" else None
-
-                    keep = event_condition(R, df, condition, speed_threshold, min_bout,
-                                           head_still_thresh)
-                    amp = df[bin_col].to_numpy().astype(float)
-                    onsets = df["onset"].to_numpy().astype(int)
-                    sel = keep & (amp >= lo) & (amp < hi)
-
-                    for o in onsets[sel]:
-                        a, b = o - pre, o + post
-                        if a < 0 or b > len(px):
-                            continue
-                        if kind == "speed":
-                            tr = sig[a:b]
-                        else:
-                            dx = px[a:b] - px[o]
-                            dy = py[a:b] - py[o]
-                            tr = np.sqrt(dx ** 2 + dy ** 2)
-                        if not np.all(np.isfinite(tr)):
-                            continue
-                        traces.append(tr)
-                        nominal.append(amp[onsets == o][0])
+                t, a = event_traces(R, signal, kind, lo, hi, bin_col, condition,
+                                    pre, post, flip_eye,
+                                    speed_threshold, min_bout, head_still_thresh)
+                traces += t
+                nominal += a
 
             if len(traces) < 10:
                 continue

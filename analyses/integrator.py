@@ -42,6 +42,27 @@ print(n_sesh, "sessions loaded")
 # The integrator holds the eye at an eccentric position. A LEAKY integrator lets the eye
 # drift back toward center, so drift velocity should be negative when position is positive.
 # Slope of velocity vs position is -1/tau.
+#
+# TODO — CLEANER FRAME SELECTION (not yet implemented)
+# First pass on ferret 402/420 gives centripetal fraction ~0.50 at every age and tau that
+# swings 9.5s to 219s across threshold settings (cell 6) — so "saccade-free" as currently
+# defined is not clean enough to estimate an integrator. A real effect may still be there.
+# Candidate filters, roughly in order of expected payoff:
+#
+# 1. Head-velocity gate. Every frame here still includes head motion, so VOR-driven eye
+#    velocity is being counted as integrator drift. Gate on R.angVelocities (rad/s in the
+#    csv — convert) below some ceiling to isolate true fixation. Biggest likely confound,
+#    and would explain both the flat centripetal fraction and the threshold sensitivity.
+# 2. Position stability within the window. A run spanning a slow drift PLUS a small
+#    unlabeled saccade is currently fit as one thing. Require low position variance across
+#    the window, or reject runs whose endpoints differ by more than a few degrees.
+# 3. Blink / tracking-artifact residue. removeBadData masks on eye quality but fast junk
+#    still gets through — that is what vel_ceiling is patching. Tightening 20 -> 10 deg/s
+#    drops frames 417k -> 328k and moves tau substantially, so it is doing real work.
+# 4. Minimum hold duration. Any contiguous run currently contributes to the binned estimate;
+#    requiring ~0.5 s of continuous clean fixation first would bias toward genuine holds.
+#
+# Each would go in as a flag in this cell and a new axis in the cell 6 sweep.
 
 from analyses.helper_functions import (FS, eo_groups, fit_line, clean_runs,
                                        eye_signal, drift_frames, drift_by_position)

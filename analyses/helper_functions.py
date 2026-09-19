@@ -51,6 +51,24 @@ def head_signal(R, name):
     return np.rad2deg(v) if name.endswith("_v") else v
 
 
+def event_condition(R, df, condition, speed_threshold=100, min_bout=30,
+                    head_still_thresh=50):
+    """Boolean per EVENT: does this event's onset frame fall in `condition`?
+
+    The per-event analogue of frame_mask. condition is "all", or any combination of
+    "stationary" and "head_still" (e.g. "stationary_and_head_still").
+    """
+    onsets = df["onset"].to_numpy().astype(int) if len(df) else np.array([], int)
+    keep = np.ones(len(onsets), bool)
+    if condition == "all" or not len(onsets):
+        return keep
+    if "stationary" in condition:
+        keep &= ~running_mask(R, speed_threshold, min_bout)[onsets]
+    if "head_still" in condition:
+        keep &= head_signal(R, "speed")[onsets] < head_still_thresh
+    return keep
+
+
 def eye_signal(R, eye, key, flip_eye=None):
     """One eye signal. 'speed' is sqrt(vx^2 + vy^2).
 

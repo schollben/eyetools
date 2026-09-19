@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
+from analyses.helper_functions import EYE_COLOR
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
@@ -156,7 +157,7 @@ for ax, group, title in zip(axes, groups, titles):
         continue
 
     x, y = logamp_logvel(group)
-    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3, color="0.6")
+    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3, color=EYE_COLOR)
 
     if fit_by == "pooled":
         units = [(None, group)]

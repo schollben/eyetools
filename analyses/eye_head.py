@@ -53,7 +53,7 @@ print(n_sesh, "sessions loaded")
 # are internally consistent, so this script uses head + eye only. This is also the likely
 # explanation for the null VOR gain in vor.py.
 
-from analyses.helper_functions import (FS, HEAD_COLOR, LE_COLOR, RE_COLOR, eo_groups,
+from analyses.helper_functions import (FS, EYE_COLOR, HEAD_COLOR, LE_COLOR, RE_COLOR, eo_groups,
                                        head_saccades, head_eye_events, head_eye_traces)
 import pandas as pd
 
@@ -236,7 +236,7 @@ for group, title in zip(groups, titles):
     axes[0].scatter(H["amplitude_deg"], H["peak_velocity_deg_s"], s=1, alpha=0.1,
                     color=HEAD_COLOR)
     axes[0].scatter(E["amplitude_deg"], E["peak_velocity_deg_s"], s=1, alpha=0.1,
-                    color=LE_COLOR)
+                    color=EYE_COLOR)
 
     # 4D: peak positive head velocity vs peak negative eye velocity
     paired = E[E["lag_ms"].abs() <= pair_window / FS * 1000]

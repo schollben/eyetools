@@ -64,7 +64,7 @@ print(n_sesh, "sessions loaded")
 #
 # Each would go in as a flag in this cell and a new axis in the cell 6 sweep.
 
-from analyses.helper_functions import (FS, eo_groups, fit_line, clean_runs,
+from analyses.helper_functions import (FS, EYE_COLORS, eo_groups, fit_line, clean_runs,
                                        eye_signal, drift_frames, drift_by_position)
 
 # how panels are split: False = one panel per session, True = one panel per EO range
@@ -82,7 +82,6 @@ vel_ceiling = 20     # deg/s; drop residual fast frames the saccade detector mis
 min_run = 60         # frames, shortest contiguous clean stretch (cell 4)
 pos_bins = np.arange(-12, 13, 3)   # signed, never folded to |x|
 EYES = ("LE", "RE")
-EYE_COLORS = {"LE": "#725EE7", "RE": "#E93115"}
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 

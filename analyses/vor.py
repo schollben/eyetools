@@ -44,7 +44,7 @@ print(n_sesh, "sessions loaded")
 # and the loaders do not convert them. Every cell below converts with np.rad2deg;
 # do not edit the loading scripts.
 
-from analyses.helper_functions import (FS, LOCO_COLORS, frame_mask, head_signal,
+from analyses.helper_functions import (FS, EYE_COLOR, HEAD_COLOR, LOCO_COLORS, frame_mask, head_signal,
                                        eye_signal, head_eye_pairs, eo_groups,
                                        fit_line, clean_runs, run_xcorr)
 
@@ -79,7 +79,7 @@ for ax, group, title in zip(axes, groups, titles):
         continue
 
     h, e = head_eye_pairs(group, "speed", "speed", "all", "all")
-    sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color="0.5")
+    sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color=EYE_COLOR)
     slope, _ = fit_line(ax, h, e)
 
     ax.set_title(f"{title}  ratio={slope:.2f}")
@@ -89,7 +89,7 @@ for ax, group, title in zip(axes, groups, titles):
 # all data pooled
 fig, ax = plt.subplots(figsize=(2.5, 2.5))
 h, e = head_eye_pairs(Results, "speed", "speed", "all", "all")
-sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.2, color="0.5")
+sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.2, color=EYE_COLOR)
 slope, _ = fit_line(ax, h, e)
 ax.set_title(f"all sessions  ratio={slope:.2f}")
 ax.set_xlabel("head angular speed (deg/s)")
@@ -108,7 +108,7 @@ for ax, group, title in zip(axes, groups, titles):
         continue
 
     h, e = head_eye_pairs(group, "speed", "speed", "non_saccade", "all")
-    sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color="0.5")
+    sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color=EYE_COLOR)
     slope, _ = fit_line(ax, h, e)
 
     ax.set_title(f"{title}  ratio={slope:.2f}")
@@ -117,7 +117,7 @@ for ax, group, title in zip(axes, groups, titles):
 
 fig, ax = plt.subplots(figsize=(2.5, 2.5))
 h, e = head_eye_pairs(Results, "speed", "speed", "non_saccade", "all")
-sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.2, color="0.5")
+sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.2, color=EYE_COLOR)
 slope, _ = fit_line(ax, h, e)
 ax.set_title(f"all sessions, non-saccade  ratio={slope:.2f}")
 ax.set_xlabel("head angular speed (deg/s)")
@@ -137,7 +137,7 @@ for ax, group, title in zip(axes, groups, titles):
         continue
 
     h, e = head_eye_pairs(group, "pitch", "y", "non_saccade", "all")
-    sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color="0.5")
+    sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color=EYE_COLOR)
     slope, _ = fit_line(ax, h, e)
 
     ax.set_title(f"{title}  slope={slope:.2f}")
@@ -163,7 +163,7 @@ for ax, group, title in zip(axes, groups, titles):
 
     h, e = head_eye_pairs(group, head_attr, eye_key, "non_saccade", "all",
                           flip_eye)
-    sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color="0.5")
+    sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color=EYE_COLOR)
     slope, _ = fit_line(ax, h, e)
 
     ax.set_title(f"{title}  gain={slope:.2f}")
@@ -276,7 +276,7 @@ for ax, group, title in zip(axes, groups, titles):
     s = np.concatenate(sp)
     inds = np.isfinite(h) & np.isfinite(s)
 
-    sns.scatterplot(ax=ax, x=s[inds], y=h[inds], s=3, alpha=0.3, color="0.5")
+    sns.scatterplot(ax=ax, x=s[inds], y=h[inds], s=3, alpha=0.3, color=HEAD_COLOR)
     slope, _ = fit_line(ax, s[inds], h[inds])
 
     ax.set_title(f"{title}  slope={slope:.3f}")
@@ -390,7 +390,7 @@ for ax, group, title in zip(axes, groups, titles):
         ax.set_title(title)
         continue
 
-    for subset, color in (("all", "#444444"), ("non_saccade", "#725EE7")):
+    for subset, color in (("all", "#444444"), ("non_saccade", EYE_COLOR)):
 
         acc = np.zeros(len(lags))
         weight = 0

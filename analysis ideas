@@ -89,6 +89,9 @@ in addition, what about categorizing the different head-eye relationships? which
 
 
 
+next task: go through ALL scripts and analysis and make color scheme the same for eye and head traces. LE: soft blue, RE: soft green, head: soft purple. in cases where we are not comparing LE and RE, use soft green (default eye). 
+
+
 ##########################
 
 Following the organization and structure of main_sequence.py build a cell-based script to examine BINOCULARITY

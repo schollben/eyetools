@@ -278,24 +278,20 @@ fig.tight_layout()
 # and the effect seen immediately. One helper call supplies the event table; the rest is
 # plain numpy/pandas.
 #
-# WHY THE SHUFFLE CONTROL IS NOT OPTIONAL. Head saccade rate varies 3.3x across sessions
-# (0.90-3.01/s) and drives occupancy directly: corr(head_rate, %unpaired) = -0.736. Raw
-# percentages are therefore not comparable across sessions or ages. Measured on 402/420,
-# raw synchrony correlates +0.217 with EO (coupling appears to RISE with age) while the
-# rate-corrected sync_index correlates -0.606 (coupling FALLS: 2.44 -> 2.15 -> 1.81x chance).
-# Without the control this cell reports the opposite of what is there.
+# READ THE HEAD RATE COLUMN BEFORE COMPARING PERCENTAGES. Head saccade rate varies 3.3x
+# across sessions (0.90-3.01/s) and drives occupancy directly: a session whose head barely
+# moves has few paired saccades no matter how tightly coupled eye and head are. Measured on
+# 402/420: corr(head_rate, %unpaired) = -0.731, and corr(EO, head_rate) = +0.648 — age and
+# head rate are themselves correlated, so a raw trend with age may just be a rate trend.
+# The scatter below plots that relationship directly rather than asserting it.
 
 lead_ms = 50       # |lag| above this = one leads; below = synchronous
 pair_ms = 250      # no head saccade within this = unpaired
-n_shuffle = 20     # shuffle repeats for the chance-level control
 
-rng = np.random.default_rng(0)
 rows = []
 
 for R in Results:
     E = EVENTS[id(R)]
-    h_on = HEAD[id(R)]["onset"].to_numpy()
-    n_frames = len(R.LE_vx)
     lag = E["lag_ms"]
 
     unpaired = lag.isna() | (lag.abs() > pair_ms)
@@ -303,31 +299,18 @@ for R in Results:
     head_leads = (~unpaired) & (lag < -lead_ms)
     sync = (~unpaired) & (lag.abs() <= lead_ms)
 
-    # chance occupancy given this session's rates: random head onsets, same count
-    eye_onsets = E["onset"].to_numpy()
-    shuf_sync = []
-    for _ in range(n_shuffle):
-        hh = np.sort(rng.integers(0, n_frames, len(h_on)))
-        # nearest shuffled head onset: searchsorted gives the insertion point, so both
-        # neighbours must be checked — using only one is wrong on ~half the events.
-        i = np.searchsorted(hh, eye_onsets)
-        lo_i, hi_i = np.clip(i - 1, 0, len(hh) - 1), np.clip(i, 0, len(hh) - 1)
-        d = np.minimum(np.abs(hh[lo_i] - eye_onsets), np.abs(hh[hi_i] - eye_onsets))
-        shuf_sync.append((d <= lead_ms / 1000 * FS).mean())
-    chance = np.mean(shuf_sync)
-
     rows.append(dict(ferret=R.id, eo=R.eo, n=len(E),
-                     head_rate=len(h_on) / (n_frames / FS),
+                     head_rate=len(HEAD[id(R)]) / (len(R.LE_vx) / FS),
                      eye_leads=100 * eye_leads.mean(), sync=100 * sync.mean(),
-                     head_leads=100 * head_leads.mean(), unpaired=100 * unpaired.mean(),
-                     sync_index=(sync.mean() / chance) if chance > 0 else np.nan))
+                     head_leads=100 * head_leads.mean(), unpaired=100 * unpaired.mean()))
 
 S = pd.DataFrame(rows)
 print(S.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
 print(f"\ncorr(head_rate, %unpaired) = {S.head_rate.corr(S.unpaired):+.3f}"
       "   <- occupancy is driven by head rate")
-print(f"corr(EO, raw %sync)        = {S.eo.corr(S['sync']):+.3f}")
-print(f"corr(EO, sync_index)       = {S.eo.corr(S.sync_index):+.3f}   <- rate-corrected")
+print(f"corr(EO, head_rate)        = {S.eo.corr(S.head_rate):+.3f}"
+      "   <- age and head rate are themselves correlated")
+print(f"corr(EO, %sync)            = {S.eo.corr(S['sync']):+.3f}")
 
 fig, axes = plt.subplots(1, 3, figsize=(9, 2.4))
 
@@ -339,16 +322,26 @@ axes[0].set_ylabel("% of eye saccades")
 axes[0].tick_params(axis="x", labelsize=4, rotation=90)
 axes[0].legend(fontsize=4)
 
-# the confound itself
-axes[1].scatter(S.head_rate, S.unpaired, s=12, c=S.eo, cmap="viridis")
+# the confound itself: occupancy against head rate, colored by age
+sc = axes[1].scatter(S.head_rate, S.unpaired, s=14, c=S.eo, cmap="viridis")
 axes[1].set_xlabel("head saccade rate (/s)")
 axes[1].set_ylabel("% unpaired")
+fig.colorbar(sc, ax=axes[1], label="EO")
 
-# rate-corrected coupling vs age
-axes[2].scatter(S.eo, S.sync_index, s=12, color="k")
-axes[2].axhline(1, color="0.6", ls=":", lw=0.5)
-axes[2].set_xlabel("EO (days)")
-axes[2].set_ylabel("sync index (x chance)")
+# lag distribution per EO group, with the lead_ms boundaries drawn
+for group, title in zip(groups, titles):
+    if not group:
+        continue
+    lag = pd.concat([EVENTS[id(R)] for R in group])["lag_ms"].dropna()
+    lag = lag[lag.abs() <= pair_ms]
+    if len(lag) < 20:
+        continue
+    sns.histplot(ax=axes[2], x=lag, bins=40, element="step", fill=False, stat="density",
+                 label=f"{title} (n={len(lag)})")
+for b in (-lead_ms, lead_ms):
+    axes[2].axvline(b, color="0.6", ls=":", lw=0.5)
+axes[2].set_xlabel("head onset - eye onset (ms)")
+axes[2].legend(fontsize=4)
 
 sns.despine(fig)
 fig.tight_layout()

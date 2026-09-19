@@ -1,16 +1,69 @@
 
-lets revisit is-this-plan-saved-structured-simon.md.
+
 
 ##########################
 Monocular (all events, combine eyes):
 
-1. MAIN sequence (examine per animal)
+MAIN sequence (examine per animal)
   a. amplitude vs peak velocity
   b. amplitude vs duration
   c. amplitude vs peak velocity * duration
   *** amplitude == distance between 2 furtherest points on trajectory
 
-2. eye-head coupling & gaze shifts
+
+VOR characteristics
+  a. head pitch vs LE/RE horizontal/vertical position
+  b. head ROLL vs LE/RE horizontal/vertical position
+  c. head velocity (total ang or horizontal) vs LE/RE velocity (should see VOR and gaze shifts)
+  d. head velocity vs eye velocity OUTSIDE of gaze/eye shifts
+  e. horizontal eye velocity VS running speed (scatter or distributions)
+  stationary vs running
+
+Following the organization and structure of main_sequence.py build a cell-based script to examine VOR characteristics. 
+Data should be able to be examined on a an animal by animal basis and then pooled across animals for different age groups: 
+pool_by_eo = True  # False: one panel per session | True: one panel per EO range
+eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+Note: we must use periods of times OUTSIDE of saccades. We can decide what the window should be, but the saccade extraction helper function 
+should provide onset and peak time for each saccade event.
+Note: to combine data across eyes we may need to flip one eye's horizontal axis (sign flip)
+Here are the components to examine (best to be examined and plotted in separate cells):
+1. head total angular velocity compared to eye velocity as a scatter plot. plot a single session and plot all data together (2 separate plots). 
+if pool_by_eo=True plot all data binned by eo. these plots can contain saccade events (as compared to next section).
+2. same as (1) but OUTSIDE of saccade events
+3. head pitch vs eye vertical position (combine data from both eyes)
+4. head yaw vs eye horizontal position (combine data from both eyes)
+5. build out similar plots for stationary vs running. set a threshold for each and then regenerate plots. How else can we evaluate the relationship between VOR and running?
+6. examine distributions of head total angular velocity over time. this can only be done with pool_by_eo = True. goal to examine mean and variance as a measure of head stability.
+plots should consider stationary and running periods. plot head total angular velocity over time vs running speed for running periods (individual defined session and collapsed across binned sessions)
+What other analyses should i consider here? Ask questions.
+
+
+INTEGRATOR ('saccade free periods')
+  a. eye position vs velocity (X/Y or combine?)
+  b. biases or shifts over time for animals?
+
+Following the organization and structure of main_sequence.py build a cell-based script to INTEGRATOR ('saccade free periods') characteristics. 
+Data should be able to be examined on a an animal by animal basis and then pooled across animals for different age groups: 
+pool_by_eo = True  # False: one panel per session | True: one panel per EO range
+eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+Note: we must use periods of times OUTSIDE of saccades. We can decide what the window should be, but the saccade extraction helper function 
+should provide onset and peak time for each saccade event.
+Note: to combine data across eyes we may need to flip one eye's horizontal axis (sign flip)
+1. LE and RE position compared to velocity. Separate plots for now. 2 plots for a defined session. additional plots with binned data dependeing on 
+if pool_by_eo=True.  if pool_by_eo=True, plot all data binned by eo (3 age groups = 3 plots)
+2. examine eye position vs velocity on an animal-by-animal basis over time.
+the challenge here is to be careful how we define "saccade-free" periods. this may take some tweaking of defined thresholds. 
+What other analyses should i consider here? Ask questions.
+
+
+
+eye movement statistics (eye-in-head and eye+head)
+  a. mean saccade angular speed profiles binned by net amplitude
+  b. mean angular displacement profiles binned by net amplitude
+
+*** need to compare peak velocity timepoints for saccades? or can we examine continuous data?
+
+eye-head coupling & gaze shifts
   a. head saccade onset compared to during rotation? compare acceleration and velocity?
   b. amplitude of eye saccades vs gaze shifts (eye + head)
   c. compare properties of gaze shifts over time.  set a fixed gaze velocity threshold (? ~180 ˚/sec ?), based on gaze velocity distribution (log).
@@ -18,25 +71,21 @@ Monocular (all events, combine eyes):
   e. inter-saccade interval distributions
   f. head VS eye -> which came first? categorize types? saccades different?
 
-3. VOR characteristics
-  a. head pitch vs LE/RE horizontal/vertical position
-  b. head ROLL vs LE/RE horizontal/vertical position
-  c. head velocity (total ang or horizontal) vs LE/RE velocity (should see VOR and gaze shifts)
-  d. head velocity vs eye velocity OUTSIDE of gaze/eye shifts
-  e. horizontal eye velocity VS running speed (scatter or distributions)
-*** need to compare peak velocity timepoints for saccades? or can we examine continuous data?
+Following the organization and structure of main_sequence.py build a cell-based script to examine eye-head coupling and gaze shifts. 
+Data should be able to be examined on a an animal by animal basis and then pooled across animals for different age groups: 
+pool_by_eo = True  # False: one panel per session | True: one panel per EO range
+eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+Here are the analyses to be computed, where each should be an inidvidual cell to run:
+a. head-rotation (yaw) triggered saccade average waveform (collapsed across eyes- combine left and right eye). 
+b. examine timing of head rotations (yaw) and eye movements to characterize 
+
 
 4. counter-rotations
   a. peak velocity vs peak negative velocity of eye movements during head rotation (kerr 2026)
   b. consider head saccade onset vs during head rotation?  
 
-5. INTEGRATOR ('saccade free periods')
-  a. eye position vs velocity (X/Y or combine?)
-  b. biases or shifts over time for animals?
 
-6. saccades
-  a. mean saccade angular speed profiles binned by net amplitude
-  b. mean angular displacement profiles binned by net amplitude
+
 
 
 ##########################

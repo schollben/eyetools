@@ -39,106 +39,27 @@ n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
 
 
-# %% shared helpers
+# %% settings for every plot below
 # NOTE: roll_v/pitch_v/yaw_v are stored as rad/s in the csv (units column says "rad_s")
-# and the loaders do not convert them. Convert here; do not edit the loading scripts.
+# and the loaders do not convert them. Every cell below converts with np.rad2deg;
+# do not edit the loading scripts.
 
-FS = 120.0
-LOCO_COLORS = {"all": "#444444", "stationary": "#725EE7", "running": "#E93115"}
+from analyses.helper_functions import (FS, LOCO_COLORS, frame_mask, head_signal,
+                                       eye_signal, head_eye_pairs, eo_groups,
+                                       fit_line, clean_runs, run_xcorr)
 
+# how panels are split: False = one panel per session, True = one panel per EO range
+pool_by_eo = True
+eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
 
-def head_v(R, attr):
-    return np.rad2deg(np.asarray(getattr(R, attr), float))
+flip_RE_horizontal = True  # negate RE horizontal so both eyes can be pooled
+speed_threshold = 100      # mm/s, stationary vs running
+min_bout = 30              # frames, shortest run of frames counted as running
 
+groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
-def head_speed(R):
-    return np.rad2deg(np.asarray(R.angVelocities, float))
-
-
-def running_mask(R, speed_threshold=100, min_bout=30):
-    m = np.asarray(R.speed, float) >= speed_threshold
-    edges = np.diff(np.concatenate(([0], m.astype(int), [0])))
-    starts = np.flatnonzero(edges == 1)
-    stops = np.flatnonzero(edges == -1)
-    for a, b in zip(starts, stops):
-        if b - a < min_bout:
-            m[a:b] = False
-    return m
-
-
-def saccade_frames(R):
-    n = len(R.LE_vx)
-    sacc = np.zeros(n, bool)
-    for df in (R.df_LE, R.df_RE):
-        for onset, peak in zip(df["onset"].to_numpy(), df["peak"].to_numpy()):
-            sacc[onset:min(n, peak + 1)] = True
-    return sacc
-
-
-def frame_mask(R, sacc_subset="non_saccade", loco_subset="all",
-               speed_threshold=100, min_bout=30):
-    n = len(R.LE_vx)
-
-    if sacc_subset == "non_saccade":
-        m = non_saccade_mask(R)
-    elif sacc_subset == "saccade":
-        m = saccade_frames(R)
-    else:
-        m = np.ones(n, bool)
-
-    if loco_subset != "all":
-        run = running_mask(R, speed_threshold, min_bout)
-        m = m & (run if loco_subset == "running" else ~run & np.isfinite(R.speed))
-
-    return m
-
-
-def eye_arrays(R, key, flip_RE=True):
-    le = np.asarray(getattr(R, f"LE_{key}"), float)
-    re = np.asarray(getattr(R, f"RE_{key}"), float)
-    if flip_RE and key.endswith("x"):
-        re = -re
-    return le, re
-
-
-def head_eye_pairs(group, head_fn, eye_key, sacc_subset="non_saccade", loco_subset="all",
-                   flip_RE=True, speed_threshold=100, min_bout=30):
-    """Pool a head signal against both eyes, frame-aligned and masked."""
-    hs, es = [], []
-    for R in group:
-        h = head_fn(R)
-        m = frame_mask(R, sacc_subset, loco_subset, speed_threshold, min_bout)
-        for e in eye_arrays(R, eye_key, flip_RE):
-            hs.append(h[m])
-            es.append(e[m])
-    h = np.concatenate(hs)
-    e = np.concatenate(es)
-    inds = np.isfinite(h) & np.isfinite(e)
-    return h[inds], e[inds]
-
-
-def eo_groups(Results, pool_by_eo, eo_bins):
-    if pool_by_eo:
-        groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
-        titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
-    else:
-        groups = [[R] for R in Results]
-        titles = [f"Ferret {R.id} EO{R.eo}" for R in Results]
-    return groups, titles
-
-
-def fit_line(ax, x, y, color="k", min_n=500):
-    if len(x) < min_n:
-        return np.nan, np.nan
-    slope, intercept = np.polyfit(x, y, 1)
-    xl = np.array([x.min(), x.max()])
-    ax.plot(xl, slope * xl + intercept, color=color, lw=1)
-    return slope, intercept
-
-
-# sanity: units and per-session usable-frame counts
 print("head speed deg/s, session 0:",
-      np.round(np.nanpercentile(head_speed(Results[0]), [50, 99]), 1))
+      np.round(np.nanpercentile(np.rad2deg(Results[0].angVelocities), [50, 99]), 1))
 print()
 for R in Results:
     n = len(R.LE_vx)
@@ -149,30 +70,6 @@ for R in Results:
 
 # %% 1. head total angular velocity vs eye speed (saccades INCLUDED)
 
-pool_by_eo = True  # False: one panel per session | True: one panel per EO range
-eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
-flip_RE_horizontal = True
-sacc_subset = "all"   # "all" | "saccade" | "non_saccade"
-loco_subset = "all"   # "all" | "stationary" | "running"
-
-
-def eye_speed_pairs(group, **kw):
-    hs, es = [], []
-    for R in group:
-        h = head_speed(R)
-        m = frame_mask(R, kw.get("sacc_subset", "all"), kw.get("loco_subset", "all"))
-        vx = np.asarray(R.LE_vx, float), np.asarray(R.RE_vx, float)
-        vy = np.asarray(R.LE_vy, float), np.asarray(R.RE_vy, float)
-        for ex, ey in zip(vx, vy):
-            hs.append(h[m])
-            es.append(np.sqrt(ex[m] ** 2 + ey[m] ** 2))
-    h = np.concatenate(hs)
-    e = np.concatenate(es)
-    inds = np.isfinite(h) & np.isfinite(e)
-    return h[inds], e[inds]
-
-
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 fig, axes = create_subplot_grid(len(groups))
 
 for ax, group, title in zip(axes, groups, titles):
@@ -181,7 +78,7 @@ for ax, group, title in zip(axes, groups, titles):
         ax.set_title(title)
         continue
 
-    h, e = eye_speed_pairs(group, sacc_subset=sacc_subset, loco_subset=loco_subset)
+    h, e = head_eye_pairs(group, "speed", "speed", "all", "all")
     sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color="0.5")
     slope, _ = fit_line(ax, h, e)
 
@@ -191,7 +88,7 @@ for ax, group, title in zip(axes, groups, titles):
 
 # all data pooled
 fig, ax = plt.subplots(figsize=(2.5, 2.5))
-h, e = eye_speed_pairs(Results, sacc_subset=sacc_subset, loco_subset=loco_subset)
+h, e = head_eye_pairs(Results, "speed", "speed", "all", "all")
 sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.2, color="0.5")
 slope, _ = fit_line(ax, h, e)
 ax.set_title(f"all sessions  ratio={slope:.2f}")
@@ -202,12 +99,6 @@ sns.despine(fig)
 
 # %% 2. head total angular velocity vs eye speed, OUTSIDE saccades
 
-pool_by_eo = True
-eo_bins = [(0, 4), (5, 9), (10, 20)]
-sacc_subset = "non_saccade"
-loco_subset = "all"
-
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 fig, axes = create_subplot_grid(len(groups))
 
 for ax, group, title in zip(axes, groups, titles):
@@ -216,7 +107,7 @@ for ax, group, title in zip(axes, groups, titles):
         ax.set_title(title)
         continue
 
-    h, e = eye_speed_pairs(group, sacc_subset=sacc_subset, loco_subset=loco_subset)
+    h, e = head_eye_pairs(group, "speed", "speed", "non_saccade", "all")
     sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color="0.5")
     slope, _ = fit_line(ax, h, e)
 
@@ -225,7 +116,7 @@ for ax, group, title in zip(axes, groups, titles):
     ax.set_ylabel("eye speed (deg/s)")
 
 fig, ax = plt.subplots(figsize=(2.5, 2.5))
-h, e = eye_speed_pairs(Results, sacc_subset=sacc_subset, loco_subset=loco_subset)
+h, e = head_eye_pairs(Results, "speed", "speed", "non_saccade", "all")
 sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.2, color="0.5")
 slope, _ = fit_line(ax, h, e)
 ax.set_title(f"all sessions, non-saccade  ratio={slope:.2f}")
@@ -237,12 +128,6 @@ sns.despine(fig)
 # %% 3. head POSITION vs eye position (static counter-roll, NOT VOR)
 # pitch only: roll is too noisy, and yaw has no local position signal in the csv
 
-pool_by_eo = True
-eo_bins = [(0, 4), (5, 9), (10, 20)]
-sacc_subset = "non_saccade"
-loco_subset = "all"
-
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 fig, axes = create_subplot_grid(len(groups))
 
 for ax, group, title in zip(axes, groups, titles):
@@ -251,8 +136,7 @@ for ax, group, title in zip(axes, groups, titles):
         ax.set_title(title)
         continue
 
-    h, e = head_eye_pairs(group, lambda R: np.asarray(R.pitch, float), "y",
-                          sacc_subset, loco_subset)
+    h, e = head_eye_pairs(group, "pitch", "y", "non_saccade", "all")
     sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color="0.5")
     slope, _ = fit_line(ax, h, e)
 
@@ -264,17 +148,11 @@ for ax, group, title in zip(axes, groups, titles):
 # %% 4. head VELOCITY vs eye velocity, signed per-axis (VOR)
 # slope here IS signed VOR gain and should be NEGATIVE (eye counter-rotates)
 
-pool_by_eo = True
-eo_bins = [(0, 4), (5, 9), (10, 20)]
 axis = "horizontal"   # "horizontal": yaw_v vs vx | "vertical": pitch_v vs vy
-flip_RE_horizontal = True
-sacc_subset = "non_saccade"
-loco_subset = "all"
 
 head_attr = "yaw_v" if axis == "horizontal" else "pitch_v"
 eye_key = "vx" if axis == "horizontal" else "vy"
 
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 fig, axes = create_subplot_grid(len(groups))
 
 for ax, group, title in zip(axes, groups, titles):
@@ -283,8 +161,8 @@ for ax, group, title in zip(axes, groups, titles):
         ax.set_title(title)
         continue
 
-    h, e = head_eye_pairs(group, lambda R: head_v(R, head_attr), eye_key,
-                          sacc_subset, loco_subset, flip_RE_horizontal)
+    h, e = head_eye_pairs(group, head_attr, eye_key, "non_saccade", "all",
+                          flip_RE_horizontal)
     sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color="0.5")
     slope, _ = fit_line(ax, h, e)
 
@@ -295,17 +173,11 @@ for ax, group, title in zip(axes, groups, titles):
 
 # %% 5. VOR split by locomotor state
 
-pool_by_eo = True
-eo_bins = [(0, 4), (5, 9), (10, 20)]
 axis = "horizontal"
-speed_threshold = 100  # mm/s
-min_bout = 30          # frames (250 ms at 120 Hz)
-sacc_subset = "non_saccade"
 
 head_attr = "yaw_v" if axis == "horizontal" else "pitch_v"
 eye_key = "vx" if axis == "horizontal" else "vy"
 
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 fig, axes = create_subplot_grid(len(groups))
 
 for ax, group, title in zip(axes, groups, titles):
@@ -316,9 +188,8 @@ for ax, group, title in zip(axes, groups, titles):
 
     slopes = {}
     for state in ("stationary", "running"):
-        h, e = head_eye_pairs(group, lambda R: head_v(R, head_attr), eye_key,
-                              sacc_subset, state, flip_RE_horizontal,
-                              speed_threshold, min_bout)
+        h, e = head_eye_pairs(group, head_attr, eye_key, "non_saccade", state,
+                              flip_RE_horizontal, speed_threshold, min_bout)
         sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color=LOCO_COLORS[state])
         slopes[state], _ = fit_line(ax, h, e, color=LOCO_COLORS[state])
 
@@ -339,12 +210,12 @@ for group, title in zip(groups, titles):
     for lo, hi in zip(speed_edges[:-1], speed_edges[1:]):
         hs, es = [], []
         for R in group:
-            m = frame_mask(R, sacc_subset, "all") & (np.asarray(R.speed, float) >= lo) \
-                & (np.asarray(R.speed, float) < hi)
-            h = head_v(R, head_attr)
-            for e in eye_arrays(R, eye_key, flip_RE_horizontal):
+            speed = np.asarray(R.speed, float)
+            m = frame_mask(R, "non_saccade", "all") & (speed >= lo) & (speed < hi)
+            h = head_signal(R, head_attr)
+            for eye in ("LE", "RE"):
                 hs.append(h[m])
-                es.append(e[m])
+                es.append(eye_signal(R, eye, eye_key, flip_RE_horizontal)[m])
         h = np.concatenate(hs)
         e = np.concatenate(es)
         inds = np.isfinite(h) & np.isfinite(e)
@@ -363,12 +234,6 @@ sns.despine(fig)
 
 # %% 6. head angular speed distributions (head stability) — requires pool_by_eo
 
-eo_bins = [(0, 4), (5, 9), (10, 20)]
-speed_threshold = 100
-min_bout = 30
-
-groups, titles = eo_groups(Results, True, eo_bins)
-
 fig, ax = plt.subplots(figsize=(3.5, 2.5))
 
 for group, title in zip(groups, titles):
@@ -377,7 +242,7 @@ for group, title in zip(groups, titles):
         continue
 
     for state, ls in (("stationary", "-"), ("running", "--")):
-        vals = np.concatenate([head_speed(R)[frame_mask(R, "all", state,
+        vals = np.concatenate([head_signal(R, "speed")[frame_mask(R, "all", state,
                                                         speed_threshold, min_bout)]
                                for R in group])
         vals = vals[np.isfinite(vals)]
@@ -405,7 +270,7 @@ for ax, group, title in zip(axes, groups, titles):
     hs, sp = [], []
     for R in group:
         m = frame_mask(R, "all", "running", speed_threshold, min_bout)
-        hs.append(head_speed(R)[m])
+        hs.append(head_signal(R, "speed")[m])
         sp.append(np.asarray(R.speed, float)[m])
     h = np.concatenate(hs)
     s = np.concatenate(sp)
@@ -422,11 +287,7 @@ for ax, group, title in zip(axes, groups, titles):
 # %% 7. gain vs EO summary (unsigned ratio and signed per-axis gain)
 
 fit_by = "pooled"  # "pooled": one fit per EO bin | "session": one fit per session
-eo_bins = [(0, 4), (5, 9), (10, 20)]
 min_n = 500  # frames; sessions with little valid eye data give meaningless fits
-sacc_subset = "non_saccade"
-
-groups, titles = eo_groups(Results, True, eo_bins)
 
 rows = []  # (measure, bin, id, slope)
 
@@ -439,7 +300,7 @@ for group, title in zip(groups, titles):
 
     for uid, unit in units:
 
-        h, e = eye_speed_pairs(unit, sacc_subset=sacc_subset)
+        h, e = head_eye_pairs(unit, "speed", "speed", "non_saccade", "all")
         if len(h) >= min_n:
             rows.append(("speed ratio", title, uid, np.polyfit(h, e, 1)[0]))
         else:
@@ -447,7 +308,7 @@ for group, title in zip(groups, titles):
 
         for ax_name, hattr, ekey in (("gain horizontal", "yaw_v", "vx"),
                                      ("gain vertical", "pitch_v", "vy")):
-            h, e = head_eye_pairs(unit, lambda R: head_v(R, hattr), ekey, sacc_subset)
+            h, e = head_eye_pairs(unit, hattr, ekey, "non_saccade")
             if len(h) >= min_n:
                 rows.append((ax_name, title, uid, np.polyfit(h, e, 1)[0]))
 
@@ -478,15 +339,12 @@ for r in rows:
 
 # %% 8. gain vs head-velocity magnitude
 
-eo_bins = [(0, 4), (5, 9), (10, 20)]
 axis = "horizontal"
-sacc_subset = "non_saccade"
 mag_edges = np.arange(0, 220, 20)  # deg/s
 
 head_attr = "yaw_v" if axis == "horizontal" else "pitch_v"
 eye_key = "vx" if axis == "horizontal" else "vy"
 
-groups, titles = eo_groups(Results, True, eo_bins)
 fig, ax = plt.subplots(figsize=(3, 2))
 
 for group, title in zip(groups, titles):
@@ -494,7 +352,7 @@ for group, title in zip(groups, titles):
     if not group:
         continue
 
-    h, e = head_eye_pairs(group, lambda R: head_v(R, head_attr), eye_key, sacc_subset)
+    h, e = head_eye_pairs(group, head_attr, eye_key, "non_saccade")
 
     centers, gains = [], []
     for lo, hi in zip(mag_edges[:-1], mag_edges[1:]):
@@ -514,24 +372,17 @@ sns.despine(fig)
 
 # %% 9. eye-head velocity cross-correlation (VOR latency vs gaze-shift coordination)
 
-eo_bins = [(0, 4), (5, 9), (10, 20)]
+# computed over contiguous NaN-free runs, length-weighted — no zero-filling
+
 axis = "horizontal"
-max_lag = 30  # frames (250 ms at 120 Hz)
+max_lag = 15  # frames (125 ms at 120 Hz)
+min_run = 4 * max_lag  # frames; shortest run worth correlating
 
 head_attr = "yaw_v" if axis == "horizontal" else "pitch_v"
 eye_key = "vx" if axis == "horizontal" else "vy"
 
-groups, titles = eo_groups(Results, True, eo_bins)
 fig, axes = create_subplot_grid(len(groups))
 lags = np.arange(-max_lag, max_lag + 1)
-
-
-def zscore_fill(v):
-    v = v.copy()
-    v[~np.isfinite(v)] = 0.0
-    sd = v.std()
-    return (v - v.mean()) / sd if sd > 0 else v
-
 
 for ax, group, title in zip(axes, groups, titles):
 
@@ -542,22 +393,30 @@ for ax, group, title in zip(axes, groups, titles):
     for subset, color in (("all", "#444444"), ("non_saccade", "#725EE7")):
 
         acc = np.zeros(len(lags))
-        n_used = 0
+        weight = 0
+        n_runs = 0
         for R in group:
-            m = frame_mask(R, subset, "all")
-            h = head_v(R, head_attr) * m
-            for e in eye_arrays(R, eye_key, flip_RE_horizontal):
-                hz = zscore_fill(h)
-                ez = zscore_fill(e * m)
-                cc = np.correlate(ez, hz, mode="full") / len(hz)
-                mid = len(hz) - 1
-                acc += cc[mid - max_lag: mid + max_lag + 1]
-                n_used += 1
+            h = head_signal(R, head_attr)
+            m = frame_mask(R, subset, "all") & np.isfinite(h)
+            for eye in ("LE", "RE"):
+                e = eye_signal(R, eye, eye_key, flip_RE_horizontal)
+                for a, b in clean_runs(m & np.isfinite(e), min_run):
+                    cc = run_xcorr(h[a:b], e[a:b], max_lag)
+                    if cc is None:
+                        continue
+                    acc += cc * (b - a)
+                    weight += b - a
+                    n_runs += 1
 
-        cc = acc / n_used
+        if weight == 0:
+            print(f"{title:10s} {subset:12s} no usable runs")
+            continue
+
+        cc = acc / weight
         ax.plot(lags / FS * 1000, cc, color=color, lw=1, label=subset)
         peak_ms = lags[np.argmax(np.abs(cc))] / FS * 1000
-        print(f"{title:10s} {subset:12s} peak lag = {peak_ms:+.1f} ms")
+        print(f"{title:10s} {subset:12s} peak lag = {peak_ms:+6.1f} ms  "
+              f"r = {cc[np.argmax(np.abs(cc))]:+.3f}  runs={n_runs:5d}  frames={weight}")
 
     ax.axvline(0, color="0.8", lw=0.5)
     ax.set_title(title)

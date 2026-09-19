@@ -52,7 +52,7 @@ from analyses.helper_functions import (FS, LOCO_COLORS, frame_mask, head_signal,
 pool_by_eo = True
 eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
 
-flip_RE_horizontal = True  # negate RE horizontal so both eyes can be pooled
+flip_eye = "RE"  # put both eyes in a common conjugate frame (None = nasal/temporal)
 speed_threshold = 100      # mm/s, stationary vs running
 min_bout = 30              # frames, shortest run of frames counted as running
 
@@ -162,7 +162,7 @@ for ax, group, title in zip(axes, groups, titles):
         continue
 
     h, e = head_eye_pairs(group, head_attr, eye_key, "non_saccade", "all",
-                          flip_RE_horizontal)
+                          flip_eye)
     sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color="0.5")
     slope, _ = fit_line(ax, h, e)
 
@@ -189,7 +189,7 @@ for ax, group, title in zip(axes, groups, titles):
     slopes = {}
     for state in ("stationary", "running"):
         h, e = head_eye_pairs(group, head_attr, eye_key, "non_saccade", state,
-                              flip_RE_horizontal, speed_threshold, min_bout)
+                              flip_eye, speed_threshold, min_bout)
         sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color=LOCO_COLORS[state])
         slopes[state], _ = fit_line(ax, h, e, color=LOCO_COLORS[state])
 
@@ -215,7 +215,7 @@ for group, title in zip(groups, titles):
             h = head_signal(R, head_attr)
             for eye in ("LE", "RE"):
                 hs.append(h[m])
-                es.append(eye_signal(R, eye, eye_key, flip_RE_horizontal)[m])
+                es.append(eye_signal(R, eye, eye_key, flip_eye)[m])
         h = np.concatenate(hs)
         e = np.concatenate(es)
         inds = np.isfinite(h) & np.isfinite(e)
@@ -308,7 +308,7 @@ for group, title in zip(groups, titles):
 
         for ax_name, hattr, ekey in (("gain horizontal", "yaw_v", "vx"),
                                      ("gain vertical", "pitch_v", "vy")):
-            h, e = head_eye_pairs(unit, hattr, ekey, "non_saccade")
+            h, e = head_eye_pairs(unit, hattr, ekey, "non_saccade", "all", flip_eye)
             if len(h) >= min_n:
                 rows.append((ax_name, title, uid, np.polyfit(h, e, 1)[0]))
 
@@ -352,7 +352,7 @@ for group, title in zip(groups, titles):
     if not group:
         continue
 
-    h, e = head_eye_pairs(group, head_attr, eye_key, "non_saccade")
+    h, e = head_eye_pairs(group, head_attr, eye_key, "non_saccade", "all", flip_eye)
 
     centers, gains = [], []
     for lo, hi in zip(mag_edges[:-1], mag_edges[1:]):
@@ -399,7 +399,7 @@ for ax, group, title in zip(axes, groups, titles):
             h = head_signal(R, head_attr)
             m = frame_mask(R, subset, "all") & np.isfinite(h)
             for eye in ("LE", "RE"):
-                e = eye_signal(R, eye, eye_key, flip_RE_horizontal)
+                e = eye_signal(R, eye, eye_key, flip_eye)
                 for a, b in clean_runs(m & np.isfinite(e), min_run):
                     cc = run_xcorr(h[a:b], e[a:b], max_lag)
                     if cc is None:

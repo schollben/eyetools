@@ -43,15 +43,6 @@ def frame_mask(R, sacc_subset="non_saccade", loco_subset="all",
     return m
 
 
-def eye_arrays(R, key, flip_RE=True):
-    """LE and RE copies of one eye signal, RE negated for horizontal keys."""
-    le = np.asarray(getattr(R, f"LE_{key}"), float)
-    re = np.asarray(getattr(R, f"RE_{key}"), float)
-    if flip_RE and key.endswith("x"):
-        re = -re
-    return le, re
-
-
 def head_signal(R, name):
     """One head signal in degrees. Velocities are stored as rad/s, so convert."""
     if name == "speed":
@@ -60,18 +51,25 @@ def head_signal(R, name):
     return np.rad2deg(v) if name.endswith("_v") else v
 
 
-def eye_signal(R, eye, key, flip_RE=True):
-    """One eye signal. 'speed' is sqrt(vx^2 + vy^2); horizontal keys flip RE."""
+def eye_signal(R, eye, key, flip_eye=None):
+    """One eye signal. 'speed' is sqrt(vx^2 + vy^2).
+
+    flip_eye: None keeps each eye in its own nasal/temporal frame (correct for
+    integrator/drift, where the eye drifts toward its own orbital center). "LE" or "RE"
+    negates that eye's horizontal signal to put both eyes in a common conjugate frame
+    (needed for VOR and binocular measures). Which eye is flipped only sets a global sign
+    on the shared axis.
+    """
     if key == "speed":
         vx = np.asarray(getattr(R, f"{eye}_vx"), float)
         vy = np.asarray(getattr(R, f"{eye}_vy"), float)
         return np.sqrt(vx ** 2 + vy ** 2)
     v = np.asarray(getattr(R, f"{eye}_{key}"), float)
-    return -v if flip_RE and eye == "RE" and key.endswith("x") else v
+    return -v if eye == flip_eye and key.endswith("x") else v
 
 
 def head_eye_pairs(group, head_name, eye_key, sacc_subset="non_saccade", loco_subset="all",
-                   flip_RE=True, speed_threshold=100, min_bout=30):
+                   flip_eye=None, speed_threshold=100, min_bout=30):
     """Pool a head signal against both eyes, frame-aligned and masked.
 
     head_name: "speed" (total angular speed), "yaw_v", "pitch_v", "pitch", "roll"
@@ -83,11 +81,52 @@ def head_eye_pairs(group, head_name, eye_key, sacc_subset="non_saccade", loco_su
         m = frame_mask(R, sacc_subset, loco_subset, speed_threshold, min_bout)
         for eye in ("LE", "RE"):
             hs.append(h[m])
-            es.append(eye_signal(R, eye, eye_key, flip_RE)[m])
+            es.append(eye_signal(R, eye, eye_key, flip_eye)[m])
     h = np.concatenate(hs)
     e = np.concatenate(es)
     inds = np.isfinite(h) & np.isfinite(e)
     return h[inds], e[inds]
+
+
+def drift_frames(R, eye, pad_post=24, pad_pre=3, vel_ceiling=20, flip_eye=None):
+    """Saccade-free (position, velocity) frames for one eye. Horizontal only."""
+    x = eye_signal(R, eye, "x", flip_eye)
+    v = eye_signal(R, eye, "vx", flip_eye)
+    m = non_saccade_mask(R, pad_pre=pad_pre, pad_post=pad_post)
+    m = m & np.isfinite(x) & np.isfinite(v)
+    if vel_ceiling:
+        m = m & (np.abs(v) < vel_ceiling)
+    return x[m], v[m], m
+
+
+def drift_by_position(group, eyes, bins, pad_post=24, pad_pre=3, vel_ceiling=20,
+                      flip_eye=None, center=True):
+    """Mean drift velocity per signed eye-position bin.
+
+    Returns centers, means, sems, counts — one entry per bin, NaN where a bin is empty.
+    """
+    xs, vs = [], []
+    for R in group:
+        for eye in eyes:
+            x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye)
+            if center and len(x):
+                x = x - np.median(x)
+            xs.append(x)
+            vs.append(v)
+    x = np.concatenate(xs) if xs else np.array([])
+    v = np.concatenate(vs) if vs else np.array([])
+
+    centers = (bins[:-1] + bins[1:]) / 2
+    means = np.full(len(centers), np.nan)
+    sems = np.full(len(centers), np.nan)
+    counts = np.zeros(len(centers), int)
+    for i, (lo, hi) in enumerate(zip(bins[:-1], bins[1:])):
+        sel = (x >= lo) & (x < hi)
+        counts[i] = sel.sum()
+        if counts[i] > 1:
+            means[i] = v[sel].mean()
+            sems[i] = v[sel].std() / np.sqrt(counts[i])
+    return centers, means, sems, counts
 
 
 def clean_runs(mask, min_len):

@@ -18,6 +18,7 @@ plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
+AGE_COLORS = ["#989898", "#666666", "#222222"]
 
 # LOAD DATA
 SESSION = getSesh.by_ferret(402, 405, 407, 420) # 753, 757 -> look carefully at these files
@@ -36,7 +37,7 @@ print(n_sesh, "sessions loaded")
 
 # %% settings for every plot below
 pool_by_eo = True                     # False: one panel per session | True: one panel per EO range
-eo_bins = [(0, 2), (3, 9), (10, 20)]
+eo_bins = [(0, 3), (4, 7), (8, 20)]
 fit_by = "session"                      # "pooled": one fit per EO bin | "session": one fit per session
 min_n = 5                              # minimum number of saccades a group must have before it gets fitted
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
@@ -134,16 +135,17 @@ for ax, group, title in zip(axes, groups, titles):
 sns.despine(fig)
 
 fig, ax = plt.subplots(figsize=(3, 2))
-bins = [f[0] for f in fits]
-slopes = [f[2] for f in fits]
 
-if fit_by == "pooled":
-    sns.barplot(ax=ax, x=bins, y=slopes)
-else:
-    sns.barplot(ax=ax, x=bins, y=slopes, errorbar="sd", color="0.8")
-    sns.stripplot(ax=ax, x=bins, y=slopes, size=3, color="k")
+for i, title in enumerate(titles):
+    slopes = [f[2] for f in fits if f[0] == title]
+    if not slopes:
+        continue
+    ax.plot(np.full(len(slopes), i - 0.1), slopes, "o", ms=3, color=AGE_COLORS[i])
+    ax.plot(i + 0.1, np.median(slopes), "o", ms=7, mfc="white", mew=1.5, color=AGE_COLORS[i])
 
+ax.set_xticks(range(len(titles)), titles)
 ax.set_ylabel("main sequence slope")
+ax.set(ylim=[0.5, 1])
 sns.despine(fig)
 
 for f in fits:
@@ -164,16 +166,24 @@ for group, title in zip(groups, titles):
     group_amp.append(v1)
     group_vel.append(v2)
 
-    sns.histplot(ax=axes[0], x=v1, bins=40, element="step", fill=False, stat="density", label=title)
-    sns.histplot(ax=axes[1], x=v2, bins=40, element="step", fill=False, stat="density", label=title)
+    sns.histplot(ax=axes[0], x=v1, bins=80, element="step", fill=False, stat="density", 
+                 label=title, 
+                 color=AGE_COLORS[titles.index(title)])
+
+    sns.histplot(ax=axes[1], x=v2, bins=80, element="step", fill=False, stat="density",
+                 label=title, 
+                 color=AGE_COLORS[titles.index(title)])
 
 axes[0].set_xlabel("log10 amplitude (deg)")
 axes[1].set_xlabel("log10 peak velocity (deg/s)")
 axes[0].legend()
 sns.despine(fig)
 
+#stats: comparing amplitude and velocity distributions between EO bins
+# mann whitney u test
+# rank-biserial correlation — the effect size for the Mann-Whitney test
+#  Bonferroni correction p value
 pairs = [(0, 1), (0, 2), (1, 2)]
-
 for name, vals in [("amp", group_amp), ("vel", group_vel)]:
     for i, j in pairs:
         u, p = mwu(vals[i], vals[j])

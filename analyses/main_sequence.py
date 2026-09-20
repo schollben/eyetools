@@ -5,11 +5,10 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-# tools
 from utils import create_subplot_grid, load_session_data, process_session, removeBadData, getSesh
 from utils import create_subplot_grid
 import numpy as np
-# plotting setup
+from scipy.stats import mannwhitneyu as mwu
 import plotly.graph_objects as go
 from utils.config import SAVELOC
 import matplotlib.pyplot as plt
@@ -21,41 +20,32 @@ plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
 
 # LOAD DATA
-# delayed vision: 416,411,403
-SESSION = getSesh.by_ferret(402, 420)    # multiple — preserves order by ferret
-# SESSION = getSesh.by_ferret(753)          # or load sessions from an inidividual ID
-#SESSION = getSesh.by_name("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
-#SESSION = getSesh.by_name("session_2026-03-16_ferret_403_P49_E7_analyzable_output") # or load a specific session by name
-#SESSION = getSesh.by_eo(7)      # or load sessions by a single EO number
-#SESSION = getSesh.by_eo(10,20)   # or load sessions by an EO range (inclusive)
-
+SESSION = getSesh.by_ferret(402, 405, 407, 420) # 753, 757 -> look carefully at these files
 Results = []
 for session in SESSION:
     
     R = load_session_data(session)
     removeBadData(R)
     process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=2,
-                    velocity_threshold_head=2, min_duration=12, min_inter_event=12)
+                    velocity_threshold_eye=40, velocity_threshold_gaze=40,
+                    velocity_threshold_head=1, min_duration=8, min_inter_event=8)
     Results.append(R)
-
 n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
 
 
 # %% settings for every plot below
-pool_by_eo = True                      # False: one panel per session | True: one panel per EO range
-eo_bins = [(0, 4), (5, 9), (10, 20)]
-fit_by = "pooled"                      # "pooled": one fit per EO bin | "session": one fit per session
-min_n = 5
-
+pool_by_eo = True                     # False: one panel per session | True: one panel per EO range
+eo_bins = [(0, 2), (3, 9), (10, 20)]
+fit_by = "session"                      # "pooled": one fit per EO bin | "session": one fit per session
+min_n = 5                              # minimum number of saccades a group must have before it gets fitted
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
-# %% plots
+
+# %% scatter plots
 # amplitude vs peak velocity (log-log), eyes combined
 
 fig, axes = create_subplot_grid(len(groups))
-
 for ax, group, title in zip(axes, groups, titles):
 
     if not group:
@@ -71,19 +61,15 @@ for ax, group, title in zip(axes, groups, titles):
     y = np.log10(abs(pkv))
 
     sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3)
-
-
     
     ax.set_title(title)
-    ax.axis([0.25, 1.75, 1.5, 3])  # [xmin, xmax, ymin, ymax]
+    ax.axis([0.25, 1.75, 1, 3])  # [xmin, xmax, ymin, ymax]
     ax.set_xlabel("log10 amplitude (deg)")
     ax.set_ylabel("log10 peak velocity (deg/s)")
 
 
 # amplitude vs duration (ms), eyes combined
-
 fig, axes = create_subplot_grid(len(groups))
-
 for ax, group, title in zip(axes, groups, titles):
 
     if not group:
@@ -106,9 +92,6 @@ for ax, group, title in zip(axes, groups, titles):
     ax.axis([0, 40, 0, 500])  # [xmin, xmax, ymin, ymax]
     ax.set_xlabel("Amplitude (deg)")
     ax.set_ylabel("Duration (ms)")
-
-
-# %%
 
 
 # %% main sequence fit per EO bin
@@ -144,7 +127,7 @@ for ax, group, title in zip(axes, groups, titles):
         ax.plot(xl, slope * xl + intercept, lw=1)
 
     ax.set_title(title)
-    ax.axis([0.25, 1.75, 1.5, 3])
+    ax.axis([0.25, 1.75, 1, 3])
     ax.set_xlabel("log10 amplitude (deg)")
     ax.set_ylabel("log10 peak velocity (deg/s)")
 
@@ -170,24 +153,34 @@ for f in fits:
 # %% marginal amplitude / velocity distributions per EO bin
 
 fig, axes = plt.subplots(1, 2, figsize=(6, 2))
-
+group_amp = []
+group_vel = []
 for group, title in zip(groups, titles):
 
     if not group:
         continue
 
-    x, y = logamp_logvel(group)
+    v1, v2 = logamp_logvel(group)
+    group_amp.append(v1)
+    group_vel.append(v2)
 
-    sns.histplot(ax=axes[0], x=x, bins=40, element="step", fill=False, stat="density", label=title)
-    sns.histplot(ax=axes[1], x=y, bins=40, element="step", fill=False, stat="density", label=title)
-
-    print(f"{title}  amp median={np.median(x):.3f} IQR={np.subtract(*np.percentile(x, [75, 25])):.3f}"
-          f"  vel median={np.median(y):.3f} IQR={np.subtract(*np.percentile(y, [75, 25])):.3f}")
+    sns.histplot(ax=axes[0], x=v1, bins=40, element="step", fill=False, stat="density", label=title)
+    sns.histplot(ax=axes[1], x=v2, bins=40, element="step", fill=False, stat="density", label=title)
 
 axes[0].set_xlabel("log10 amplitude (deg)")
 axes[1].set_xlabel("log10 peak velocity (deg/s)")
 axes[0].legend()
 sns.despine(fig)
+
+pairs = [(0, 1), (0, 2), (1, 2)]
+
+for name, vals in [("amp", group_amp), ("vel", group_vel)]:
+    for i, j in pairs:
+        u, p = mwu(vals[i], vals[j])
+        r = 1 - 2 * u / (len(vals[i]) * len(vals[j]))
+        print(f"{name}  {titles[i]} vs {titles[j]}  "
+              f"median {np.median(vals[i]):.3f} vs {np.median(vals[j]):.3f}  "
+              f"r={r:+.3f}  p={min(1.0, p * len(pairs)):.3e}")
 
 
 # %% residual tightness per EO bin

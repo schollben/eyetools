@@ -23,7 +23,7 @@ plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
 
-# %% load data, delayed vision: 416,411,403
+# %% load data, delayed vision: 416,411,403 **********
 # SESSION = getSesh.by_ferret(402, 420)    # multiple — preserves order by ferret
 SESSION = getSesh.by_ferret(402)          # or load sessions from an inidividual ID
 #SESSION = getSesh.by_name("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
@@ -45,6 +45,7 @@ n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
 # to look at data execute: launch_viewer(load_session_data(SESSION[n]))
 # or launch_viewer(R) if there is only 1 session in the list
+
 
 
 # %% BASIC PLOTS: saccade-triggered average of eye position and head rotation

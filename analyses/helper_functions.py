@@ -519,3 +519,15 @@ def conjugate_samples(group, data_mode="events", signal="velocity", flip_eye="RE
     if data_mode == "both":
         return finite(ev_l, ev_r) + finite(co_l, co_r)
     return finite(ev_l, ev_r) if data_mode == "events" else finite(co_l, co_r)
+
+
+def logamp_logvel(group):
+    """log10 amplitude and log10 peak velocity, both eyes pooled over a session group."""
+    amp = np.concatenate([np.concatenate([R.df_LE["amplitude_deg"].to_numpy(),
+                                          R.df_RE["amplitude_deg"].to_numpy()]) for R in group]).astype(float)
+    pkv = np.concatenate([np.concatenate([R.df_LE["peak_velocity_deg_s"].to_numpy(),
+                                          R.df_RE["peak_velocity_deg_s"].to_numpy()]) for R in group]).astype(float)
+    x = np.log10(abs(amp))
+    y = np.log10(abs(pkv))
+    inds = np.isfinite(x) & np.isfinite(y)
+    return x[inds], y[inds]

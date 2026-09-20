@@ -14,7 +14,7 @@ import plotly.graph_objects as go
 from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import EYE_COLOR
+from analyses.helper_functions import EYE_COLOR, eo_groups, logamp_logvel
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
@@ -22,7 +22,6 @@ plt.rcParams['svg.fonttype'] = 'none'
 
 # LOAD DATA
 # delayed vision: 416,411,403
-
 SESSION = getSesh.by_ferret(402, 420)    # multiple — preserves order by ferret
 # SESSION = getSesh.by_ferret(753)          # or load sessions from an inidividual ID
 #SESSION = getSesh.by_name("session_2025-07-09_ferret_757_EyeCameras_P41_E13_analyzable_output") # or load a specific session by name
@@ -43,23 +42,19 @@ for session in SESSION:
 n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
 
+
+# %% settings for every plot below
+pool_by_eo = True                      # False: one panel per session | True: one panel per EO range
+eo_bins = [(0, 4), (5, 9), (10, 20)]
+fit_by = "pooled"                      # "pooled": one fit per EO bin | "session": one fit per session
+min_n = 5
+
+groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
+
 # %% plots
 # amplitude vs peak velocity (log-log), eyes combined
 
-pool_by_eo = True  # False: one panel per session | True: one panel per EO range
-eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
-
-if pool_by_eo:
-
-    fig, axes = create_subplot_grid(len(eo_bins))
-    groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
-    titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
-
-else:
-
-    fig, axes = create_subplot_grid(n_sesh)
-    groups = [[R] for R in Results]
-    titles = [f"Ferret {R.id}" for R in Results]
+fig, axes = create_subplot_grid(len(groups))
 
 for ax, group, title in zip(axes, groups, titles):
 
@@ -87,19 +82,7 @@ for ax, group, title in zip(axes, groups, titles):
 
 # amplitude vs duration (ms), eyes combined
 
-pool_by_eo = True  # False: one panel per session | True: one panel per EO range
-eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
-
-if pool_by_eo:
-
-    fig, axes = create_subplot_grid(len(eo_bins))
-    groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
-    titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
-else:
-
-    fig, axes = create_subplot_grid(n_sesh)
-    groups = [[R] for R in Results]
-    titles = [f"Ferret {R.id}" for R in Results]
+fig, axes = create_subplot_grid(len(groups))
 
 for ax, group, title in zip(axes, groups, titles):
 
@@ -130,23 +113,7 @@ for ax, group, title in zip(axes, groups, titles):
 
 # %% main sequence fit per EO bin
 
-fit_by = "pooled"  # "pooled": one fit per EO bin | "session": one fit per session
-eo_bins = [(0, 4), (5, 9), (10, 20)]
-min_n = 5
-
-def logamp_logvel(group):
-    amp = np.concatenate([np.concatenate([R.df_LE["amplitude_deg"].to_numpy(),
-                                          R.df_RE["amplitude_deg"].to_numpy()]) for R in group]).astype(float)
-    pkv = np.concatenate([np.concatenate([R.df_LE["peak_velocity_deg_s"].to_numpy(),
-                                          R.df_RE["peak_velocity_deg_s"].to_numpy()]) for R in group]).astype(float)
-    x = np.log10(abs(amp))
-    y = np.log10(abs(pkv))
-    inds = np.isfinite(x) & np.isfinite(y)
-    return x[inds], y[inds]
-
-fig, axes = create_subplot_grid(len(eo_bins))
-groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
-titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
+fig, axes = create_subplot_grid(len(groups))
 
 fits = []  # (title, id, slope, intercept, n)
 
@@ -202,10 +169,6 @@ for f in fits:
 
 # %% marginal amplitude / velocity distributions per EO bin
 
-eo_bins = [(0, 4), (5, 9), (10, 20)]
-groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
-titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
-
 fig, axes = plt.subplots(1, 2, figsize=(6, 2))
 
 for group, title in zip(groups, titles):
@@ -228,13 +191,6 @@ sns.despine(fig)
 
 
 # %% residual tightness per EO bin
-
-fit_by = "pooled"  # "pooled": one spread per EO bin | "session": one spread per session
-eo_bins = [(0, 4), (5, 9), (10, 20)]
-min_n = 5
-
-groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
-titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
 
 gx, gy = logamp_logvel(Results)
 slope, intercept = np.polyfit(gx, gy, 1)

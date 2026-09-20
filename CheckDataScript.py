@@ -6,24 +6,26 @@
 # velocity_threshold_head=2, min_duration=12, min_inter_event=12)
 
 # %% init
+
 from utils.extract_saccades import extract_saccades
 import numpy as np
 import plotly.graph_objects as go
 from data_viewer import launch_viewer
 # launch_viewer(Results[n])
+
 # %% CHECK eye saccades or gaze shifts
 # do the threshold parameters make sense for this animal and/or session?
 
-n = 0
+n = 1
 df = extract_saccades(Results[n],
-                      'eye', 
+                      'gaze', 
                       eye='LE', 
-                      velocity_threshold=60,
-                      min_duration=12,
-                      min_inter_event=12)
+                      velocity_threshold=40,
+                      min_duration=8,
+                      min_inter_event=8)
 
-y1 = Results[n].LE_x
-# y1 = Results[n].LE_gaze_horizontal_deg
+# y1 = Results[n].LE_x
+y1 = Results[n].LE_gaze_horizontal_deg
 
 y2 = np.full(len(y1), np.nan)
 y3 = np.full(len(y1), np.nan)
@@ -49,10 +51,10 @@ fig.add_trace(go.Scatter(x=win , y=y3, mode='markers', marker=dict(color='red', 
 n = 0
 df = extract_saccades(Results[n],
                       'skull', 
-                      velocity_threshold=2,
-                      min_duration=6,
+                      velocity_threshold=1,
+                      min_duration=60,
                       max_duration=600,
-                      min_inter_event=6)
+                      min_inter_event=60)
 
 
 y1 = np.unwrap(Results[n].yaw)
@@ -63,7 +65,7 @@ for j in range(len(df)):
         y2[df['onset'][j]] = y1[df['onset'][j]]
         y3[df['peak'][j]] = y1[df['peak'][j]]
 
-win = np.arange(15 * 1e3, 25 * 1e3).astype(int)
+win = np.arange(0 * 1e3, 11 * 1e3).astype(int)
 y1 = y1[win]
 y2 = y2[win]
 y3 = y3[win]

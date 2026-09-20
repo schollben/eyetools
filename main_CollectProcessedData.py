@@ -37,8 +37,8 @@ for session in SESSION:
     R = load_session_data(session)
     removeBadData(R)
     process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=2,
-                    velocity_threshold_head=2, min_duration=12, min_inter_event=12)
+                    velocity_threshold_eye=40, velocity_threshold_gaze=40,
+                    velocity_threshold_head=1, min_duration=8, min_inter_event=8)
     Results.append(R)
 
 n_sesh = len(Results)

@@ -3,7 +3,7 @@ from .extract_saccades import extract_saccades
 from .ComputeWindowedRate import windowed_rate
 
 def process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=2,
+                    velocity_threshold_eye=40, velocity_threshold_gaze=40,
                     velocity_threshold_head=2, min_duration=12, min_inter_event=12):
     
     """Extract saccades, compute windowed rates, and attach NaN-masked
@@ -16,8 +16,8 @@ def process_session(R, window_in_sec=5,
                              min_duration=min_duration, min_inter_event=min_inter_event)
     
     df_head = extract_saccades(R, 'skull', velocity_threshold=velocity_threshold_head,
-                               min_duration=min_duration, max_duration=600,
-                               min_inter_event=min_inter_event)
+                               min_duration=60, max_duration=600,
+                               min_inter_event=60)
     
     df_LEgaze = extract_saccades(R, 'gaze', eye='LE', velocity_threshold=velocity_threshold_gaze,
                                  min_duration=min_duration, min_inter_event=min_inter_event)

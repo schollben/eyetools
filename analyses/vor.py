@@ -5,11 +5,10 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-# tools
 from utils import create_subplot_grid, load_session_data, process_session, removeBadData, getSesh
 from utils import non_saccade_mask
 import numpy as np
-# plotting setup
+from scipy.stats import mannwhitneyu as mwu
 from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -19,28 +18,21 @@ plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
 
 # LOAD DATA
-# delayed vision: 416,411,403
-
-#SESSION = getSesh.by_ferret(402, 420)    # multiple — preserves order by ferret
-SESSION = getSesh.by_ferret(753)          # or load sessions from an inidividual ID
-#SESSION = getSesh.by_eo(10,20)   # or load sessions by an EO range (inclusive)
-
+SESSION = getSesh.by_ferret(402, 405, 407, 420) # 753, 757 -> look carefully at these files
 Results = []
 for session in SESSION:
-
     R = load_session_data(session)
     removeBadData(R)
     process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=2,
-                    velocity_threshold_head=2, min_duration=12, min_inter_event=12)
+                    velocity_threshold_eye=40, velocity_threshold_gaze=40,
+                    velocity_threshold_head=1, min_duration=8, min_inter_event=8)
     Results.append(R)
-
 n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
 
 
 # %% settings for every plot below
-# NOTE: roll_v/pitch_v/yaw_v are stored as rad/s in the csv (units column says "rad_s")
+# note: roll_v/pitch_v/yaw_v are stored as rad/s in the csv (units column says "rad_s")
 # and the loaders do not convert them. Every cell below converts with np.rad2deg;
 # do not edit the loading scripts.
 
@@ -50,7 +42,7 @@ from analyses.helper_functions import (FS, EYE_COLOR, HEAD_COLOR, LOCO_COLORS, f
 
 # how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
-eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+eo_bins = [(0, 3), (4, 7), (8, 20)]
 
 flip_eye = "RE"  # put both eyes in a common conjugate frame (None = nasal/temporal)
 speed_threshold = 100      # mm/s, stationary vs running

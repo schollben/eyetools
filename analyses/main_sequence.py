@@ -9,7 +9,6 @@ from utils import create_subplot_grid, load_session_data, process_session, remov
 from utils import create_subplot_grid
 import numpy as np
 from scipy.stats import mannwhitneyu as mwu
-import plotly.graph_objects as go
 from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -24,7 +23,6 @@ AGE_COLORS = ["#989898", "#666666", "#222222"]
 SESSION = getSesh.by_ferret(402, 405, 407, 420) # 753, 757 -> look carefully at these files
 Results = []
 for session in SESSION:
-    
     R = load_session_data(session)
     removeBadData(R)
     process_session(R, window_in_sec=5,
@@ -41,6 +39,10 @@ eo_bins = [(0, 3), (4, 7), (8, 20)]
 fit_by = "session"                      # "pooled": one fit per EO bin | "session": one fit per session
 min_n = 5                              # minimum number of saccades a group must have before it gets fitted
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
+
+for group, title in zip(groups, titles):
+    n_pts = sum(len(R.df_LE) + len(R.df_RE) for R in group)
+    print(f"{title}: {len(group)} sessions, {len(set(R.id for R in group))} animals, {n_pts} saccades")
 
 
 # %% scatter plots

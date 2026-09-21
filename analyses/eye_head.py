@@ -5,37 +5,33 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-# tools
 from utils import create_subplot_grid, load_session_data, process_session, removeBadData, getSesh
 import numpy as np
-# plotting setup
+import pandas as pd
+from scipy.stats import mannwhitneyu as mwu
 from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
+from analyses.helper_functions import (FS, EYE_COLOR, HEAD_COLOR, LE_COLOR, RE_COLOR, eo_groups,
+                                       head_eye_events, head_eye_traces)
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
+AGE_COLORS = ["#989898", "#666666", "#222222"]
 
 # LOAD DATA
-
-SESSION = getSesh.by_ferret(402, 420)     # multiple — preserves order by ferret
-#SESSION = getSesh.by_ferret(753)         # or load sessions from an individual ID
-#SESSION = getSesh.by_eo(10,20)           # or load sessions by an EO range (inclusive)
-
+SESSION = getSesh.by_ferret(402, 405, 407, 420) # 753, 757 -> look carefully at these files
 Results = []
 for session in SESSION:
-
     R = load_session_data(session)
     removeBadData(R)
     process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=2,
-                    velocity_threshold_head=2, min_duration=12, min_inter_event=12)
+                    velocity_threshold_eye=40, velocity_threshold_gaze=40,
+                    velocity_threshold_head=1, min_duration=8, min_inter_event=8)
     Results.append(R)
-
 n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
-
 
 
 # %% settings for every plot below
@@ -43,26 +39,11 @@ print(n_sesh, "sessions loaded")
 # Current Biology 35:761-775 (Feb 2025), Figure 4, across development.
 # Their term for the return phase is PSCR — post-saccadic counter-rotation.
 
-# NOTE — GAZE IS EXCLUDED FROM THIS SCRIPT.
-# The gaze angular-velocity axes do not map consistently onto head axes: corr(gaze_x, yaw_v)
-# for ferret 402 LE is +0.26 in one session and +0.74 in another, and LE/RE disagree in sign
-# on pitch (-0.63 vs +0.71). The identity gaze = eye + head fails outright —
-# sd(gaze - eye - yaw) = 94.0 exceeds sd(gaze) = 80.4. Because the inconsistency varies
-# BETWEEN SESSIONS OF THE SAME ANIMAL it is not a fixed index bug in load_gaze_kinematics.py
-# that this script could correct; it resembles eye-camera registration. Head yaw and eye vx
-# are internally consistent, so this script uses head + eye only. This is also the likely
-# explanation for the null VOR gain in vor.py.
-
-from analyses.helper_functions import (FS, EYE_COLOR, HEAD_COLOR, LE_COLOR, RE_COLOR, eo_groups,
-                                       head_saccades, head_eye_events, head_eye_traces)
-import pandas as pd
-
 # how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
 eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
 
 flip_eye = "RE"          # conjugate frame: required for signed head-vs-eye comparison
-head_thresh = 50         # deg/s, head saccade detection (yaw |p90| = 106 deg/s)
 pair_window = 30         # frames (250 ms) for an eye saccade to count as head-paired
 pre, post = 24, 72       # frames: -200 to +600 ms from eye-saccade onset
 
@@ -71,8 +52,19 @@ head_vel_bins = np.arange(50, 550, 100)                # Wallace Fig 4D bins, de
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
-# head saccade tables, extracted once (R.df_head is not usable — see head_saccades docstring)
-HEAD = {id(R): head_saccades(R, velocity_threshold=head_thresh) for R in Results}
+# Head saccades come from process_session (R.df_head), extracted with
+# velocity_threshold_head=1 rad/s (~57 deg/s), min_duration=60 and min_inter_event=60.
+# Those settings deliberately select large, well-separated head movements — head saccades
+# are slower and rarer than eye saccades, so they are thresholded differently.
+# amplitude_deg is already in degrees (R.yaw / R.pitch are degrees); only the velocity
+# columns come from rad/s inputs, so peak_velocity is converted below.
+HEAD = {}
+for R in Results:
+    df = R.df_head.copy()
+    df["peak_velocity_deg_s"] = np.rad2deg(df["peak_velocity_deg_s"])
+    HEAD[id(R)] = df
+
+# one row per eye saccade, with the nearest head saccade's timing attached
 EVENTS = {id(R): head_eye_events(R, HEAD[id(R)], flip_eye, pre, post) for R in Results}
 
 for R in Results:

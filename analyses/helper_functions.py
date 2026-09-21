@@ -7,12 +7,12 @@ from utils.extract_saccades import _detect, _COLS
 
 FS = 120.0
 LOCO_COLORS = {"all": "#444444", "stationary": "#725EE7", "running": "#E93115"}
-
 # Eye and head traces, shared by every script. EYE_COLOR is the default when LE and RE
 # are not being compared.
 LE_COLOR, RE_COLOR, HEAD_COLOR = "#6BAED6", "#74C476", "#9E9AC8"
 EYE_COLOR = RE_COLOR
 EYE_COLORS = {"LE": LE_COLOR, "RE": RE_COLOR}
+AGE_COLORS = ["#989898", "#666666", "#222222"]
 
 
 def running_mask(R, speed_threshold=100, min_bout=30):

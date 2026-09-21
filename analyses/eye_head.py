@@ -12,13 +12,12 @@ from scipy.stats import mannwhitneyu as mwu
 from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import (FS, EYE_COLOR, HEAD_COLOR, LE_COLOR, RE_COLOR, eo_groups,
+from analyses.helper_functions import (FS, EYE_COLOR, AGE_COLORS, HEAD_COLOR, LE_COLOR, RE_COLOR, eo_groups,
                                        head_eye_events, head_eye_traces)
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
-AGE_COLORS = ["#989898", "#666666", "#222222"]
 
 # LOAD DATA
 SESSION = getSesh.by_ferret(402, 405, 407, 420) # 753, 757 -> look carefully at these files

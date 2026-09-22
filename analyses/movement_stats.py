@@ -1,62 +1,47 @@
-# %% main script to run data loading, cleaning, and saccade extraction for a session
-# main init
-# Set your paths in local_config.py (copy local_config.py.example to get started).
+# %% init
 import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-# tools
 from utils import create_subplot_grid, load_session_data, process_session, removeBadData, getSesh
+from utils import create_subplot_grid
 import numpy as np
-# plotting setup
+from scipy.stats import mannwhitneyu as mwu
 from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
+from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, FS, eo_groups, pooled_events, pooled_intervals,
+                                       event_traces)
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
 plt.rcParams['svg.fonttype'] = 'none'
 
 # LOAD DATA
-
-SESSION = getSesh.by_ferret(402, 420)     # multiple — preserves order by ferret
-#SESSION = getSesh.by_ferret(753)         # or load sessions from an individual ID
-#SESSION = getSesh.by_eo(10,20)           # or load sessions by an EO range (inclusive)
-
+SESSION = getSesh.by_ferret(402, 405, 407, 420)
 Results = []
 for session in SESSION:
-
     R = load_session_data(session)
     removeBadData(R)
     process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=2,
-                    velocity_threshold_head=2, min_duration=12, min_inter_event=12)
+                    velocity_threshold_eye=40, velocity_threshold_gaze=40,
+                    velocity_threshold_head=1, min_duration=8, min_inter_event=8)
     Results.append(R)
-
 n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
-
 
 # %% settings for every plot below
 # Quantifies degree and frequency of eye (eye-in-head) and gaze (eye+head) movements.
 # Cells 1-3 use only the per-event scalars already in the dataframes (amplitude_deg,
 # peak_velocity_deg_s) — no window, no alignment. Cell 4 is the only one that averages
 # kinematic traces, so it is the only one that needs a window.
-
 # TODO — HEAD SACCADES (revisit later)
 # The "head_still" condition gates on head angular speed directly
 # (np.rad2deg(R.angVelocities) < head_still_thresh), NOT on R.df_head, because df_head is
-# not currently a usable head-saccade table:
-#
-# 1. process_session(velocity_threshold_head=2) feeds extract_saccades(R, 'skull', ...),
+# not currently a usable head-saccade table: 
+#   process_session(velocity_threshold_head=2) feeds extract_saccades(R, 'skull', ...),
 #    which thresholds sqrt(yaw_v^2 + pitch_v^2). Those fields are rad/s in the csv and the
 #    loaders do not convert them, so the threshold acts as 2 rad/s ~= 115 deg/s.
-# 2. Measured on ferret 402 EO5: df_head holds only 48 events, median duration 1017 ms,
-#    amplitudes 58-230 deg, covering 13% of frames. Those are long large movements, not
-#    discrete head saccades.
-# 3. So gating on df_head would exclude almost nothing, and what it did exclude would be
-#    the wrong events.
-#
 # To use real head saccades later, re-extract with a threshold in rad/s that corresponds to
 # the deg/s value intended (e.g. 50 deg/s -> velocity_threshold_head=0.87), or convert the
 # skull _v fields before extraction. Then this condition can gate on df_head event windows
@@ -65,12 +50,10 @@ print(n_sesh, "sessions loaded")
 # NOTE: gaze angular velocity fields ARE already rad2deg-converted at load, unlike the
 # skull _v fields. Do NOT pass them through head_signal() — that would double-convert.
 
-from analyses.helper_functions import (FS, eo_groups, pooled_events, pooled_intervals,
-                                       event_traces)
 
 # how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
-eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+eo_bins = [(0, 3), (4, 7), (8, 20)]
 
 flip_eye = "RE"                   # conjugate frame: these are movement magnitudes
 amp_bins = [0, 4, 8, 12, 20, 45]  # deg, fixed edges
@@ -96,84 +79,10 @@ for R in Results:
           "  ".join(f"{c}={n}" for c, n in zip(conditions, counts)))
 
 
-# %% 1. amplitude and peak velocity distributions
-
-fig, axes = plt.subplots(1, 2, figsize=(6, 2))
-
-for signal, ls in (("eye", "-"), ("gaze", "--")):
-    for group, title in zip(groups, titles):
-
-        if not group:
-            continue
-
-        amp = pooled_events(group, signal, "all", "amplitude_deg",
-                            speed_threshold, min_bout, head_still_thresh)
-        pkv = pooled_events(group, signal, "all", "peak_velocity_deg_s",
-                            speed_threshold, min_bout, head_still_thresh)
-        if len(amp) < 20:
-            continue
-
-        sns.histplot(ax=axes[0], x=amp, bins=40, element="step", fill=False,
-                     stat="density", linestyle=ls, label=f"{signal} {title}")
-        sns.histplot(ax=axes[1], x=pkv, bins=40, element="step", fill=False,
-                     stat="density", linestyle=ls, label=f"{signal} {title}")
-
-        print(f"{signal:5s} {title:10s} n={len(amp):6d}  "
-              f"amp median={np.median(amp):6.2f} IQR={np.subtract(*np.percentile(amp, [75, 25])):6.2f}  "
-              f"pkv median={np.median(pkv):7.1f}")
-
-axes[0].set_xlabel("amplitude (deg)")
-axes[1].set_xlabel("peak velocity (deg/s)")
-axes[0].legend(fontsize=5)
-sns.despine(fig)
-fig.tight_layout()
-
-
-# %% 2. condition comparison (amplitude, peak velocity, rate)
-# The "all" bars here are the unconditioned rate/medians, so there is no separate rate cell.
-
-fig, axes = plt.subplots(1, 3, figsize=(8, 2))
-
-for signal in ("eye",):   # set to ("eye", "gaze") to compare both
-    rows = []
-    for group, title in zip(groups, titles):
-
-        if not group:
-            continue
-
-        seconds = sum(len(R.LE_vx) for R in group) / FS
-        for cond in conditions:
-            amp = pooled_events(group, signal, cond, "amplitude_deg",
-                                speed_threshold, min_bout, head_still_thresh)
-            pkv = pooled_events(group, signal, cond, "peak_velocity_deg_s",
-                                speed_threshold, min_bout, head_still_thresh)
-            if len(amp) < 20:
-                print(f"{title:10s} {cond:26s} only {len(amp)} events, skipped")
-                continue
-            rows.append((title, cond, np.median(amp), np.median(pkv),
-                         len(amp) / 2 / seconds))
-            print(f"{title:10s} {cond:26s} n={len(amp):6d}  "
-                  f"amp={np.median(amp):6.2f}  pkv={np.median(pkv):7.1f}  "
-                  f"rate={len(amp) / 2 / seconds:.2f}/s")
-
-    x = [r[0] for r in rows]
-    hue = [r[1] for r in rows]
-    for ax, col, lbl in zip(axes, (2, 3, 4),
-                            ("median amplitude (deg)", "median peak velocity (deg/s)",
-                             "rate (events/s)")):
-        sns.barplot(ax=ax, x=x, y=[r[col] for r in rows], hue=hue,
-                    palette=COND_COLORS, legend=(col == 2))
-        ax.set_ylabel(lbl)
-        ax.tick_params(axis="x", rotation=45)
-
-axes[0].legend(fontsize=4)
-sns.despine(fig)
-fig.tight_layout()
-
 
 # %% 3. amplitude vs peak velocity by condition
 
-signal = "eye"
+signal = "gaze"
 
 fig, axes = create_subplot_grid(len(groups))
 
@@ -220,7 +129,7 @@ for ax, group, title in zip(axes, groups, titles):
 # amplitude so the two are comparable on the plot.
 
 signal = "eye"      # "eye" | "gaze"
-condition = "all"
+condition = "stationary_and_head_still"
 
 t_ms = np.arange(-pre, post) / FS * 1000
 bin_col = "amplitude_deg" if bin_by == "amplitude" else "peak_velocity_deg_s"
@@ -302,7 +211,7 @@ for ax, signal in zip(axes, ("eye", "gaze")):
             continue
 
         sns.histplot(ax=ax, x=isi, bins=bins, element="step", fill=False,
-                     stat="density", label=f"{title} (n={len(isi)})")
+                     stat="probability", label=f"{title} (n={len(isi)})")
 
         print(f"{signal:5s} {title:10s} n={len(isi):6d}  "
               f"median={np.median(isi):7.0f} ms  "

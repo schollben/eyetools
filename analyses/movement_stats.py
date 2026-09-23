@@ -13,7 +13,7 @@ from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
 from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, FS, eo_groups, pooled_events, pooled_intervals,
-                                       event_traces, pooled_rates)
+                                       event_traces, session_rates)
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
@@ -42,10 +42,13 @@ amp_bins = [0, 4, 8, 12, 20, 45]
 
 speed_threshold = 50    # mm/s, locomotion
 min_bout = 30            # frames
-head_still_thresh = 10   # deg/s
+head_still_thresh = 20   # deg/s
 
-conditions = ["all", "stationary", "head_still", "stationary_and_head_still"]
-COND_COLORS = dict(zip(conditions, ["#444444", "#725EE7", "#E93115", "#1B9E77"]))
+# Two conditions throughout: everything, vs the quiet epochs (not locomoting AND head
+# below head_still_thresh). The intermediate single-factor conditions are gone — they
+# split the data without isolating a state worth naming.
+conditions = ["all", "stationary_and_head_still"]
+COND_COLORS = dict(zip(conditions, ["#444444", "#1B9E77"]))
 
 pre, post = 12, 48       # frames: -100 to +400 ms from onset (cell 4 only)
 bin_by = "amplitude"     # "amplitude" | "peak_velocity" (cell 4 only)
@@ -98,7 +101,7 @@ for ax, group, title in zip(axes, groups, titles):
 # Onset-aligned, so displacement traces start at zero by construction.
 
 signal = "eye"      # "eye" | "gaze"
-condition = "all" # "all", "stationary", "head_still", "stationary_and_head_still"
+condition = "all"   # "all" | "stationary_and_head_still"
 # "head_still" condition gates on head angular speed directly
 
 t_ms = np.arange(-pre, post) / FS * 1000
@@ -137,12 +140,16 @@ for kind in ("speed", "displacement"):
         ax.legend(fontsize=4)
 
 
-# %% event rate distributions (sliding window)
-
-condition = "all"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
-win_sec, step_sec = 10.0, 5.0
-
-bins = np.linspace(0, 4, 40)
+# %% event rate (one point per session)
+# NOT a sliding window. pooled_rates gated only which events were COUNTED while still
+# emitting every NaN-free window and dividing by the full window length, so n was the
+# window count (identical for every condition) and the rate was the all-condition rate
+# scaled by the fraction of time in condition.
+# Windowing cannot be repaired here: stationary_and_head_still bouts have a median length
+# of ~0.06 s and only a handful reach 2 s, so no window both fits inside the condition and
+# is long enough to estimate a ~1 Hz rate. session_rates divides in-condition events by
+# in-condition TIME, which uses all the exposure however fragmented it is.
+# One point per session, so n is sessions — the window count was pseudo-replication.
 
 fig, axes = plt.subplots(1, 2, figsize=(6, 2))
 
@@ -153,22 +160,28 @@ for ax, signal in zip(axes, ("eye", "gaze")):
         if not group:
             continue
 
-        rate = pooled_rates(group, signal, condition, win_sec, step_sec,
-                            speed_threshold, min_bout, head_still_thresh)
-        if not len(rate):
-            continue
+        for cond, dx in zip(conditions, (-0.15, 0.15)):
 
-        sns.histplot(ax=ax, x=rate, bins=bins, element="step", fill=False,
-                     stat="probability", color=AGE_COLORS[i],
-                     label=f"{title} (n={len(rate)})")
+            rate = session_rates(group, signal, cond,
+                                 speed_threshold, min_bout, head_still_thresh)
+            if not len(rate):
+                continue
 
-        print(f"{signal:5s} {title:10s} n={len(rate):6d}  "
-              f"median={np.median(rate):5.2f} Hz  "
-              f"IQR={np.subtract(*np.percentile(rate, [75, 25])):5.2f}  "
-              f"zero={np.mean(rate == 0) * 100:4.1f}%")
+            ax.plot(np.full(len(rate), i + dx), rate, "o", ms=3, alpha=0.5,
+                    color=COND_COLORS[cond])
+            ax.plot(i + dx, np.median(rate), "_", ms=12, mew=2,
+                    color=COND_COLORS[cond])
 
-    ax.set_xlabel(f"{signal} event rate (Hz, {win_sec:.0f} s window)")
-    ax.legend(fontsize=6)
+            print(f"{signal:5s} {title:10s} {cond:26s} n_sesh={len(rate):3d}  "
+                  f"median={np.median(rate):5.2f} Hz  "
+                  f"IQR={np.subtract(*np.percentile(rate, [75, 25])):5.2f}")
+
+    ax.set_xticks(range(len(titles)))
+    ax.set_xticklabels(titles)
+    ax.set_ylim(bottom=0)
+    ax.set_ylabel(f"{signal} event rate (Hz)")
+    ax.legend(handles=[plt.Line2D([], [], color=COND_COLORS[c], marker="o", ls="",
+                                  ms=3, label=c) for c in conditions], fontsize=5)
 
 sns.despine(fig)
 fig.tight_layout()
@@ -177,7 +190,7 @@ fig.tight_layout()
 # %% inter-event interval distributions (timing, not magnitude)
 # Interval = peak of one event -> onset of the next: the quiescent gap between movements.
 
-condition = "all"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
+condition = "all"   # "all" | "stationary_and_head_still"
 
 bins = np.logspace(np.log10(10), np.log10(10000), 30)
 

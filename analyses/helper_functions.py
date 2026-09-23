@@ -78,6 +78,24 @@ def event_condition(R, df, condition, speed_threshold=100, min_bout=30,
     return keep
 
 
+def condition_frames(R, condition, speed_threshold=100, min_bout=30,
+                     head_still_thresh=50):
+    """Boolean per FRAME: is the animal in `condition` on this frame?
+
+    The per-frame analogue of event_condition, which tests only event onsets. Used to
+    measure how much TIME a condition covers, which is what a rate needs for its
+    denominator.
+    """
+    m = np.ones(len(R.LE_vx), bool)
+    if condition == "all":
+        return m
+    if "stationary" in condition:
+        m &= ~running_mask(R, speed_threshold, min_bout) & np.isfinite(R.speed)
+    if "head_still" in condition:
+        m &= head_signal(R, "speed") < head_still_thresh
+    return m
+
+
 def event_dfs(R, signal):
     """The two per-eye event tables: 'eye' -> eye saccades, 'gaze' -> gaze shifts."""
     return (R.df_LE, R.df_RE) if signal == "eye" else (R.df_LEgaze, R.df_REgaze)
@@ -565,4 +583,31 @@ def pooled_rates(group, signal, condition="all", win_sec=10.0, step_sec=1.0,
                 if ok[b] - ok[a] < win:
                     continue
                 out.append((counts[b] - counts[a]) / win_sec)
+    return np.array(out)
+
+
+def session_rates(group, signal, condition="all", speed_threshold=100, min_bout=30,
+                  head_still_thresh=50, min_exposure_sec=5.0):
+    """One event rate (Hz) per session: in-condition events / in-condition time.
+
+    Replaces a sliding window for fragmented conditions. "stationary_and_head_still"
+    bouts have a median length of ~0.03-0.06 s, so no window both fits inside the
+    condition and is long enough to estimate a ~1 Hz rate; measuring total exposure
+    sidesteps windowing entirely. Averaged over the two eyes. Sessions with less than
+    min_exposure_sec in condition are dropped.
+    """
+    out = []
+    for R in group:
+        m = condition_frames(R, condition, speed_threshold, min_bout, head_still_thresh)
+        exposure = m.sum() / FS
+        if exposure < min_exposure_sec:
+            continue
+        n_events, n_eyes = 0, 0
+        for df in event_dfs(R, signal):
+            if not len(df):
+                continue
+            n_events += m[df["onset"].to_numpy().astype(int)].sum()
+            n_eyes += 1
+        if n_eyes:
+            out.append(n_events / n_eyes / exposure)
     return np.array(out)

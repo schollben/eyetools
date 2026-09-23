@@ -195,7 +195,9 @@ def eye_signal(R, eye, key, flip_eye=None):
         vx = np.asarray(getattr(R, f"{eye}_vx"), float)
         vy = np.asarray(getattr(R, f"{eye}_vy"), float)
         return np.sqrt(vx ** 2 + vy ** 2)
+
     v = np.asarray(getattr(R, f"{eye}_{key}"), float)
+
     return -v if eye == flip_eye and key.endswith("x") else v
 
 
@@ -531,3 +533,36 @@ def logamp_logvel(group):
     y = np.log10(abs(pkv))
     inds = np.isfinite(x) & np.isfinite(y)
     return x[inds], y[inds]
+
+
+def pooled_rates(group, signal, condition="all", win_sec=10.0, step_sec=1.0,
+                 speed_threshold=100, min_bout=30, head_still_thresh=50):
+    """Sliding-window event rate (Hz), pooled over eyes and sessions.
+
+    A window of win_sec is stepped by step_sec across each recording; the rate is the
+    number of event onsets satisfying `condition` inside the window divided by win_sec.
+    Windows whose position trace contains any NaN are dropped, so a tracking dropout reads
+    as missing rather than as zero rate.
+    """
+    win = int(round(win_sec * FS))
+    step = int(round(step_sec * FS))
+    out = []
+    for R in group:
+        for eye, df in zip(("LE", "RE"), event_dfs(R, signal)):
+            pos = np.asarray(getattr(R, f"{eye}_x" if signal == "eye"
+                                     else f"{eye}_gaze_horizontal_deg"), float)
+            n = len(pos)
+            if n < win:
+                continue
+            keep = event_condition(R, df, condition, speed_threshold, min_bout,
+                                   head_still_thresh) if len(df) else np.array([], bool)
+            onsets = (df["onset"].to_numpy().astype(int)[keep] if len(df)
+                      else np.array([], int))
+            counts = np.cumsum(np.bincount(onsets, minlength=n + 1))
+            ok = np.concatenate(([0], np.cumsum(np.isfinite(pos))))
+            for a in range(0, n - win + 1, step):
+                b = a + win
+                if ok[b] - ok[a] < win:
+                    continue
+                out.append((counts[b] - counts[a]) / win_sec)
+    return np.array(out)

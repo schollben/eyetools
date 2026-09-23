@@ -1,4 +1,6 @@
 # %% init
+%load_ext autoreload
+%autoreload 2
 import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
@@ -11,7 +13,7 @@ from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
 from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, FS, eo_groups, pooled_events, pooled_intervals,
-                                       event_traces)
+                                       event_traces, pooled_rates)
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
@@ -30,11 +32,8 @@ for session in SESSION:
 n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
 
-# %% settings for every plot below
-# Quantifies degree and frequency of eye (eye-in-head) and gaze (eye+head) movements.
-# Cells 1-3 use only the per-event scalars already in the dataframes (amplitude_deg,
-# peak_velocity_deg_s) — no window, no alignment. Cell 4 is the only one that averages
-# kinematic traces, so it is the only one that needs a window.
+# settings for every plot below
+
 # TODO — HEAD SACCADES (revisit later)
 # The "head_still" condition gates on head angular speed directly
 # (np.rad2deg(R.angVelocities) < head_still_thresh), NOT on R.df_head, because df_head is
@@ -55,12 +54,12 @@ print(n_sesh, "sessions loaded")
 pool_by_eo = True
 eo_bins = [(0, 3), (4, 7), (8, 20)]
 
-flip_eye = "RE"                   # conjugate frame: these are movement magnitudes
-amp_bins = [0, 4, 8, 12, 20, 45]  # deg, fixed edges
+flip_eye = "RE"     
+amp_bins = [0, 4, 8, 12, 20, 45]
 
-speed_threshold = 100    # mm/s, locomotion
+speed_threshold = 50    # mm/s, locomotion
 min_bout = 30            # frames
-head_still_thresh = 50   # deg/s
+head_still_thresh = 10   # deg/s
 
 conditions = ["all", "stationary", "head_still", "stationary_and_head_still"]
 COND_COLORS = dict(zip(conditions, ["#444444", "#725EE7", "#E93115", "#1B9E77"]))
@@ -75,14 +74,11 @@ for R in Results:
     counts = [len(pooled_events([R], "eye", c, "amplitude_deg",
                                 speed_threshold, min_bout, head_still_thresh))
               for c in conditions]
-    print(f"ferret {R.id} EO{R.eo:<3d} eye events by condition  " +
-          "  ".join(f"{c}={n}" for c, n in zip(conditions, counts)))
-
 
 
 # %% 3. amplitude vs peak velocity by condition
 
-signal = "gaze"
+signal = "eye"
 
 fig, axes = create_subplot_grid(len(groups))
 
@@ -116,20 +112,11 @@ for ax, group, title in zip(axes, groups, titles):
     ax.set_ylabel("log10 peak velocity (deg/s)")
     ax.legend(fontsize=4)
 
-
-# %% 4. mean kinematic traces (the only cell needing a window)
+# %% 4. mean kinematic traces
 # Onset-aligned, so displacement traces start at zero by construction.
-#
-# NOTE on displacement magnitude: traces are read at a FIXED offset from onset, while
-# amplitude_deg is the distance from onset to that event's own `peak` frame. Measured at
-# each event's peak the two agree exactly (corr = 1.0000 on ferret 402 EO5), but at +400 ms
-# the mean trace sits BELOW the bin's nominal amplitude because the eye has partly drifted
-# back — e.g. the 8-12 deg bin reaches 9.7 deg at peak but 6.2 deg at +400 ms. That gap is
-# post-saccadic drift, not a trace-alignment error. The dashed line marks each bin's mean
-# amplitude so the two are comparable on the plot.
 
 signal = "eye"      # "eye" | "gaze"
-condition = "stationary_and_head_still"
+condition = "all" #"head_still"
 
 t_ms = np.arange(-pre, post) / FS * 1000
 bin_col = "amplitude_deg" if bin_by == "amplitude" else "peak_velocity_deg_s"
@@ -155,20 +142,12 @@ for kind in ("speed", "displacement"):
                 traces += t
                 nominal += a
 
-            if len(traces) < 10:
-                continue
-
             arr = np.array(traces)
             m = arr.mean(axis=0)
             se = arr.std(axis=0) / np.sqrt(len(arr))
             line, = ax.plot(t_ms, m, lw=1, label=f"{lo}-{hi} (n={len(arr)})")
             ax.fill_between(t_ms, m - se, m + se, alpha=0.25)
 
-            # mean amplitude of the events in this bin, for comparison with the plateau
-            if kind == "displacement":
-                ax.axhline(np.mean(nominal), color=line.get_color(), ls=":", lw=0.5)
-
-        ax.axvline(0, color="0.8", lw=0.5)
         ax.set_title(f"{signal} {title}")
         ax.set_xlabel("time from onset (ms)")
         ax.set_ylabel("speed (deg/s)" if kind == "speed" else "displacement (deg)")
@@ -177,9 +156,7 @@ for kind in ("speed", "displacement"):
 
 # %% 5. inter-event interval distributions (timing, not magnitude)
 # Interval = peak of one event -> onset of the next: the quiescent gap between movements.
-# Cell 2's rate panel gives a mean events/s; a mean collapses the timing structure, and
-# this is the shape it discards.
-#
+
 # Two features of this distribution are extraction artifacts, not biology:
 # 1. HARD FLOOR. process_session(min_inter_event=12) drops any event starting within 12
 #    frames of the previous peak, so no interval below 100 ms can exist and 3-5% sit
@@ -190,7 +167,7 @@ for kind in ("speed", "displacement"):
 # Bins are log-spaced: intervals span 100 ms to ~8 s, so linear bins collapse the
 # distribution into the leftmost few.
 
-condition = "all"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
+condition = "head_still"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
 
 floor_ms = 1000 * Results[0].min_inter_event / FS
 bins = np.logspace(np.log10(floor_ms), np.log10(10000), 40)
@@ -206,9 +183,6 @@ for ax, signal in zip(axes, ("eye", "gaze")):
 
         isi = pooled_intervals(group, signal, condition,
                                speed_threshold, min_bout, head_still_thresh)
-        if len(isi) < 20:
-            print(f"{signal:5s} {title:10s} only {len(isi)} intervals, skipped")
-            continue
 
         sns.histplot(ax=ax, x=isi, bins=bins, element="step", fill=False,
                      stat="probability", label=f"{title} (n={len(isi)})")
@@ -218,9 +192,53 @@ for ax, signal in zip(axes, ("eye", "gaze")):
               f"IQR={np.subtract(*np.percentile(isi, [75, 25])):7.0f}  "
               f"at floor={np.mean(isi <= floor_ms + 0.5) * 100:4.1f}%")
 
-    ax.axvline(floor_ms, color="0.6", ls=":", lw=0.5)
     ax.set_xscale("log")
     ax.set_xlabel(f"{signal} inter-event interval (ms)")
+    ax.legend(fontsize=4)
+
+sns.despine(fig)
+fig.tight_layout()
+
+
+# %% 6. event rate distributions (sliding window)
+# Cell 5 asks how long the gaps between movements are; this asks how many movements fall
+# in a fixed stretch of time. A win_sec window stepped by step_sec gives one rate per
+# window, so the spread shows whether a session alternates bursts and quiet periods or
+# holds a steady rate — which a single mean events/s hides.
+#
+# Windows containing any NaN in the position trace are dropped, for the same reason cell 5
+# drops NaN-spanning gaps: a tracking dropout would otherwise be counted as a window with
+# no events. win_sec sets the trade-off — short windows resolve bursts but quantize rate
+# coarsely (a 5 s window can only report multiples of 0.2 Hz), long windows smooth them away.
+
+condition = "head_still"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
+win_sec, step_sec = 10.0, 5.0
+
+bins = np.linspace(0, 4, 40)
+
+fig, axes = plt.subplots(1, 2, figsize=(6, 2))
+
+for ax, signal in zip(axes, ("eye", "gaze")):
+
+    for group, title in zip(groups, titles):
+
+        if not group:
+            continue
+
+        rate = pooled_rates(group, signal, condition, win_sec, step_sec,
+                            speed_threshold, min_bout, head_still_thresh)
+        if not len(rate):
+            continue
+
+        sns.histplot(ax=ax, x=rate, bins=bins, element="step", fill=False,
+                     stat="probability", label=f"{title} (n={len(rate)})")
+
+        print(f"{signal:5s} {title:10s} n={len(rate):6d}  "
+              f"median={np.median(rate):5.2f} Hz  "
+              f"IQR={np.subtract(*np.percentile(rate, [75, 25])):5.2f}  "
+              f"zero={np.mean(rate == 0) * 100:4.1f}%")
+
+    ax.set_xlabel(f"{signal} event rate (Hz, {win_sec:.0f} s window)")
     ax.legend(fontsize=4)
 
 sns.despine(fig)

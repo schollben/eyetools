@@ -137,51 +137,7 @@ for kind in ("speed", "displacement"):
         ax.legend(fontsize=4)
 
 
-# %% 5. inter-event interval distributions (timing, not magnitude)
-# Interval = peak of one event -> onset of the next: the quiescent gap between movements.
-
-# Two features of this distribution are extraction artifacts, not biology:
-# 1. HARD FLOOR. process_session(min_inter_event=12) drops any event starting within 12
-#    frames of the previous peak, so no interval below 100 ms can exist and 3-5% sit
-#    exactly on it. The dotted line marks it — it is not a real mode.
-# 2. NaN GAPS. pooled_intervals requires the gap to be NaN-free. Gaps spanning a tracking
-#    dropout are 4.5% of pairs with median 1425 ms vs 275 ms, the largest 119.8 s (a
-#    recording gap, not a fixation). Keeping them would dominate the tail.
-# Bins are log-spaced: intervals span 100 ms to ~8 s, so linear bins collapse the
-# distribution into the leftmost few.
-
-condition = "stationary_and_head_still"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
-
-bins = np.logspace(np.log10(10), np.log10(10000), 40)
-
-fig, axes = plt.subplots(1, 2, figsize=(6, 2))
-
-for ax, signal in zip(axes, ("eye", "gaze")):
-
-    for group, title in zip(groups, titles):
-
-        if not group:
-            continue
-
-        isi = pooled_intervals(group, signal, condition,
-                               speed_threshold, min_bout, head_still_thresh)
-
-        sns.histplot(ax=ax, x=isi, bins=bins, element="step", fill=False,
-                     stat="probability", label=f"{title} (n={len(isi)})")
-
-        print(f"{signal:5s} {title:10s} n={len(isi):6d}  "
-              f"median={np.median(isi):7.0f} ms  "
-              f"IQR={np.subtract(*np.percentile(isi, [75, 25])):7.0f}  ")
-
-    ax.set_xscale("log")
-    ax.set_xlabel(f"{signal} inter-event interval (ms)")
-    ax.legend(fontsize=4)
-
-sns.despine(fig)
-fig.tight_layout()
-
-
-# %% 6. event rate distributions (sliding window)
+# %% event rate distributions (sliding window)
 
 condition = "all"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
 win_sec, step_sec = 10.0, 5.0
@@ -192,7 +148,7 @@ fig, axes = plt.subplots(1, 2, figsize=(6, 2))
 
 for ax, signal in zip(axes, ("eye", "gaze")):
 
-    for group, title in zip(groups, titles):
+    for i, (group, title) in enumerate(zip(groups, titles)):
 
         if not group:
             continue
@@ -203,7 +159,8 @@ for ax, signal in zip(axes, ("eye", "gaze")):
             continue
 
         sns.histplot(ax=ax, x=rate, bins=bins, element="step", fill=False,
-                     stat="probability", label=f"{title} (n={len(rate)})")
+                     stat="probability", color=AGE_COLORS[i],
+                     label=f"{title} (n={len(rate)})")
 
         print(f"{signal:5s} {title:10s} n={len(rate):6d}  "
               f"median={np.median(rate):5.2f} Hz  "
@@ -211,7 +168,43 @@ for ax, signal in zip(axes, ("eye", "gaze")):
               f"zero={np.mean(rate == 0) * 100:4.1f}%")
 
     ax.set_xlabel(f"{signal} event rate (Hz, {win_sec:.0f} s window)")
-    ax.legend(fontsize=4)
+    ax.legend(fontsize=6)
 
 sns.despine(fig)
 fig.tight_layout()
+
+
+# %% inter-event interval distributions (timing, not magnitude)
+# Interval = peak of one event -> onset of the next: the quiescent gap between movements.
+
+condition = "all"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
+
+bins = np.logspace(np.log10(10), np.log10(10000), 30)
+
+fig, axes = plt.subplots(1, 2, figsize=(6, 2))
+
+for ax, signal in zip(axes, ("eye", "gaze")):
+
+    for i, (group, title) in enumerate(zip(groups, titles)):
+
+        if not group:
+            continue
+
+        isi = pooled_intervals(group, signal, condition,
+                               speed_threshold, min_bout, head_still_thresh)
+
+        sns.histplot(ax=ax, x=isi, bins=bins, element="step", fill=False,
+                     stat="probability", color=AGE_COLORS[i],
+                     label=f"{title} (n={len(isi)})")
+
+        print(f"{signal:5s} {title:10s} n={len(isi):6d}  "
+              f"median={np.median(isi):7.0f} ms  "
+              f"IQR={np.subtract(*np.percentile(isi, [75, 25])):7.0f}  ")
+
+    ax.set_xscale("log")
+    ax.set_xlabel(f"{signal} inter-event interval (ms)")
+    ax.legend(fontsize=6)
+
+sns.despine(fig)
+fig.tight_layout()
+

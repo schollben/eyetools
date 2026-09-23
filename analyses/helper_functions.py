@@ -586,28 +586,33 @@ def pooled_rates(group, signal, condition="all", win_sec=10.0, step_sec=1.0,
     return np.array(out)
 
 
+def session_rate(R, signal, condition="all", speed_threshold=100, min_bout=30,
+                 head_still_thresh=50, min_exposure_sec=5.0):
+    """One session's event rate (Hz): in-condition events / in-condition time.
+
+    Averaged over the two eyes. Returns nan when the session has less than
+    min_exposure_sec in condition, so callers can align rates across conditions by
+    session index.
+    """
+    m = condition_frames(R, condition, speed_threshold, min_bout, head_still_thresh)
+    exposure = m.sum() / FS
+    if exposure < min_exposure_sec:
+        return np.nan
+    counts = [m[df["onset"].to_numpy().astype(int)].sum()
+              for df in event_dfs(R, signal) if len(df)]
+    return np.mean(counts) / exposure if counts else np.nan
+
+
 def session_rates(group, signal, condition="all", speed_threshold=100, min_bout=30,
                   head_still_thresh=50, min_exposure_sec=5.0):
-    """One event rate (Hz) per session: in-condition events / in-condition time.
+    """Per-session event rates (Hz) for a group, dropping sessions with too little
+    exposure.
 
     Replaces a sliding window for fragmented conditions. "stationary_and_head_still"
     bouts have a median length of ~0.03-0.06 s, so no window both fits inside the
     condition and is long enough to estimate a ~1 Hz rate; measuring total exposure
-    sidesteps windowing entirely. Averaged over the two eyes. Sessions with less than
-    min_exposure_sec in condition are dropped.
+    sidesteps windowing entirely.
     """
-    out = []
-    for R in group:
-        m = condition_frames(R, condition, speed_threshold, min_bout, head_still_thresh)
-        exposure = m.sum() / FS
-        if exposure < min_exposure_sec:
-            continue
-        n_events, n_eyes = 0, 0
-        for df in event_dfs(R, signal):
-            if not len(df):
-                continue
-            n_events += m[df["onset"].to_numpy().astype(int)].sum()
-            n_eyes += 1
-        if n_eyes:
-            out.append(n_events / n_eyes / exposure)
-    return np.array(out)
+    r = np.array([session_rate(R, signal, condition, speed_threshold, min_bout,
+                               head_still_thresh, min_exposure_sec) for R in group])
+    return r[np.isfinite(r)]

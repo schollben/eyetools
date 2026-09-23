@@ -9,11 +9,12 @@ from utils import create_subplot_grid, load_session_data, process_session, remov
 from utils import create_subplot_grid
 import numpy as np
 from scipy.stats import mannwhitneyu as mwu
+from scipy.stats import spearmanr, wilcoxon, kruskal
 from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
 from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, FS, eo_groups, pooled_events, pooled_intervals,
-                                       event_traces, session_rates)
+                                       event_traces, session_rate, session_rates)
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = ['Arial']
 plt.rcParams['font.size'] = 6
@@ -183,6 +184,54 @@ for ax, signal in zip(axes, ("eye", "gaze")):
 
 sns.despine(fig)
 fig.tight_layout()
+
+# --- stats -------------------------------------------------------------------
+# Sessions are the unit. EO trend uses all sessions pooled across animals; the
+# per-animal rows are there because pooling treats 33 sessions from 4 ferrets as
+# independent when they are not, and F407/F420 contribute 23 of them. The
+# all-vs-quiet test is PAIRED: both rates come from the same session.
+
+for signal in ("eye", "gaze"):
+
+    print(f"\n--- {signal} ---")
+
+    for cond in conditions:
+        eo = np.array([R.eo for R in Results], float)
+        r = np.array([session_rate(R, signal, cond, speed_threshold, min_bout,
+                                   head_still_thresh) for R in Results])
+        ok = np.isfinite(r)
+        rho, p = spearmanr(eo[ok], r[ok])
+        print(f"  EO trend  {cond:26s} n={ok.sum():3d}  rho={rho:+.3f}  p={p:.4g}")
+
+        vals = [session_rates(g, signal, cond, speed_threshold, min_bout,
+                              head_still_thresh) for g in groups if g]
+        if len(vals) > 2:
+            print(f"  {'':10s} {'':26s} Kruskal p={kruskal(*vals)[1]:.4g}  "
+                  f"youngest-vs-oldest MWU p={mwu(vals[0], vals[-1])[1]:.4g}")
+
+    # paired within session: does the quiet state change rate?
+    a = np.array([session_rate(R, signal, "all", speed_threshold, min_bout,
+                               head_still_thresh) for R in Results])
+    b = np.array([session_rate(R, signal, "stationary_and_head_still",
+                               speed_threshold, min_bout, head_still_thresh)
+                  for R in Results])
+    ok = np.isfinite(a) & np.isfinite(b)
+    print(f"  paired all vs quiet  n={ok.sum():3d}  "
+          f"median {np.median(a[ok]):.2f} vs {np.median(b[ok]):.2f} Hz  "
+          f"diff={np.median(a[ok] - b[ok]):+.3f}  Wilcoxon p={wilcoxon(a[ok], b[ok])[1]:.4g}")
+
+    for fid in sorted({R.id for R in Results}):
+        sub = [R for R in Results if R.id == fid]
+        eo = np.array([R.eo for R in sub], float)
+        r = np.array([session_rate(R, signal, "all", speed_threshold, min_bout,
+                                   head_still_thresh) for R in sub])
+        ok = np.isfinite(r)
+        if ok.sum() < 4:
+            print(f"  F{fid} n={ok.sum():2d}  too few sessions for a trend")
+            continue
+        rho, p = spearmanr(eo[ok], r[ok])
+        print(f"  F{fid} n={ok.sum():2d}  EO {eo[ok].min():.0f}-{eo[ok].max():.0f}  "
+              f"rho={rho:+.3f}  p={p:.4g}  (all)")
 
 
 # %% inter-event interval distributions (timing, not magnitude)

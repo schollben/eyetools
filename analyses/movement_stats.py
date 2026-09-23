@@ -180,8 +180,6 @@ for ax, signal in zip(axes, ("eye", "gaze")):
     ax.set_xticklabels(titles)
     ax.set_ylim(bottom=0)
     ax.set_ylabel(f"{signal} event rate (Hz)")
-    ax.legend(handles=[plt.Line2D([], [], color=COND_COLORS[c], marker="o", ls="",
-                                  ms=3, label=c) for c in conditions], fontsize=5)
 
 sns.despine(fig)
 fig.tight_layout()
@@ -190,7 +188,7 @@ fig.tight_layout()
 # %% inter-event interval distributions (timing, not magnitude)
 # Interval = peak of one event -> onset of the next: the quiescent gap between movements.
 
-condition = "all"   # "all" | "stationary_and_head_still"
+condition = "stationary_and_head_still"   # "all" | "stationary_and_head_still"
 
 bins = np.logspace(np.log10(10), np.log10(10000), 30)
 

@@ -33,23 +33,6 @@ n_sesh = len(Results)
 print(n_sesh, "sessions loaded")
 
 # settings for every plot below
-
-# TODO — HEAD SACCADES (revisit later)
-# The "head_still" condition gates on head angular speed directly
-# (np.rad2deg(R.angVelocities) < head_still_thresh), NOT on R.df_head, because df_head is
-# not currently a usable head-saccade table: 
-#   process_session(velocity_threshold_head=2) feeds extract_saccades(R, 'skull', ...),
-#    which thresholds sqrt(yaw_v^2 + pitch_v^2). Those fields are rad/s in the csv and the
-#    loaders do not convert them, so the threshold acts as 2 rad/s ~= 115 deg/s.
-# To use real head saccades later, re-extract with a threshold in rad/s that corresponds to
-# the deg/s value intended (e.g. 50 deg/s -> velocity_threshold_head=0.87), or convert the
-# skull _v fields before extraction. Then this condition can gate on df_head event windows
-# the way non_saccade_mask gates on df_LE/df_RE.
-
-# NOTE: gaze angular velocity fields ARE already rad2deg-converted at load, unlike the
-# skull _v fields. Do NOT pass them through head_signal() — that would double-convert.
-
-
 # how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
 eo_bins = [(0, 3), (4, 7), (8, 20)]
@@ -68,7 +51,6 @@ pre, post = 12, 48       # frames: -100 to +400 ms from onset (cell 4 only)
 bin_by = "amplitude"     # "amplitude" | "peak_velocity" (cell 4 only)
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
-
 
 for R in Results:
     counts = [len(pooled_events([R], "eye", c, "amplitude_deg",
@@ -116,7 +98,8 @@ for ax, group, title in zip(axes, groups, titles):
 # Onset-aligned, so displacement traces start at zero by construction.
 
 signal = "eye"      # "eye" | "gaze"
-condition = "all" #"head_still"
+condition = "all" # "all", "stationary", "head_still", "stationary_and_head_still"
+# "head_still" condition gates on head angular speed directly
 
 t_ms = np.arange(-pre, post) / FS * 1000
 bin_col = "amplitude_deg" if bin_by == "amplitude" else "peak_velocity_deg_s"
@@ -167,10 +150,9 @@ for kind in ("speed", "displacement"):
 # Bins are log-spaced: intervals span 100 ms to ~8 s, so linear bins collapse the
 # distribution into the leftmost few.
 
-condition = "head_still"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
+condition = "stationary_and_head_still"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
 
-floor_ms = 1000 * Results[0].min_inter_event / FS
-bins = np.logspace(np.log10(floor_ms), np.log10(10000), 40)
+bins = np.logspace(np.log10(10), np.log10(10000), 40)
 
 fig, axes = plt.subplots(1, 2, figsize=(6, 2))
 
@@ -189,8 +171,7 @@ for ax, signal in zip(axes, ("eye", "gaze")):
 
         print(f"{signal:5s} {title:10s} n={len(isi):6d}  "
               f"median={np.median(isi):7.0f} ms  "
-              f"IQR={np.subtract(*np.percentile(isi, [75, 25])):7.0f}  "
-              f"at floor={np.mean(isi <= floor_ms + 0.5) * 100:4.1f}%")
+              f"IQR={np.subtract(*np.percentile(isi, [75, 25])):7.0f}  ")
 
     ax.set_xscale("log")
     ax.set_xlabel(f"{signal} inter-event interval (ms)")
@@ -201,17 +182,8 @@ fig.tight_layout()
 
 
 # %% 6. event rate distributions (sliding window)
-# Cell 5 asks how long the gaps between movements are; this asks how many movements fall
-# in a fixed stretch of time. A win_sec window stepped by step_sec gives one rate per
-# window, so the spread shows whether a session alternates bursts and quiet periods or
-# holds a steady rate — which a single mean events/s hides.
-#
-# Windows containing any NaN in the position trace are dropped, for the same reason cell 5
-# drops NaN-spanning gaps: a tracking dropout would otherwise be counted as a window with
-# no events. win_sec sets the trade-off — short windows resolve bursts but quantize rate
-# coarsely (a 5 s window can only report multiples of 0.2 Hz), long windows smooth them away.
 
-condition = "head_still"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
+condition = "all"   # "all" | "stationary" | "head_still" | "stationary_and_head_still"
 win_sec, step_sec = 10.0, 5.0
 
 bins = np.linspace(0, 4, 40)

@@ -52,7 +52,7 @@ eo_bins = EO_BINS
 flip_eye = None
 
 pad_pre = 3          # frames before saccade onset excluded
-pad_post = 30        # frames after saccade peak excluded (non_saccade_mask default is 12)
+pad_post = 60        # frames after saccade peak excluded (non_saccade_mask default is 12)
 vel_ceiling = 20     # deg/s; drop residual fast frames the saccade detector missed
 head_rot = 20        # deg/s, head angular speed ceiling (None = off)
 head_trans = 20      # mm/s, head translation speed ceiling (None = off)

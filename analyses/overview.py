@@ -1,5 +1,6 @@
 # %% dataset and behavior overview (Fig 1)
 # Set your paths in local_config.py (copy local_config.py.example to get started).
+# cd /Users/benjaminscholl/Documents/eyetools/
 import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore

@@ -1,6 +1,6 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
 # main init
-# Set your paths in local_config.py (copy local_config.py.example to get started).
+# Set your paths in local_config.py (copy local_config.py.example to get started): cd /Users/benjaminscholl/Documents/eyetools/
 import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
@@ -12,7 +12,7 @@ import seaborn as sns
 from analyses.helper_functions import (FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR, LE_COLOR,
                                        RE_COLOR, eo_groups, unwrap_deg, load_results, set_style,
                                        save_fig, head_eye_windows, head_triggered_windows,
-                                       eye_head_coupling, in_head_saccade, running_mask, onset_correlogram, plot_mean_se,
+                                       eye_head_coupling, in_head_saccade, running_mask, eye_signal, onset_correlogram, plot_mean_se,
                                        session_trend)
 set_style()
 
@@ -329,6 +329,151 @@ fig.tight_layout()
 
 # if save_figs:
 #     save_fig(fig, "eye_head_D_timing")
+
+
+# %% D.2 (DRAFT) eye-head coupling event types
+# Each head saccade is checked for eye saccades (either eye) in the window
+# [head onset - lead_ms, window end]; lag = eye onset - head onset. Categories:
+#   directed    an eye onset BEFORE the head:  lag < -coinc_ms
+#   coincident  an eye onset with the head:    |lag| <= coinc_ms
+#   following   the FIRST eye onset after the head (lag > coinc_ms)
+#   reflexive   a 2nd+ eye onset after the head, only in LARGE head saccades
+#               (|yaw_disp| >= big_head_deg); denominator = large head saccades only
+# One head saccade can have several categories. Measure = % of head saccades with >= 1 event of
+# that category, per session x locomotor state (at head onset). Chance = the same after
+# circularly shifting eye onsets (>= 10 s); each eye event keeps its own direction.
+# Caveat: a long lead_ms lets one eye onset fall in two neighbouring head windows.
+
+# --- levers ---
+lead_ms = 500          # how far before head onset an eye saccade can be "directed"
+coinc_ms = 50          # |lag| <= this = coincident
+end_ms = None          # window end after head onset: None = head peak, or a fixed ms value
+big_head_deg = 40      # |yaw displacement| for a head saccade to count as "large" (reflexive)
+min_head_amp = 0       # drop head saccades with |yaw displacement| below this (deg)
+direction = "all"      # eye saccades counted: "all" | "with" head | "against" head
+show = "excess"        # figure 1: "excess" (obs - chance) | "obs" (obs vs chance)
+n_shift = 50           # random shifts for chance
+states = ("stationary", "running")
+cats = ("directed", "coincident", "following", "reflexive")
+
+lead_f, coinc_f = lead_ms / 1000 * FS, coinc_ms / 1000 * FS
+
+rng = np.random.default_rng(0)
+rows = []
+for R in Results:
+    run = running_mask(R, speed_threshold, min_bout)
+    speed_ok = np.isfinite(np.asarray(R.speed, float))
+    H = HEAD[id(R)]
+    H = H[H.yaw_disp.abs() >= min_head_amp]
+    h_on_all = H["onset"].to_numpy().astype(int)
+    h_state = np.where(~speed_ok[h_on_all], "unknown",
+                       np.where(run[h_on_all], "running", "stationary"))
+
+    # eye onsets (both eyes) with the sign of their horizontal displacement (head frame)
+    on_l, sgn_l = [], []
+    for eye, df in (("LE", R.df_LE), ("RE", R.df_RE)):
+        x = eye_signal(R, eye, "x", flip_eye)
+        o, p = df["onset"].to_numpy().astype(int), df["peak"].to_numpy().astype(int)
+        on_l.append(o)
+        sgn_l.append(np.nan_to_num(np.sign(x[p] - x[o])))
+    eye_on, eye_sgn = np.concatenate(on_l), np.concatenate(sgn_l)
+    n_frames = len(R.LE_vx)
+
+    for state in states:
+        Hs = H[h_state == state]
+        if len(Hs) < 10:
+            continue
+        h_on = Hs["onset"].to_numpy().astype(int)
+        h_end = (Hs["peak"].to_numpy().astype(int) if end_ms is None
+                 else h_on + int(end_ms / 1000 * FS))
+        h_sgn = np.sign(Hs["yaw_disp"].to_numpy(float))
+        big = Hs["yaw_disp"].abs().to_numpy() >= big_head_deg
+
+        res = []   # per shift: % of head saccades with each category
+        for shift in [0] + list(rng.integers(int(10 * FS), n_frames - int(10 * FS), n_shift)):
+            on = (eye_on + shift) % n_frames
+            order = np.argsort(on)
+            on, sg = on[order], eye_sgn[order]
+            lo_i = np.searchsorted(on, h_on - lead_f, side="left")
+            hi_i = np.searchsorted(on, h_end, side="right")
+            has = np.zeros((len(h_on), len(cats)), bool)
+            for j in range(len(h_on)):
+                lag = on[lo_i[j]:hi_i[j]] - h_on[j]
+                rel = sg[lo_i[j]:hi_i[j]] * h_sgn[j]        # +1 with head, -1 against
+                if direction == "with":
+                    lag = lag[rel > 0]
+                elif direction == "against":
+                    lag = lag[rel < 0]
+                n_after = np.sum(lag > coinc_f)
+                has[j] = (np.any(lag < -coinc_f), np.any(np.abs(lag) <= coinc_f),
+                          n_after >= 1, big[j] and n_after >= 2)
+            pct = 100 * has[:, :3].mean(axis=0)
+            res.append(list(pct) + [100 * has[big, 3].mean() if big.any() else np.nan])
+        res = np.array(res)
+
+        row = dict(id=R.id, eo=R.eo, state=state, n_head=len(h_on), n_big=big.sum())
+        for k, cat in enumerate(cats):
+            row[cat] = res[0, k]
+            row[f"{cat}_chance"] = np.nanmean(res[1:, k])
+            row[f"{cat}_excess"] = res[0, k] - row[f"{cat}_chance"]
+        rows.append(row)
+
+C = pd.DataFrame(rows)
+
+# thin-cell check: head saccades (and large ones) per EO bin x state
+for state in states:
+    for lo, hi in eo_bins:
+        c = C[(C.state == state) & (C.eo >= lo) & (C.eo <= hi)]
+        print(f"{state:10s} EO {lo}-{hi}: sessions={len(c):2d}  head={c.n_head.sum():4d}  "
+              f"large={c.n_big.sum():4d}")
+
+# figure 1: rows = state, columns = category; session dots + bin median per EO bin
+fig, axes = plt.subplots(len(states), len(cats), figsize=(2.3 * len(cats), 2 * len(states)),
+                         squeeze=False, sharey=(show == "excess"))
+for row, state in enumerate(states):
+    Cs = C[C.state == state]
+    for ax, cat in zip(axes[row], cats):
+        cols = (f"{cat}_excess",) if show == "excess" else (cat, f"{cat}_chance")
+        for i, (lo, hi) in enumerate(eo_bins):
+            in_bin = (Cs.eo >= lo) & (Cs.eo <= hi)
+            for col, dx in zip(cols, (-0.18, 0.18) if len(cols) == 2 else (0,)):
+                v = Cs.loc[in_bin, col].dropna()
+                if not len(v):
+                    continue
+                c = "0.75" if col.endswith("_chance") else AGE_COLORS[i]
+                ax.plot(np.full(len(v), i + dx - 0.07), v, "o", ms=3, alpha=0.6, color=c)
+                ax.plot(i + dx + 0.07, v.median(), "o", ms=6, mfc="white", mew=1.2, color=c)
+        if show == "excess":
+            ax.axhline(0, color="0.8", lw=0.5)
+        ax.set_xticks(range(len(eo_bins)), [f"EO {lo}-{hi}" for lo, hi in eo_bins])
+        ax.set_title(f"{cat}  ({state})", fontsize=6)
+        ax.set_ylabel("% head sacc. - chance" if show == "excess" else "% head saccades")
+sns.despine(fig)
+fig.tight_layout()
+
+# figure 2: composition — median observed % per EO bin, one bar group per category
+fig, axes = plt.subplots(1, len(states), figsize=(3 * len(states), 2), squeeze=False,
+                         sharey=True)
+w = 0.8 / len(eo_bins)
+for ax, state in zip(axes[0], states):
+    Cs = C[C.state == state]
+    for i, (lo, hi) in enumerate(eo_bins):
+        c = Cs[(Cs.eo >= lo) & (Cs.eo <= hi)]
+        ax.bar(np.arange(len(cats)) + (i - (len(eo_bins) - 1) / 2) * w,
+               [c[cat].median() for cat in cats], w, color=AGE_COLORS[i],
+               label=f"EO {lo}-{hi}")
+        ax.plot(np.arange(len(cats)) + (i - (len(eo_bins) - 1) / 2) * w,
+                [c[f"{cat}_chance"].median() for cat in cats], "_", ms=8, color="k")
+    ax.set_xticks(range(len(cats)), cats, fontsize=5)
+    ax.set_title(f"{state}  (black tick = chance)", fontsize=6)
+    ax.set_ylabel("% head saccades")
+    ax.legend(fontsize=4)
+sns.despine(fig)
+fig.tight_layout()
+
+for state in states:
+    for cat in cats:
+        session_trend(C[C.state == state], f"{cat}_excess", f"{state} {cat} excess")
 
 
 

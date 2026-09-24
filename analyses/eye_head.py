@@ -44,8 +44,8 @@ head_vel_bins = np.arange(50, 551, 100)            # Wallace Fig 4D bins, deg/s
 
 # locomotion flag for the Wallace 4A / 4C / 4D cells: "all" | "stationary" | "running",
 # judged at eye saccade onset (running_mask, same thresholds as movement_stats.py)
-loco = "all"
-speed_threshold = 50     # mm/s
+loco = "stationary"
+speed_threshold = 20     # mm/s
 min_bout = 30            # frames
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
@@ -291,7 +291,7 @@ SESS["first_lag_excess_ms"] = SESS.first_lag_ms - SESS.first_lag_chance_ms
 
 fig, axes = plt.subplots(1, 3, figsize=(9, 2))
 
-for group, title, c in zip(groups, titles, colors):
+for group, title, c in zip(groups, titles, AGE_COLORS):
 
     if not group:
         continue
@@ -405,7 +405,9 @@ for row, (group, title) in enumerate(zip(groups, titles)):
         
         sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)
                & ((e.loco == loco) | (loco == "all"))).to_numpy()
+        
         ax_h = ax.twinx()   # eye on the left axis, head on the right
+
         plot_mean_se(ax, t_ms, w["eye_vel"][sel & (e.eye == "LE").to_numpy()], LE_COLOR, "LE")
         plot_mean_se(ax, t_ms, w["eye_vel"][sel & (e.eye == "RE").to_numpy()], RE_COLOR, "RE")
         plot_mean_se(ax_h, t_ms, w["head_vel"][sel], HEAD_COLOR, "head")
@@ -432,24 +434,20 @@ fig.tight_layout()
 #   x = peak (positive) head velocity from eye onset to the end of the window
 #   y = peak negative eye velocity in the pscr_win frames after the eye saccade ends
 #       (the counter-rotation, not the saccade itself)
-# log_axes=True plots |y| on log-log axes, so the scaling is easier to compare across bins.
 # Black = mean +- SD of y in 100 deg/s bins of x (head_vel_bins).
 
-log_axes = True
+log_x = False     # True = log-scale x axis (head velocity)
 
 fig, axes = plt.subplots(1, len(groups), figsize=(2.6 * len(groups), 2.4), squeeze=False,
                          sharex=True, sharey=True)
-for ax, group, title, c in zip(axes[0], groups, titles, colors):
+for ax, group, title, c in zip(axes[0], groups, titles, AGE_COLORS):
     if not group:
         continue
     e = pd.concat([E[id(R)] for R in group], ignore_index=True)
     p = e[e.paired & e.clean & (e.same_direction == 1)
           & ((e.loco == loco) | (loco == "all"))].dropna(subset=["head_peak_vel", "eye_cr_vel"])
     x = p.head_peak_vel.to_numpy()
-    y = -p.eye_cr_vel.to_numpy() if log_axes else p.eye_cr_vel.to_numpy()
-    if log_axes:
-        keep = (x > 0) & (y > 0)
-        x, y = x[keep], y[keep]
+    y = p.eye_cr_vel.to_numpy()
 
     ax.scatter(x, y, s=1, alpha=0.2, color=c)
 
@@ -462,19 +460,16 @@ for ax, group, title, c in zip(axes[0], groups, titles, colors):
             sds.append(yb.std())
     ax.errorbar(centers, means, yerr=sds, fmt="o-", ms=3, lw=1, capsize=2, color="k")
 
-    r = np.corrcoef(np.log10(x), np.log10(y))[0, 1] if log_axes else np.corrcoef(x, y)[0, 1]
-    print(f"{title:10s} n={len(x):5d}  r={r:+.3f}{' (log-log)' if log_axes else ''}  "
+    r = np.corrcoef(x, y)[0, 1]
+    print(f"{title:10s} n={len(x):5d}  r={r:+.3f}  "
           + "  ".join(f"{cc:.0f}:{mm:.0f}" for cc, mm in zip(centers, means)))
 
     ax.set_title(f"{title}  n={len(x)}  r={r:+.2f}  ({loco})", fontsize=6)
     ax.set_xlabel("peak head velocity (deg/s)")
-    if log_axes:
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.set_ylabel("peak negative eye velocity (deg/s)")
+    if log_x:
         ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_ylabel("|peak negative eye velocity| (deg/s)")
-    else:
-        ax.axhline(0, color="0.8", lw=0.5)
-        ax.set_ylabel("peak negative eye velocity (deg/s)")
 sns.despine(fig)
 fig.tight_layout()
 if save_figs:
@@ -485,7 +480,7 @@ if save_figs:
 
 fig, axes = plt.subplots(1, 3, figsize=(8, 2))
 
-for group, title, c in zip(groups, titles, colors):
+for group, title, c in zip(groups, titles, AGE_COLORS):
     if not group:
         continue
     H = pd.concat([HEAD[id(R)] for R in group])
@@ -510,7 +505,7 @@ fig.tight_layout()
 
 fig, axes = plt.subplots(1, 2, figsize=(5.5, 2.2))
 
-for group, title, c in zip(groups, titles, colors):
+for group, title, c in zip(groups, titles, AGE_COLORS):
     if not group:
         continue
     H = pd.concat([HEAD[id(R)] for R in group])
@@ -573,7 +568,7 @@ axes[1].set_ylabel("% unpaired")
 fig.colorbar(sc, ax=axes[1], label="EO")
 
 # lag distribution of paired eye saccades per EO group, with the lead_ms boundaries drawn
-for group, title, c in zip(groups, titles, colors):
+for group, title, c in zip(groups, titles, AGE_COLORS):
     if not group:
         continue
     lag = pd.concat([E[id(R)] for R in group])["lag_ms"].dropna()

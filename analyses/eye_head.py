@@ -257,7 +257,9 @@ max_lag, bin_frames = 60, 3     # correlogram: +-500 ms, 25 ms bins
 n_shift = 50                    # random shifts for the chance level
 
 first_lag, first_lag_chance = [], []
+
 rng = np.random.default_rng(0)
+
 for R in Results:
     H = HEAD[id(R)]
     h_on = H["onset"].to_numpy().astype(int)

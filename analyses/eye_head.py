@@ -19,7 +19,6 @@ set_style()
 # LOAD DATA
 Results = load_results()  # FERRETS in helper_functions; 753, 757 -> look carefully at these files
 
-
 # %% settings for every plot below
 # Eye-head dynamics, replicating Wallace, Voit, Martin Machado et al., Kerr lab,
 # Current Biology 35:761-775 (Feb 2025), Figure 4, across development.
@@ -95,20 +94,27 @@ SESS = pd.DataFrame(rows)
 print(SESS.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
 
 
-# %% A. head saccades across development (one point per session, one line per ferret)
+# %% A. head saccades across development, binned by EO (one point per session, bin median)
 
 fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
 for ax, col, lbl in zip(axes, ("head_rate", "head_amp", "head_pkv"),
                         ("head saccades (/s)", "median amplitude (deg)",
                          "median peak velocity (deg/s)")):
-    plot_vs_eo(ax, SESS, col, color=HEAD_COLOR)
+    for i, (lo, hi) in enumerate(eo_bins):
+        v = SESS.loc[(SESS.eo >= lo) & (SESS.eo <= hi), col].dropna()
+        if not len(v):
+            continue
+        c = AGE_COLORS[i % len(AGE_COLORS)]
+        ax.plot(np.full(len(v), i - 0.1), v, "o", ms=3, alpha=0.6, color=c)
+        ax.plot(i + 0.1, v.median(), "o", ms=7, mfc="white", mew=1.5, color=c)
+    ax.set_xticks(range(len(eo_bins)), [f"EO {lo}-{hi}" for lo, hi in eo_bins])
     ax.set_ylabel(lbl)
     session_trend(SESS, col)
-axes[0].legend(fontsize=4)
 sns.despine(fig)
 fig.tight_layout()
-if save_figs:
-    save_fig(fig, "eye_head_A_head_saccades")
+
+# if save_figs:
+#     save_fig(fig, "eye_head_A_head_saccades")
 
 
 # %% B. head-onset-triggered average: head, eye-in-head and gaze (head frame)

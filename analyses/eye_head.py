@@ -13,7 +13,7 @@ from analyses.helper_functions import (FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_
                                        RE_COLOR, eo_groups, unwrap_deg, load_results, set_style,
                                        save_fig, head_eye_windows, head_triggered_windows,
                                        eye_head_coupling, onset_correlogram, plot_mean_se,
-                                       session_trend, plot_vs_eo, plot_by_eo_bin)
+                                       session_trend, plot_vs_eo)
 set_style()
 
 # LOAD DATA
@@ -100,7 +100,13 @@ fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
 for ax, col, lbl in zip(axes, ("head_rate", "head_amp", "head_pkv"),
                         ("head saccades (/s)", "median amplitude (deg)",
                          "median peak velocity (deg/s)")):
-    plot_by_eo_bin(ax, SESS, col, eo_bins)
+    for i, (lo, hi) in enumerate(eo_bins):
+        v = SESS.loc[(SESS.eo >= lo) & (SESS.eo <= hi), col].dropna()
+        if not len(v):
+            continue
+        ax.plot(np.full(len(v), i - 0.1), v, "o", ms=3, alpha=0.6, color=AGE_COLORS[i])
+        ax.plot(i + 0.1, v.median(), "o", ms=7, mfc="white", mew=1.5, color=AGE_COLORS[i])
+    ax.set_xticks(range(len(eo_bins)), [f"EO {lo}-{hi}" for lo, hi in eo_bins])
     ax.set_ylabel(lbl)
     session_trend(SESS, col)
 sns.despine(fig)
@@ -185,8 +191,9 @@ for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)
         ax.legend(fontsize=4, title="head amp (deg)", title_fontsize=4)
     sns.despine(fig)
     fig.tight_layout()
-    if save_figs:
-        save_fig(fig, f"eye_head_B2_{sig}_by_head_amp")
+
+    # if save_figs:
+    #     save_fig(fig, f"eye_head_B2_{sig}_by_head_amp")
 
 
 # %% C. coupling by EO bin: observed vs chance (one point per session, bin median)
@@ -198,22 +205,36 @@ for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)
 # The raw percentage tracks head saccade rate (more head movement = more eye saccades land
 # inside one by chance), so coupling is the measure to compare across age.
 
-grey = ["0.75"] * len(eo_bins)
 fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
-for ax, col, lbl in ((axes[0], "eye_in_head", "% eye saccades in a head saccade"),
-                     (axes[1], "head_with_eye", "% head saccades with an eye saccade")):
-    plot_by_eo_bin(ax, SESS, col, eo_bins, dx=-0.18)
-    plot_by_eo_bin(ax, SESS, f"{col}_chance", eo_bins, colors=grey, dx=0.18)
+
+for ax, cols, lbl in ((axes[0], ("eye_in_head", "eye_in_head_chance"),
+                       "% eye saccades in a head saccade"),
+                      (axes[1], ("head_with_eye", "head_with_eye_chance"),
+                       "% head saccades with an eye saccade"),
+                      (axes[2], ("coupling",), "coupling (observed - chance, %)")):
+    for i, (lo, hi) in enumerate(eo_bins):
+        in_bin = (SESS.eo >= lo) & (SESS.eo <= hi)
+        for col, dx in zip(cols, (-0.18, 0.18) if len(cols) == 2 else (0,)):
+            v = SESS.loc[in_bin, col].dropna()
+            if not len(v):
+                continue
+            c = "0.75" if col.endswith("_chance") else AGE_COLORS[i]
+            ax.plot(np.full(len(v), i + dx - 0.07), v, "o", ms=3, alpha=0.6, color=c)
+            ax.plot(i + dx + 0.07, v.median(), "o", ms=6, mfc="white", mew=1.2, color=c)
+    ax.set_xticks(range(len(eo_bins)), [f"EO {lo}-{hi}" for lo, hi in eo_bins])
     ax.set_ylabel(lbl)
-plot_by_eo_bin(axes[2], SESS, "coupling", eo_bins)
+
 axes[2].axhline(0, color="0.8", lw=0.5)
+
 axes[2].set_ylabel("coupling (observed - chance, %)")
+
 for col in ("eye_in_head", "head_with_eye", "coupling"):
     session_trend(SESS, col)
 sns.despine(fig)
 fig.tight_layout()
-if save_figs:
-    save_fig(fig, "eye_head_C_coupling")
+
+# if save_figs:
+#     save_fig(fig, "eye_head_C_coupling")
 
 
 # %% D. timing: when do eye saccades start relative to head onset?
@@ -222,7 +243,7 @@ if save_figs:
 
 max_lag, bin_frames = 60, 3     # +-500 ms, 25 ms bins
 
-fig, axes = plt.subplots(1, 2, figsize=(5.5, 2))
+fig, axes = plt.subplots(1, 2, figsize=(8, 2))
 for group, title, c in zip(groups, titles, colors):
     if not group:
         continue

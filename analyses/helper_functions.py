@@ -757,18 +757,3 @@ def plot_vs_eo(ax, df, col, color="k"):
                 color=color, label=f"F{fid}")
     ax.set_xlabel("EO (days)")
     ax.set_ylabel(col)
-
-
-def plot_by_eo_bin(ax, df, col, eo_bins, colors=None, dx=0.0):
-    """Per-session values of col grouped by EO bin: session points plus the bin median
-    (open circle). colors: one per bin (default AGE_COLORS); dx shifts the bin, e.g. to set
-    observed and chance side by side."""
-    colors = colors or AGE_COLORS
-    for i, (lo, hi) in enumerate(eo_bins):
-        v = df.loc[(df.eo >= lo) & (df.eo <= hi), col].dropna()
-        if not len(v):
-            continue
-        c = colors[i % len(colors)]
-        ax.plot(np.full(len(v), i + dx - 0.07), v, "o", ms=3, alpha=0.6, color=c)
-        ax.plot(i + dx + 0.07, v.median(), "o", ms=6, mfc="white", mew=1.2, color=c)
-    ax.set_xticks(range(len(eo_bins)), [f"EO {lo}-{hi}" for lo, hi in eo_bins])

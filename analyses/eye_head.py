@@ -12,7 +12,7 @@ import seaborn as sns
 from analyses.helper_functions import (FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR, LE_COLOR,
                                        RE_COLOR, eo_groups, unwrap_deg, load_results, set_style,
                                        save_fig, head_eye_windows, head_triggered_windows,
-                                       eye_head_coupling, in_head_saccade, onset_correlogram, plot_mean_se,
+                                       eye_head_coupling, in_head_saccade, running_mask, onset_correlogram, plot_mean_se,
                                        session_trend, plot_vs_eo)
 set_style()
 
@@ -42,6 +42,12 @@ amp_classes = [(5, 10), (10, 15), (15, np.inf)]   # Wallace Fig 4A/4C classes, h
 head_vel_bins = np.arange(50, 551, 100)            # Wallace Fig 4D bins, deg/s
 save_figs = False
 
+# locomotion flag for the Wallace 4A / 4C / 4D cells: "all" | "stationary" | "running",
+# judged at eye saccade onset (running_mask, same thresholds as movement_stats.py)
+loco = "all"
+speed_threshold = 50     # mm/s
+min_bout = 30            # frames
+
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 colors = AGE_COLORS if pool_by_eo else [None] * len(groups)
 
@@ -63,6 +69,11 @@ E, W = {}, {}
 for R in Results:
     E[id(R)], W[id(R)] = head_eye_windows(R, HEAD[id(R)], flip_eye, pre, post,
                                           pair_window, pscr_win)
+    # locomotor state at each eye saccade onset; "unknown" where body speed is not tracked
+    run = running_mask(R, speed_threshold, min_bout)
+    ok = np.isfinite(np.asarray(R.speed, float))
+    on = E[id(R)]["onset"].to_numpy()
+    E[id(R)]["loco"] = np.where(~ok[on], "unknown", np.where(run[on], "running", "stationary"))
 
 
 def pool(group):
@@ -344,24 +355,35 @@ t_ms = np.arange(-pre, post) / FS * 1000
 fig, axes = plt.subplots(len(groups), len(amp_classes),
                          figsize=(3 * len(amp_classes), 2 * len(groups)), squeeze=False)
 for row, (group, title) in enumerate(zip(groups, titles)):
+    
     if not group:
         continue
+    
     e, w = pool(group)
+
     for col, (lo, hi) in enumerate(amp_classes):
+        
         ax = axes[row][col]
-        sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)).to_numpy()
+        
+        sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)
+               & ((e.loco == loco) | (loco == "all"))).to_numpy()
+        
         ax_h = ax.twinx()   # eye on the left axis, head on the right
+
         plot_mean_se(ax, t_ms, w["eye_pos"][sel & (e.eye == "LE").to_numpy()], LE_COLOR, "LE")
         plot_mean_se(ax, t_ms, w["eye_pos"][sel & (e.eye == "RE").to_numpy()], RE_COLOR, "RE")
         plot_mean_se(ax_h, t_ms, w["head_pos"][sel], HEAD_COLOR, "head")
+        
         ax_h.set_ylabel("head rotation (deg)", color=HEAD_COLOR)
         ax_h.tick_params(axis="y", colors=HEAD_COLOR)
+        
         ax.axvline(0, color="0.8", lw=0.5)
-        ax.set_title(f"{title}  eye amp {lo}-{hi} deg", fontsize=6)
+        ax.set_title(f"{title}  eye amp {lo}-{hi} deg  ({loco})", fontsize=6)
         ax.set_xlabel("time from eye onset (ms)")
         ax.set_ylabel("eye rotation (deg)")
         lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
         ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4)
+        
 fig.tight_layout()
 if save_figs:
     save_fig(fig, "eye_head_4A_position")
@@ -380,7 +402,8 @@ for row, (group, title) in enumerate(zip(groups, titles)):
     e, w = pool(group)
     for col, (lo, hi) in enumerate(amp_classes):
         ax = axes[row][col]
-        sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)).to_numpy()
+        sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)
+               & ((e.loco == loco) | (loco == "all"))).to_numpy()
         ax_h = ax.twinx()   # eye on the left axis, head on the right
         plot_mean_se(ax, t_ms, w["eye_vel"][sel & (e.eye == "LE").to_numpy()], LE_COLOR, "LE")
         plot_mean_se(ax, t_ms, w["eye_vel"][sel & (e.eye == "RE").to_numpy()], RE_COLOR, "RE")
@@ -389,7 +412,7 @@ for row, (group, title) in enumerate(zip(groups, titles)):
         ax_h.tick_params(axis="y", colors=HEAD_COLOR)
         ax.axhline(0, color="0.8", lw=0.5)
         ax.axvline(0, color="0.8", lw=0.5)
-        ax.set_title(f"{title}  eye amp {lo}-{hi} deg", fontsize=6)
+        ax.set_title(f"{title}  eye amp {lo}-{hi} deg  ({loco})", fontsize=6)
         ax.set_xlabel("time from eye onset (ms)")
         ax.set_ylabel("eye velocity (deg/s)")
         lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
@@ -399,46 +422,55 @@ if save_figs:
     save_fig(fig, "eye_head_4C_velocity")
 
 
-# %% Wallace Fig 4D — peak head velocity vs peak negative eye velocity, one panel per EO bin
-# One point per paired eye saccade (both eyes, LE and RE colors) that moved WITH its head
-# saccade, horizontal only, in the same flipped frame as 4A/4C (head turns positive):
+# %% Wallace Fig 4D — peak head velocity vs peak counter-rotation eye velocity, per EO bin
+# One point per paired eye saccade that moved WITH its head saccade (LE and RE pooled),
+# horizontal only, in the same flipped frame as 4A/4C (head turns positive):
 #   x = peak (positive) head velocity from eye onset to the end of the window
 #   y = peak negative eye velocity in the pscr_win frames after the eye saccade ends
 #       (the counter-rotation, not the saccade itself)
+# log_axes=True plots |y| on log-log axes, so the scaling is easier to compare across bins.
 # Black = mean +- SD of y in 100 deg/s bins of x (head_vel_bins).
+
+log_axes = True
 
 fig, axes = plt.subplots(1, len(groups), figsize=(2.6 * len(groups), 2.4), squeeze=False,
                          sharex=True, sharey=True)
-for ax, group, title in zip(axes[0], groups, titles):
+for ax, group, title, c in zip(axes[0], groups, titles, colors):
     if not group:
         continue
     e, _ = pool(group)
-    p = e[e.paired & e.clean & (e.same_direction == 1)].dropna(
-        subset=["head_peak_vel", "eye_cr_vel"])
+    p = e[e.paired & e.clean & (e.same_direction == 1)
+          & ((e.loco == loco) | (loco == "all"))].dropna(subset=["head_peak_vel", "eye_cr_vel"])
+    x = p.head_peak_vel.to_numpy()
+    y = -p.eye_cr_vel.to_numpy() if log_axes else p.eye_cr_vel.to_numpy()
+    if log_axes:
+        keep = (x > 0) & (y > 0)
+        x, y = x[keep], y[keep]
 
-    for eye, c in (("LE", LE_COLOR), ("RE", RE_COLOR)):
-        q = p[p.eye == eye]
-        ax.scatter(q.head_peak_vel, q.eye_cr_vel, s=1, alpha=0.2, color=c,
-                   label=f"{eye} (n={len(q)})")
+    ax.scatter(x, y, s=1, alpha=0.2, color=c)
 
     centers, means, sds = [], [], []
     for lo, hi in zip(head_vel_bins[:-1], head_vel_bins[1:]):
-        y = p.eye_cr_vel[(p.head_peak_vel >= lo) & (p.head_peak_vel < hi)]
-        if len(y) > 5:
+        yb = y[(x >= lo) & (x < hi)]
+        if len(yb) > 5:
             centers.append((lo + hi) / 2)
-            means.append(y.mean())
-            sds.append(y.std())
+            means.append(yb.mean())
+            sds.append(yb.std())
     ax.errorbar(centers, means, yerr=sds, fmt="o-", ms=3, lw=1, capsize=2, color="k")
 
-    r = np.corrcoef(p.head_peak_vel, p.eye_cr_vel)[0, 1] if len(p) > 2 else np.nan
-    print(f"{title:10s} n={len(p):5d}  r={r:+.3f}  "
+    r = np.corrcoef(np.log10(x), np.log10(y))[0, 1] if log_axes else np.corrcoef(x, y)[0, 1]
+    print(f"{title:10s} n={len(x):5d}  r={r:+.3f}{' (log-log)' if log_axes else ''}  "
           + "  ".join(f"{cc:.0f}:{mm:.0f}" for cc, mm in zip(centers, means)))
 
-    ax.axhline(0, color="0.8", lw=0.5)
-    ax.set_title(f"{title}  r={r:+.2f}", fontsize=6)
+    ax.set_title(f"{title}  n={len(x)}  r={r:+.2f}  ({loco})", fontsize=6)
     ax.set_xlabel("peak head velocity (deg/s)")
-    ax.set_ylabel("peak negative eye velocity (deg/s)")
-    ax.legend(fontsize=4, markerscale=4)
+    if log_axes:
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_ylabel("|peak negative eye velocity| (deg/s)")
+    else:
+        ax.axhline(0, color="0.8", lw=0.5)
+        ax.set_ylabel("peak negative eye velocity (deg/s)")
 sns.despine(fig)
 fig.tight_layout()
 if save_figs:

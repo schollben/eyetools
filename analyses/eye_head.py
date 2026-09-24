@@ -12,7 +12,7 @@ import seaborn as sns
 from analyses.helper_functions import (FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR, LE_COLOR,
                                        RE_COLOR, eo_groups, unwrap_deg, load_results, set_style,
                                        save_fig, head_eye_windows, head_triggered_windows,
-                                       eye_head_coupling, onset_correlogram, plot_mean_se,
+                                       eye_head_coupling, in_head_saccade, onset_correlogram, plot_mean_se,
                                        session_trend, plot_vs_eo)
 set_style()
 
@@ -78,7 +78,6 @@ for R in Results:
     H, e = HEAD[id(R)], E[id(R)]
     obs_e, chance_e, obs_h, chance_h = eye_head_coupling(R, H, pair_window)
     p = e[e.paired]
-    first = p.loc[p.groupby("head_idx").onset.idxmin(), "lag_ms"] if len(p) else pd.Series()
     cr = p[(p.same_direction == 1) & p.clean]
     rows.append(dict(id=R.id, eo=R.eo,
                      head_rate=len(H) / (np.isfinite(R.yaw).sum() / FS),
@@ -87,12 +86,9 @@ for R in Results:
                      eye_in_head=100 * obs_e, eye_in_head_chance=100 * chance_e,
                      coupling=100 * (obs_e - chance_e),
                      head_with_eye=100 * obs_h, head_with_eye_chance=100 * chance_h,
-                     first_lag_ms=first.median(),
                      codirectional=100 * p.same_direction.mean(),
                      pscr_gain=cr.pscr_gain.median(), n_paired=len(p)))
 SESS = pd.DataFrame(rows)
-print(SESS.to_string(index=False, float_format=lambda v: f"{v:.2f}"))
-
 
 # %% A. head saccades across development, binned by EO (one point per session, bin median)
 
@@ -238,12 +234,58 @@ fig.tight_layout()
 
 
 # %% D. timing: when do eye saccades start relative to head onset?
-# Head-triggered correlogram of eye onsets (both eyes) as a rate relative to chance
-# (1 = unrelated). Lag = head onset - eye onset: positive = eye led.
+# Lag = head onset - eye onset (ms): positive = the eye started first.
+#
+# Left: head-triggered correlogram of eye onsets (both eyes), as a rate relative to chance
+#       (1 = no relationship between eye and head timing), pooled per EO bin.
+#
+# Middle / right: the FIRST eye saccade of each head saccade.
+#   For each head saccade, take all eye saccades (either eye) whose onset falls in
+#   [head onset - pair_window, head peak], keep the earliest, and compute its lag.
+#   A session's value is the median over its head saccades.
+#
+#   Why a chance level is needed: the window opens pair_window frames (250 ms) BEFORE head
+#   onset, so the more eye saccades an animal makes, the sooner the first one lands in it —
+#   even if eye and head timing are unrelated. Eye saccade rate roughly doubles with EO, so
+#   the raw lag rises with age on rate alone. Chance = the same measure after circularly
+#   shifting all eye onsets by a random offset (>= 10 s): same rate, no real timing.
+#   excess = observed - chance is the timing effect with rate removed.
+#   excess < 0: the first eye saccade comes LATER than chance, i.e. it waits for / is
+#   triggered by head onset. excess ~ 0: eye timing is independent of head onset.
 
-max_lag, bin_frames = 60, 3     # +-500 ms, 25 ms bins
+max_lag, bin_frames = 60, 3     # correlogram: +-500 ms, 25 ms bins
+n_shift = 50                    # random shifts for the chance level
 
-fig, axes = plt.subplots(1, 2, figsize=(8, 2))
+first_lag, first_lag_chance = [], []
+rng = np.random.default_rng(0)
+for R in Results:
+    H = HEAD[id(R)]
+    h_on = H["onset"].to_numpy().astype(int)
+    eye_on = np.concatenate([R.df_LE["onset"].to_numpy(),
+                             R.df_RE["onset"].to_numpy()]).astype(int)
+    n_frames = len(R.LE_vx)
+
+    medians = []   # [observed, shift 1, shift 2, ...]
+    shifts = [0] + list(rng.integers(int(10 * FS), n_frames - int(10 * FS), n_shift))
+    for shift in shifts:
+        on = (eye_on + shift) % n_frames
+        idx = in_head_saccade(on, H, pair_window)       # head saccade each onset falls in, -1 = none
+        inside = idx >= 0
+        lags = []
+        for h in np.unique(idx[inside]):
+            earliest = on[idx == h].min()
+            lags.append((h_on[h] - earliest) / FS * 1000)
+        medians.append(np.median(lags) if lags else np.nan)
+
+    first_lag.append(medians[0])
+    first_lag_chance.append(np.nanmedian(medians[1:]))
+
+SESS["first_lag_ms"] = first_lag
+SESS["first_lag_chance_ms"] = first_lag_chance
+SESS["first_lag_excess_ms"] = SESS.first_lag_ms - SESS.first_lag_chance_ms
+
+fig, axes = plt.subplots(1, 3, figsize=(9, 2))
+
 for group, title, c in zip(groups, titles, colors):
     if not group:
         continue
@@ -258,10 +300,26 @@ axes[0].set_xlabel("head onset - eye onset (ms)")
 axes[0].set_ylabel("eye onset rate / chance")
 axes[0].legend(fontsize=4)
 
-plot_vs_eo(axes[1], SESS, "first_lag_ms")
-axes[1].axhline(0, color="0.8", lw=0.5)
-axes[1].set_ylabel("first eye saccade: head - eye onset (ms)")
-session_trend(SESS, "first_lag_ms")
+# per session, grouped by EO bin: middle = observed (color) next to chance (grey),
+# right = excess (observed - chance)
+for ax, cols, lbl in ((axes[1], ("first_lag_ms", "first_lag_chance_ms"),
+                       "first eye saccade lag (ms)"),
+                      (axes[2], ("first_lag_excess_ms",), "first-saccade lag - chance (ms)")):
+    for i, (lo, hi) in enumerate(eo_bins):
+        in_bin = (SESS.eo >= lo) & (SESS.eo <= hi)
+        for col, dx in zip(cols, (-0.18, 0.18) if len(cols) == 2 else (0,)):
+            v = SESS.loc[in_bin, col].dropna()
+            if not len(v):
+                continue
+            c = "0.75" if col.endswith("_chance_ms") else AGE_COLORS[i]
+            ax.plot(np.full(len(v), i + dx - 0.07), v, "o", ms=3, alpha=0.6, color=c)
+            ax.plot(i + dx + 0.07, v.median(), "o", ms=6, mfc="white", mew=1.2, color=c)
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.set_xticks(range(len(eo_bins)), [f"EO {lo}-{hi}" for lo, hi in eo_bins])
+    ax.set_ylabel(lbl)
+
+for col in ("first_lag_ms", "first_lag_chance_ms", "first_lag_excess_ms"):
+    session_trend(SESS, col)
 sns.despine(fig)
 fig.tight_layout()
 if save_figs:

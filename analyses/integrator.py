@@ -1,6 +1,8 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
 # main init
 # Set your paths in local_config.py (copy local_config.py.example to get started): cd /Users/benjaminscholl/Documents/eyetools/
+%load_ext autoreload
+%autoreload 2
 import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
@@ -55,7 +57,7 @@ vel_ceiling = 20     # deg/s; drop residual fast frames the saccade detector mis
 head_rot = 20        # deg/s, head angular speed ceiling (None = off)
 head_trans = 20      # mm/s, head translation speed ceiling (None = off)
 min_run = 60         # frames, shortest contiguous clean stretch (cell 4)
-pos_bins = np.arange(-10, 10, 2)   # signed, never folded to |x|
+pos_bins = np.arange(-10, 12, 2)   # signed, never folded to |x|
 EYES = ("LE", "RE")
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)

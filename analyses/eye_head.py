@@ -86,7 +86,6 @@ for R in Results:
                      eye_in_head=100 * obs_e, eye_in_head_chance=100 * chance_e,
                      coupling=100 * (obs_e - chance_e),
                      head_with_eye=100 * obs_h, head_with_eye_chance=100 * chance_h,
-                     codirectional=100 * p.same_direction.mean(),
                      pscr_gain=cr.pscr_gain.median(), n_paired=len(p)))
 SESS = pd.DataFrame(rows)
 
@@ -261,6 +260,7 @@ first_lag, first_lag_chance = [], []
 rng = np.random.default_rng(0)
 
 for R in Results:
+
     H = HEAD[id(R)]
     h_on = H["onset"].to_numpy().astype(int)
     eye_on = np.concatenate([R.df_LE["onset"].to_numpy(),
@@ -289,13 +289,18 @@ SESS["first_lag_excess_ms"] = SESS.first_lag_ms - SESS.first_lag_chance_ms
 fig, axes = plt.subplots(1, 3, figsize=(9, 2))
 
 for group, title, c in zip(groups, titles, colors):
+
     if not group:
         continue
+    
     counts, expected = 0, 0
+    
     for R in group:
         centers, n, ex = onset_correlogram(R, HEAD[id(R)], max_lag, bin_frames)
         counts, expected = counts + n, expected + ex
+
     axes[0].plot(centers, counts / expected, color=c, lw=1, label=title)
+
 axes[0].axhline(1, color="0.8", lw=0.5)
 axes[0].axvline(0, color="0.8", lw=0.5)
 axes[0].set_xlabel("head onset - eye onset (ms)")
@@ -328,111 +333,110 @@ if save_figs:
     save_fig(fig, "eye_head_D_timing")
 
 
-# %% E. direction: do eye saccades inside a head saccade move with the head or against it?
-# With the head = gaze shift; against = counter-rotation / resetting. Positions only.
-
-fig, ax = plt.subplots(figsize=(2.5, 2))
-plot_vs_eo(ax, SESS, "codirectional")
-ax.axhline(50, color="0.8", lw=0.5)
-ax.set_ylabel("% eye saccades moving with the head")
-ax.legend(fontsize=4)
-session_trend(SESS, "codirectional")
-sns.despine(fig)
-fig.tight_layout()
-if save_figs:
-    save_fig(fig, "eye_head_E_direction")
-
-
-# %% F-G. Wallace Fig 4A / 4C — rotation and velocity traces by amplitude class
-# Paired eye saccades, onset-aligned and sign-aligned so the paired head saccade turns
-# positive. Classes use HORIZONTAL eye amplitude, since the traces are horizontal. The
-# PSCR appears as the negative eye-velocity lobe after the primary phase.
+# %% Wallace Fig 4A — eye and head rotation, averaged by eye saccade amplitude
+# Rows = EO bins, columns = eye amplitude classes (amp_classes: HORIZONTAL eye displacement,
+# onset -> peak). Only eye saccades that start inside a head saccade ("paired") and have a
+# NaN-free window. Every trace is horizontal, zeroed at eye onset, and flipped so its head
+# saccade turns positive (head frame: eye + = head +). Mean +- SE.
 
 t_ms = np.arange(-pre, post) / FS * 1000
 
-for kind, ylabel in (("pos", "rotation (deg)"), ("vel", "rotation velocity (deg/s)")):
-
-    fig, axes = plt.subplots(len(groups), len(amp_classes),
-                             figsize=(3 * len(amp_classes), 2 * len(groups)), squeeze=False)
-
-    for row, (group, title) in enumerate(zip(groups, titles)):
-        if not group:
-            continue
-        e, w = pool(group)
-        for col, (lo, hi) in enumerate(amp_classes):
-            ax = axes[row][col]
-            sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)).to_numpy()
-            plot_mean_se(ax, t_ms, w[f"head_{kind}"][sel], HEAD_COLOR, "head")
-            for eye, c in (("LE", LE_COLOR), ("RE", RE_COLOR)):
-                arr = w[f"eye_{kind}"][sel & (e.eye == eye).to_numpy()]
-                plot_mean_se(ax, t_ms, arr, c, eye)
-                if kind == "vel" and len(arr) >= 10:
-                    m = arr.mean(axis=0)
-                    print(f"{title:10s} {lo}-{hi} {eye} n={len(arr):5d} "
-                          f"peak={m.max():7.1f}  trough={m.min():7.1f} deg/s")
-            if kind == "vel":
-                ax.axhline(0, color="0.8", lw=0.5)
-            ax.axvline(0, color="0.8", lw=0.5)
-            ax.set_title(f"{title}  {lo}-{hi} deg", fontsize=6)
-            ax.set_xlabel("time from eye onset (ms)")
-            ax.set_ylabel(ylabel)
-            ax.legend(fontsize=4)
-
-    sns.despine(fig)
-    fig.tight_layout()
-    if save_figs:
-        save_fig(fig, f"eye_head_{'F' if kind == 'pos' else 'G'}_traces_{kind}")
-
-
-# %% H. Wallace Fig 4D — counter-rotation vs head velocity, and its development
-# Paired eye saccades moving WITH the head. y = most negative eye velocity in the pscr_win
-# frames after the eye saccade ends (the counter-rotation, not the saccade). Mean +- SD in
-# 100 deg/s head-velocity bins. Right: per-session counter-rotation gain (-1 = full).
-
-fig, axes = plt.subplots(1, 2, figsize=(6, 2.4))
-
-for group, title, c in zip(groups, titles, colors):
+fig, axes = plt.subplots(len(groups), len(amp_classes),
+                         figsize=(3 * len(amp_classes), 2 * len(groups)), squeeze=False)
+for row, (group, title) in enumerate(zip(groups, titles)):
     if not group:
         continue
-    e, _ = pool(group)
-    p = e[e.paired & e.clean & (e.same_direction == 1)]
-    x, y = p.head_peak_vel.to_numpy(), p.eye_cr_vel.to_numpy()
-    sel = (np.isfinite(x) & np.isfinite(y) & (x >= head_vel_bins[0])
-           & (x < head_vel_bins[-1]))
-    if sel.sum() < 20:
-        continue
-
-    axes[0].scatter(x[sel], y[sel], s=1, alpha=0.08, color=c)
-    centers, means, sds = [], [], []
-    for lo, hi in zip(head_vel_bins[:-1], head_vel_bins[1:]):
-        m = sel & (x >= lo) & (x < hi)
-        if m.sum() > 5:
-            centers.append((lo + hi) / 2)
-            means.append(y[m].mean())
-            sds.append(y[m].std())
-    axes[0].errorbar(centers, means, yerr=sds, fmt="o-", ms=3, lw=1, capsize=2, color=c,
-                     label=f"{title} (n={sel.sum()})")
-
-    r = np.corrcoef(x[sel], y[sel])[0, 1]
-    slope = np.polyfit(x[sel], y[sel], 1)[0]
-    print(f"{title:10s} n={sel.sum():6d}  r={r:+.3f}  slope={slope:+.3f}  "
-          + "  ".join(f"{cc:.0f}:{mm:.0f}" for cc, mm in zip(centers, means)))
-
-axes[0].axhline(0, color="0.8", lw=0.5)
-axes[0].set_xlabel("peak head velocity (deg/s)")
-axes[0].set_ylabel("peak counter-rotation eye velocity (deg/s)")
-axes[0].set_title("Fig 4D  counter-rotation", fontsize=6)
-axes[0].legend(fontsize=4)
-
-plot_vs_eo(axes[1], SESS, "pscr_gain")
-axes[1].axhline(-1, color="0.8", ls=":", lw=0.5)
-axes[1].axhline(0, color="0.8", lw=0.5)
-axes[1].set_ylabel("counter-rotation gain (eye / head)")
-session_trend(SESS, "pscr_gain")
+    e, w = pool(group)
+    for col, (lo, hi) in enumerate(amp_classes):
+        ax = axes[row][col]
+        sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)).to_numpy()
+        plot_mean_se(ax, t_ms, w["head_pos"][sel], HEAD_COLOR, "head")
+        plot_mean_se(ax, t_ms, w["eye_pos"][sel & (e.eye == "LE").to_numpy()], LE_COLOR, "LE")
+        plot_mean_se(ax, t_ms, w["eye_pos"][sel & (e.eye == "RE").to_numpy()], RE_COLOR, "RE")
+        ax.axvline(0, color="0.8", lw=0.5)
+        ax.set_title(f"{title}  eye amp {lo}-{hi} deg", fontsize=6)
+        ax.set_xlabel("time from eye onset (ms)")
+        ax.set_ylabel("horizontal rotation (deg)")
+        ax.legend(fontsize=4)
 sns.despine(fig)
 fig.tight_layout()
 if save_figs:
-    save_fig(fig, "eye_head_H_counter_rotation")
+    save_fig(fig, "eye_head_4A_position")
+
+
+# %% Wallace Fig 4C — horizontal eye and head velocity, same amplitude classes as 4A
+# Same saccades and layout as 4A. Head = yaw velocity, eye = horizontal eye velocity, both
+# smoothed with the same savgol(11, 3). The post-saccadic counter-rotation (PSCR) is the
+# negative eye-velocity lobe after the saccade.
+
+fig, axes = plt.subplots(len(groups), len(amp_classes),
+                         figsize=(3 * len(amp_classes), 2 * len(groups)), squeeze=False)
+for row, (group, title) in enumerate(zip(groups, titles)):
+    if not group:
+        continue
+    e, w = pool(group)
+    for col, (lo, hi) in enumerate(amp_classes):
+        ax = axes[row][col]
+        sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)).to_numpy()
+        plot_mean_se(ax, t_ms, w["head_vel"][sel], HEAD_COLOR, "head")
+        plot_mean_se(ax, t_ms, w["eye_vel"][sel & (e.eye == "LE").to_numpy()], LE_COLOR, "LE")
+        plot_mean_se(ax, t_ms, w["eye_vel"][sel & (e.eye == "RE").to_numpy()], RE_COLOR, "RE")
+        ax.axhline(0, color="0.8", lw=0.5)
+        ax.axvline(0, color="0.8", lw=0.5)
+        ax.set_title(f"{title}  eye amp {lo}-{hi} deg", fontsize=6)
+        ax.set_xlabel("time from eye onset (ms)")
+        ax.set_ylabel("horizontal velocity (deg/s)")
+        ax.legend(fontsize=4)
+sns.despine(fig)
+fig.tight_layout()
+if save_figs:
+    save_fig(fig, "eye_head_4C_velocity")
+
+
+# %% Wallace Fig 4D — peak head velocity vs peak negative eye velocity, one panel per EO bin
+# One point per paired eye saccade (both eyes, LE and RE colors) that moved WITH its head
+# saccade, horizontal only, in the same flipped frame as 4A/4C (head turns positive):
+#   x = peak (positive) head velocity from eye onset to the end of the window
+#   y = peak negative eye velocity in the pscr_win frames after the eye saccade ends
+#       (the counter-rotation, not the saccade itself)
+# Black = mean +- SD of y in 100 deg/s bins of x (head_vel_bins).
+
+fig, axes = plt.subplots(1, len(groups), figsize=(2.6 * len(groups), 2.4), squeeze=False,
+                         sharex=True, sharey=True)
+for ax, group, title in zip(axes[0], groups, titles):
+    if not group:
+        continue
+    e, _ = pool(group)
+    p = e[e.paired & e.clean & (e.same_direction == 1)].dropna(
+        subset=["head_peak_vel", "eye_cr_vel"])
+
+    for eye, c in (("LE", LE_COLOR), ("RE", RE_COLOR)):
+        q = p[p.eye == eye]
+        ax.scatter(q.head_peak_vel, q.eye_cr_vel, s=1, alpha=0.2, color=c,
+                   label=f"{eye} (n={len(q)})")
+
+    centers, means, sds = [], [], []
+    for lo, hi in zip(head_vel_bins[:-1], head_vel_bins[1:]):
+        y = p.eye_cr_vel[(p.head_peak_vel >= lo) & (p.head_peak_vel < hi)]
+        if len(y) > 5:
+            centers.append((lo + hi) / 2)
+            means.append(y.mean())
+            sds.append(y.std())
+    ax.errorbar(centers, means, yerr=sds, fmt="o-", ms=3, lw=1, capsize=2, color="k")
+
+    r = np.corrcoef(p.head_peak_vel, p.eye_cr_vel)[0, 1] if len(p) > 2 else np.nan
+    print(f"{title:10s} n={len(p):5d}  r={r:+.3f}  "
+          + "  ".join(f"{cc:.0f}:{mm:.0f}" for cc, mm in zip(centers, means)))
+
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.set_title(f"{title}  r={r:+.2f}", fontsize=6)
+    ax.set_xlabel("peak head velocity (deg/s)")
+    ax.set_ylabel("peak negative eye velocity (deg/s)")
+    ax.legend(fontsize=4, markerscale=4)
+sns.despine(fig)
+fig.tight_layout()
+if save_figs:
+    save_fig(fig, "eye_head_4D_counter_rotation")
 
 
 # %% S1. head saccade distributions per EO bin

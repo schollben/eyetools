@@ -13,7 +13,7 @@ from analyses.helper_functions import (FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_
                                        RE_COLOR, eo_groups, unwrap_deg, load_results, set_style,
                                        save_fig, head_eye_windows, head_triggered_windows,
                                        eye_head_coupling, onset_correlogram, plot_mean_se,
-                                       session_trend, plot_vs_eo)
+                                       session_trend, plot_vs_eo, plot_by_eo_bin)
 set_style()
 
 # LOAD DATA
@@ -100,14 +100,7 @@ fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
 for ax, col, lbl in zip(axes, ("head_rate", "head_amp", "head_pkv"),
                         ("head saccades (/s)", "median amplitude (deg)",
                          "median peak velocity (deg/s)")):
-    for i, (lo, hi) in enumerate(eo_bins):
-        v = SESS.loc[(SESS.eo >= lo) & (SESS.eo <= hi), col].dropna()
-        if not len(v):
-            continue
-        c = AGE_COLORS[i % len(AGE_COLORS)]
-        ax.plot(np.full(len(v), i - 0.1), v, "o", ms=3, alpha=0.6, color=c)
-        ax.plot(i + 0.1, v.median(), "o", ms=7, mfc="white", mew=1.5, color=c)
-    ax.set_xticks(range(len(eo_bins)), [f"EO {lo}-{hi}" for lo, hi in eo_bins])
+    plot_by_eo_bin(ax, SESS, col, eo_bins)
     ax.set_ylabel(lbl)
     session_trend(SESS, col)
 sns.despine(fig)
@@ -220,22 +213,25 @@ sns.despine(fig)
 fig.tight_layout()
 
 
-# %% C. coupling vs EO: observed vs chance
-# Chance = eye onsets circularly shifted against the head. The raw percentage tracks head
-# saccade rate (more head movement = more eye saccades land inside one by chance), so
-# coupling = observed - chance is the measure to compare across age.
+# %% C. coupling by EO bin: observed vs chance (one point per session, bin median)
+# left:   % of eye saccades (both eyes) that start inside a head saccade
+#         ([head onset - pair_window, head peak]); dark = observed, grey = chance
+# middle: % of head saccades that contain at least one eye saccade; same layout
+# right:  coupling = observed - chance for the left measure
+# Chance = eye onsets circularly shifted against the head (same rates, random timing).
+# The raw percentage tracks head saccade rate (more head movement = more eye saccades land
+# inside one by chance), so coupling is the measure to compare across age.
 
+grey = ["0.75"] * len(eo_bins)
 fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
-plot_vs_eo(axes[0], SESS, "eye_in_head", color=EYE_COLOR)
-plot_vs_eo(axes[0], SESS, "eye_in_head_chance", color="0.7")
-axes[0].set_ylabel("% eye saccades in a head saccade")
-plot_vs_eo(axes[1], SESS, "head_with_eye", color=HEAD_COLOR)
-plot_vs_eo(axes[1], SESS, "head_with_eye_chance", color="0.7")
-axes[1].set_ylabel("% head saccades with an eye saccade")
-plot_vs_eo(axes[2], SESS, "coupling")
+for ax, col, lbl in ((axes[0], "eye_in_head", "% eye saccades in a head saccade"),
+                     (axes[1], "head_with_eye", "% head saccades with an eye saccade")):
+    plot_by_eo_bin(ax, SESS, col, eo_bins, dx=-0.18)
+    plot_by_eo_bin(ax, SESS, f"{col}_chance", eo_bins, colors=grey, dx=0.18)
+    ax.set_ylabel(lbl)
+plot_by_eo_bin(axes[2], SESS, "coupling", eo_bins)
 axes[2].axhline(0, color="0.8", lw=0.5)
 axes[2].set_ylabel("coupling (observed - chance, %)")
-axes[2].legend(fontsize=4)
 for col in ("eye_in_head", "head_with_eye", "coupling"):
     session_trend(SESS, col)
 sns.despine(fig)

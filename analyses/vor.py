@@ -5,30 +5,15 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-from utils import create_subplot_grid, load_session_data, process_session, removeBadData, getSesh
-from utils import non_saccade_mask
+from utils import create_subplot_grid, non_saccade_mask
 import numpy as np
-from scipy.stats import mannwhitneyu as mwu
-from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
-plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = ['Arial']
-plt.rcParams['font.size'] = 6
-plt.rcParams['svg.fonttype'] = 'none'
+from analyses.helper_functions import load_results, set_style, EO_BINS
+set_style()
 
 # LOAD DATA
-SESSION = getSesh.by_ferret(402, 405, 407, 420) # 753, 757 -> look carefully at these files
-Results = []
-for session in SESSION:
-    R = load_session_data(session)
-    removeBadData(R)
-    process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=40,
-                    velocity_threshold_head=1, min_duration=8, min_inter_event=8)
-    Results.append(R)
-n_sesh = len(Results)
-print(n_sesh, "sessions loaded")
+Results = load_results()
 
 
 # %% settings for every plot below
@@ -44,7 +29,7 @@ from analyses.helper_functions import (FS, EYE_COLOR, HEAD_COLOR, LOCO_COLORS, f
 pool_by_eo = True
 eo_bins = [(0, 3), (4, 7), (8, 20)]
 
-flip_eye = "RE"  # put both eyes in a common conjugate frame (None = nasal/temporal)
+flip_eye = "LE"  # head frame: eye + = head yaw +, so VOR gain is negative (None = nasal/temporal)
 speed_threshold = 100      # mm/s, stationary vs running
 min_bout = 30              # frames, shortest run of frames counted as running
 

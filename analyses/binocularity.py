@@ -5,37 +5,15 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-# tools
-from utils import create_subplot_grid, load_session_data, process_session, removeBadData, getSesh
+from utils import create_subplot_grid
 import numpy as np
-# plotting setup
-from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
-plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = ['Arial']
-plt.rcParams['font.size'] = 6
-plt.rcParams['svg.fonttype'] = 'none'
+from analyses.helper_functions import load_results, set_style, EO_BINS
+set_style()
 
 # LOAD DATA
-
-SESSION = getSesh.by_ferret(402, 420)     # multiple — preserves order by ferret
-#SESSION = getSesh.by_ferret(753)         # or load sessions from an individual ID
-#SESSION = getSesh.by_eo(10,20)           # or load sessions by an EO range (inclusive)
-
-Results = []
-for session in SESSION:
-
-    R = load_session_data(session)
-    removeBadData(R)
-    process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=2,
-                    velocity_threshold_head=2, min_duration=12, min_inter_event=12)
-    Results.append(R)
-
-n_sesh = len(Results)
-print(n_sesh, "sessions loaded")
-
+Results = load_results()
 
 
 # %% settings for every plot below
@@ -46,31 +24,29 @@ print(n_sesh, "sessions loaded")
 # horizontal signal. flip_eye=None gives the exact negative; "LE" and "RE" are equivalent.
 #
 # NOTE 2 — the answer depends on which data you look at, which is what data_mode is for:
-#   events     (paired saccade displacement)  +0.634 / +0.654 / +0.469  -> against
-#   continuous (velocity, saccade frames)     +0.213 / +0.202 / +0.300  -> supports
-# Continuous POSITION does not work at all (per-session r spans -0.35..+0.21 and flips
-# sign within one animal on consecutive days). No curation tried fixes it: the
-# registration error is a per-session DC offset, which differencing removes and averaging
-# does not. That is why velocity works and position does not. signal="position" is kept
-# so the assumption can be re-tested after any loading or threshold change.
+# events (paired saccade displacement) vs continuous (velocity, saccade frames). Continuous
+# POSITION has not worked (per-session r flipped sign within one animal on consecutive
+# days): the registration error is a per-session DC offset, which differencing removes and
+# averaging does not. signal="position" is kept so the assumption can be re-tested.
+# Earlier continuous-VELOCITY results used the stored vx, which is vertical velocity
+# (fixed in eye_signal) — re-measure before relying on them.
 #
-# NOTE 3 — the two animals disagree: ferret 420 corr(EO, r) = +0.614 over 12 sessions,
-# ferret 402 = -0.328 over 6. 420 supplies every session above EO 7, so pooling hides it.
-# Use pool_by_eo = False, and see cell 4.
+# NOTE 3 — per-animal trends have disagreed, and one animal can supply most late sessions,
+# so pooling can hide it. Use pool_by_eo = False, and see cell 4.
 #
 # NOTE 4 — panels pool FRAMES across sessions, so a long session counts more than a short
-# one (pooled +0.240/+0.240/+0.294 vs mean-of-session +0.213/+0.202/+0.300 for the same
-# data). The per-session table printed below is the unweighted view; cell 4 plots it.
+# one. The per-session table printed below is the unweighted view; cell 4 plots it.
 
 from analyses.helper_functions import (FS, LE_COLOR, RE_COLOR, EYE_COLOR, HEAD_COLOR,
                                        LOCO_COLORS, eo_groups, fit_line, frame_mask,
                                        eye_signal, head_signal, clean_runs, run_xcorr,
-                                       paired_saccades, conjugate_samples)
+                                       paired_saccades, conjugate_samples,
+                                       session_trend, plot_vs_eo)
 import pandas as pd
 
 # how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
-eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+eo_bins = EO_BINS
 
 # WHAT DATA the conjugacy cells use — the main knob for testing the hypothesis
 data_mode = "both"     # "events" | "continuous" | "both"
@@ -342,13 +318,11 @@ for R in Results:
 
 D = pd.DataFrame(rows)
 
-for fid, color in zip(sorted(D.id.unique()), (LE_COLOR, RE_COLOR)):
-    d = D[D.id == fid].sort_values("eo")
-    ax.plot(d.eo, d.r_event, "o-", ms=3, lw=1, color=color, label=f"{fid} events")
-    ax.plot(d.eo, d.r_cont, "o--", ms=3, lw=1, color=color, alpha=0.6,
-            label=f"{fid} continuous")
-    print(f"ferret {fid}  corr(EO, r_event)={np.corrcoef(d.eo, d.r_event)[0,1]:+.3f}"
-          f"  corr(EO, r_cont)={np.corrcoef(d.eo, d.r_cont)[0,1]:+.3f}  n={len(d)}")
+plot_vs_eo(ax, D, "r_event", color=HEAD_COLOR)
+plot_vs_eo(ax, D, "r_cont", color=EYE_COLOR)
+ax.set_title("events (purple) / continuous (green)", fontsize=6)
+for col in ("r_event", "r_cont"):
+    session_trend(D, col)
 
 ax.axhline(0, color="0.7", lw=0.5)
 ax.set_xlabel("EO (days)")

@@ -5,37 +5,15 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-# tools
-from utils import create_subplot_grid, load_session_data, process_session, removeBadData, getSesh
-from utils import non_saccade_mask
+from utils import create_subplot_grid, non_saccade_mask
 import numpy as np
-# plotting setup
-from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
-plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = ['Arial']
-plt.rcParams['font.size'] = 6
-plt.rcParams['svg.fonttype'] = 'none'
+from analyses.helper_functions import load_results, set_style, EO_BINS
+set_style()
 
 # LOAD DATA
-
-SESSION = getSesh.by_ferret(402, 420)     # multiple — preserves order by ferret
-#SESSION = getSesh.by_ferret(753)         # or load sessions from an individual ID
-#SESSION = getSesh.by_eo(10,20)           # or load sessions by an EO range (inclusive)
-
-Results = []
-for session in SESSION:
-
-    R = load_session_data(session)
-    removeBadData(R)
-    process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=2,
-                    velocity_threshold_head=2, min_duration=12, min_inter_event=12)
-    Results.append(R)
-
-n_sesh = len(Results)
-print(n_sesh, "sessions loaded")
+Results = load_results()
 
 
 # %% settings for every plot below
@@ -44,21 +22,19 @@ print(n_sesh, "sessions loaded")
 # Slope of velocity vs position is -1/tau.
 #
 # TODO — CLEANER FRAME SELECTION (not yet implemented)
-# First pass on ferret 402/420 gives centripetal fraction ~0.50 at every age and tau that
-# swings 9.5s to 219s across threshold settings (cell 6) — so "saccade-free" as currently
-# defined is not clean enough to estimate an integrator. A real effect may still be there.
+# The first-pass results that motivated this list (no centripetal bias, unstable tau) used
+# the stored vx, which is VERTICAL velocity (fixed in eye_signal). Re-run cells 2-6 before
+# deciding which filters are still needed.
 # Candidate filters, roughly in order of expected payoff:
 #
 # 1. Head-velocity gate. Every frame here still includes head motion, so VOR-driven eye
 #    velocity is being counted as integrator drift. Gate on R.angVelocities (rad/s in the
-#    csv — convert) below some ceiling to isolate true fixation. Biggest likely confound,
-#    and would explain both the flat centripetal fraction and the threshold sensitivity.
+#    csv — convert) below some ceiling to isolate true fixation. Biggest likely confound.
 # 2. Position stability within the window. A run spanning a slow drift PLUS a small
 #    unlabeled saccade is currently fit as one thing. Require low position variance across
 #    the window, or reject runs whose endpoints differ by more than a few degrees.
 # 3. Blink / tracking-artifact residue. removeBadData masks on eye quality but fast junk
-#    still gets through — that is what vel_ceiling is patching. Tightening 20 -> 10 deg/s
-#    drops frames 417k -> 328k and moves tau substantially, so it is doing real work.
+#    still gets through — that is what vel_ceiling is patching.
 # 4. Minimum hold duration. Any contiguous run currently contributes to the binned estimate;
 #    requiring ~0.5 s of continuous clean fixation first would bias toward genuine holds.
 #
@@ -69,7 +45,7 @@ from analyses.helper_functions import (FS, EYE_COLORS, eo_groups, fit_line, clea
 
 # how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
-eo_bins = [(0, 4), (5, 9), (10, 20)]  # early / middle / late, inclusive
+eo_bins = EO_BINS
 
 # Each eye's _x is its own adduction angle, i.e. NASAL/TEMPORAL coordinates. Drift is
 # toward each eye's own orbital center, so no flip is applied here. (vor.py flips one eye
@@ -94,8 +70,8 @@ for R in Results:
 
 
 # %% 1. eye position vs velocity (phase plane), one figure per eye
-# The pooled slope here is a WEAK estimator — single-frame velocity is noisy and the
-# correlation is near zero. Cell 2 (binned drift) is the real measure.
+# The pooled slope here is a WEAK estimator — single-frame velocity is noisy.
+# Cell 2 (binned drift) is the real measure.
 
 for eye in EYES:
 
@@ -199,10 +175,9 @@ sns.despine(fig)
 fig.tight_layout()
 
 
-# %% 4. per-run slope distribution (SECONDARY — near chance, see note)
-# Fitting velocity vs position WITHIN each saccade-free run gives ~50% negative slopes in
-# the 4xx data, i.e. no integrator signature. Kept to show run-to-run variability, NOT to
-# estimate tau. Cell 2 is the measure to trust.
+# %% 4. per-run slope distribution (SECONDARY)
+# Velocity vs position fit WITHIN each saccade-free run. Kept to show run-to-run
+# variability, NOT to estimate tau. Cell 2 is the measure to trust.
 
 fig, ax = plt.subplots(figsize=(3.5, 2.5))
 

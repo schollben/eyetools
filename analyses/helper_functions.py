@@ -11,17 +11,27 @@ from utils.config import SAVELOC
 from utils.eye_velocity import eye_velocity
 
 FS = 120.0
-FERRETS = (402, 405, 407, 420)
+
+FERRETS = (402, 405, 407, 420) 
+# delayed experience: 411, 416, 403
+# TO ADD (once fixed): 753, 757
 EO_BINS = [(0, 3), (4, 7), (8, 20)]
+
 EXTRACT = dict(window_in_sec=5, velocity_threshold_eye=40, velocity_threshold_gaze=40,
                velocity_threshold_head=1, min_duration=8, min_inter_event=8)
+
 FERRET_MARKERS = ("o", "s", "^", "D", "v", "P")
+
 LOCO_COLORS = {"all": "#444444", "stationary": "#725EE7", "running": "#E93115"}
+
 # Eye and head traces, shared by every script. EYE_COLOR is the default when LE and RE
 # are not being compared.
 LE_COLOR, RE_COLOR, HEAD_COLOR = "#6BAED6", "#74C476", "#9E9AC8"
+
 EYE_COLOR = RE_COLOR
+
 EYE_COLORS = {"LE": LE_COLOR, "RE": RE_COLOR}
+
 AGE_COLORS = ["#989898", "#666666", "#222222"]
 
 

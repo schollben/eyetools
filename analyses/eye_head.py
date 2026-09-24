@@ -110,9 +110,8 @@ fig.tight_layout()
 #     save_fig(fig, "eye_head_A_head_saccades")
 
 
-# %% B. head-onset-triggered average: head, eye-in-head and gaze (head frame)
-# Sign-aligned so every head saccade turns positive. Gaze = head + eye: a flat gaze trace
-# while the head keeps turning is the eye counter-rotating ("saccade and fixate").
+# %% B. head-onset-triggered average: head and eye-in-head (head frame)
+# Sign-aligned so every head saccade turns positive. # while the head keeps turning is the eye counter-rotating ("saccade and fixate").
 
 t_h = np.arange(-head_pre, head_post) / FS * 1000
 fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2), squeeze=False)

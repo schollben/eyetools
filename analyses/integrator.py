@@ -9,7 +9,8 @@ from utils import create_subplot_grid, non_saccade_mask
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import load_results, set_style, EO_BINS
+from analyses.helper_functions import (load_results, set_style, EO_BINS,FS, EYE_COLORS, eo_groups, fit_line, clean_runs,
+                                       eye_signal, drift_frames, drift_by_position)
 set_style()
 
 # LOAD DATA
@@ -40,10 +41,6 @@ Results = load_results()
 #
 # Each would go in as a flag in this cell and a new axis in the cell 6 sweep.
 
-from analyses.helper_functions import (FS, EYE_COLORS, eo_groups, fit_line, clean_runs,
-                                       eye_signal, drift_frames, drift_by_position)
-
-# how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
 eo_bins = EO_BINS
 
@@ -53,10 +50,10 @@ eo_bins = EO_BINS
 flip_eye = None
 
 pad_pre = 3          # frames before saccade onset excluded
-pad_post = 24        # frames after saccade peak excluded (non_saccade_mask default is 12)
+pad_post = 30        # frames after saccade peak excluded (non_saccade_mask default is 12)
 vel_ceiling = 20     # deg/s; drop residual fast frames the saccade detector missed
 min_run = 60         # frames, shortest contiguous clean stretch (cell 4)
-pos_bins = np.arange(-12, 13, 3)   # signed, never folded to |x|
+pos_bins = np.arange(-10, 10, 2)   # signed, never folded to |x|
 EYES = ("LE", "RE")
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
@@ -65,8 +62,6 @@ for R in Results:
     n = len(R.LE_vx)
     counts = [len(drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye)[0])
               for eye in EYES]
-    print(f"ferret {R.id} EO{R.eo:<3d} n={n:6d}  usable drift frames  "
-          f"LE={counts[0]:6d}  RE={counts[1]:6d}")
 
 
 # %% 1. eye position vs velocity (phase plane), one figure per eye
@@ -259,8 +254,7 @@ fig.tight_layout()
 
 
 # %% 6. threshold sensitivity
-# "Saccade-free" is a judgement call. Sweep the two thresholds that define it and check the
-# headline numbers do not swing wildly.
+# "Saccade-free" is a judgement call. Sweep the two thresholds that define it and check the headline numbers do not swing wildly.
 
 pad_sweep = [12, 24, 48, 72]
 vel_sweep = [None, 30, 20, 10]

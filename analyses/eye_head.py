@@ -218,7 +218,6 @@ pre_head_ms = 100     # how far before head onset an eye saccade still counts
 follow_ms = 500       # correlogram range after head onset
 coinc_ms = 50         # |eye - head| <= this = coincident
 bin_ms = 25           # correlogram bin
-y_unit = "frequency"  # figure 1: "probability" (per bin, per head saccade) | "frequency" (Hz)
 n_shift = 50          # random shifts for the chance level
 states = ("stationary", "running")
 
@@ -287,15 +286,13 @@ for ax, state in zip(axes[0], states):
     for gi, ((lo, hi), c) in enumerate(zip(eo_bins, AGE_COLORS)):
         if (gi, state) in cg:
             counts, expected, n_head = cg[(gi, state)]
-            scale = n_head * (bin_ms / 1000 if y_unit == "frequency" else 1)
-            ax.plot(centers_ms, counts / scale, color=c, lw=1,
+            ax.plot(centers_ms, counts / n_head, color=c, lw=1,
                     label=f"EO {lo}-{hi} (n={n_head})")
-            ax.plot(centers_ms, expected / scale, color=c, lw=0.8, ls="--")
+            ax.plot(centers_ms, expected / n_head, color=c, lw=0.8, ls="--")
     ax.axvline(0, color="0.8", lw=0.5)
     ax.set_title(f"head saccades while {state}", fontsize=6)
     ax.set_xlabel("eye onset - head onset (ms)")
-    ax.set_ylabel("eye saccade frequency (Hz)" if y_unit == "frequency"
-                  else f"P(eye saccade onset) per {bin_ms} ms")
+    ax.set_ylabel(f"P(eye saccade onset) per {bin_ms} ms")
     ax.legend(fontsize=4)
 sns.despine(fig)
 fig.tight_layout()

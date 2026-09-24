@@ -5,37 +5,23 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-from utils import create_subplot_grid, load_session_data, process_session, removeBadData, getSesh
 from utils import create_subplot_grid
 import numpy as np
+import pandas as pd
 from scipy.stats import mannwhitneyu as mwu
-from utils.config import SAVELOC
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import EYE_COLOR, eo_groups, logamp_logvel
-plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = ['Arial']
-plt.rcParams['font.size'] = 6
-plt.rcParams['svg.fonttype'] = 'none'
-AGE_COLORS = ["#989898", "#666666", "#222222"]
+from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, EO_BINS, eo_groups, logamp_logvel,
+                                       load_results, set_style, session_trend, plot_vs_eo)
+set_style()
 
 # LOAD DATA
-SESSION = getSesh.by_ferret(402, 405, 407, 420) # 753, 757 -> look carefully at these files
-Results = []
-for session in SESSION:
-    R = load_session_data(session)
-    removeBadData(R)
-    process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=40,
-                    velocity_threshold_head=1, min_duration=8, min_inter_event=8)
-    Results.append(R)
-n_sesh = len(Results)
-print(n_sesh, "sessions loaded")
+Results = load_results()  # 753, 757 -> look carefully at these files
 
 
 # %% settings for every plot below
 pool_by_eo = True                     # False: one panel per session | True: one panel per EO range
-eo_bins = [(0, 3), (4, 7), (8, 20)]
+eo_bins = EO_BINS
 fit_by = "session"                      # "pooled": one fit per EO bin | "session": one fit per session
 min_n = 5                              # minimum number of saccades a group must have before it gets fitted
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
@@ -55,13 +41,7 @@ for ax, group, title in zip(axes, groups, titles):
         ax.set_title(title)
         continue
 
-    amp = np.concatenate([np.concatenate([R.df_LE["amplitude_deg"].to_numpy(),
-                                          R.df_RE["amplitude_deg"].to_numpy()]) for R in group]).astype(float)
-    pkv = np.concatenate([np.concatenate([R.df_LE["peak_velocity_deg_s"].to_numpy(),
-                                          R.df_RE["peak_velocity_deg_s"].to_numpy()]) for R in group]).astype(float)
-
-    x = np.log10(abs(amp))
-    y = np.log10(abs(pkv))
+    x, y = logamp_logvel(group)
 
     sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3)
     
@@ -142,8 +122,9 @@ for i, title in enumerate(titles):
     slopes = [f[2] for f in fits if f[0] == title]
     if not slopes:
         continue
-    ax.plot(np.full(len(slopes), i - 0.1), slopes, "o", ms=3, color=AGE_COLORS[i])
-    ax.plot(i + 0.1, np.median(slopes), "o", ms=7, mfc="white", mew=1.5, color=AGE_COLORS[i])
+    c = AGE_COLORS[i] if pool_by_eo else "k"
+    ax.plot(np.full(len(slopes), i - 0.1), slopes, "o", ms=3, color=c)
+    ax.plot(i + 0.1, np.median(slopes), "o", ms=7, mfc="white", mew=1.5, color=c)
 
 ax.set_xticks(range(len(titles)), titles)
 ax.set_ylabel("main sequence slope")
@@ -159,7 +140,8 @@ for f in fits:
 fig, axes = plt.subplots(1, 2, figsize=(6, 2))
 group_amp = []
 group_vel = []
-for group, title in zip(groups, titles):
+names = []
+for i, (group, title) in enumerate(zip(groups, titles)):
 
     if not group:
         continue
@@ -167,35 +149,59 @@ for group, title in zip(groups, titles):
     v1, v2 = logamp_logvel(group)
     group_amp.append(v1)
     group_vel.append(v2)
+    names.append(title)
+    c = AGE_COLORS[i] if pool_by_eo else None
 
     sns.histplot(ax=axes[0], x=v1, bins=80, element="step", fill=False, stat="density", 
                  label=title, 
-                 color=AGE_COLORS[titles.index(title)])
+                 color=c)
 
     sns.histplot(ax=axes[1], x=v2, bins=80, element="step", fill=False, stat="density",
                  label=title, 
-                 color=AGE_COLORS[titles.index(title)])
+                 color=c)
 
 axes[0].set_xlabel("log10 amplitude (deg)")
 axes[1].set_xlabel("log10 peak velocity (deg/s)")
 axes[0].legend()
 sns.despine(fig)
 
-#stats: comparing amplitude and velocity distributions between EO bins
-# mann whitney u test
-# rank-biserial correlation — the effect size for the Mann-Whitney test
-#  Bonferroni correction p value
-pairs = [(0, 1), (0, 2), (1, 2)]
+# effect size only: rank-biserial r between EO bins on pooled saccades (positive = the later
+# bin is larger). No p-values here — saccades are not independent; the tests are per
+# session, in the next cell.
 for name, vals in [("amp", group_amp), ("vel", group_vel)]:
-    for i, j in pairs:
-        u, p = mwu(vals[i], vals[j])
-        r = 1 - 2 * u / (len(vals[i]) * len(vals[j]))
-        print(f"{name}  {titles[i]} vs {titles[j]}  "
-              f"median {np.median(vals[i]):.3f} vs {np.median(vals[j]):.3f}  "
-              f"r={r:+.3f}  p={min(1.0, p * len(pairs)):.3e}")
+    for i in range(len(vals)):
+        for j in range(i + 1, len(vals)):
+            u = mwu(vals[i], vals[j]).statistic
+            r = 1 - 2 * u / (len(vals[i]) * len(vals[j]))
+            print(f"{name}  {names[i]} vs {names[j]}  "
+                  f"median {np.median(vals[i]):.3f} vs {np.median(vals[j]):.3f}  r={r:+.3f}")
+
+
+# %% per-session measures vs EO (sessions are the unit; one line per ferret)
+
+rows = []
+for R in Results:
+    x, y = logamp_logvel([R])
+    if len(x) < min_n:
+        continue
+    s_, b_ = np.polyfit(x, y, 1)
+    rows.append(dict(id=R.id, eo=R.eo, slope=s_, intercept=b_,
+                     resid_sd=np.std(y - (s_ * x + b_)),
+                     med_amp=np.median(10 ** x), med_pkv=np.median(10 ** y), n=len(x)))
+S = pd.DataFrame(rows)
+
+cols = ["slope", "intercept", "resid_sd", "med_amp", "med_pkv"]
+fig, axes = plt.subplots(1, len(cols), figsize=(2.2 * len(cols), 2))
+for ax, col in zip(axes, cols):
+    plot_vs_eo(ax, S, col, color=EYE_COLOR)
+    session_trend(S, col)
+axes[0].legend(fontsize=4)
+sns.despine(fig)
+fig.tight_layout()
 
 
 # %% residual tightness per EO bin
+# scatter around each unit's OWN fit, so slope differences do not count as scatter
 
 gx, gy = logamp_logvel(Results)
 slope, intercept = np.polyfit(gx, gy, 1)
@@ -219,7 +225,8 @@ for group, title in zip(groups, titles):
         if len(ux) < min_n:
             continue
 
-        res = uy - (slope * ux + intercept)
+        us, ub = np.polyfit(ux, uy, 1)
+        res = uy - (us * ux + ub)
         spreads.append((title, uid, np.std(res), len(ux)))
 
 fig, ax = plt.subplots(figsize=(3, 2))

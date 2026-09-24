@@ -5,38 +5,25 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-from utils import create_subplot_grid, load_session_data, process_session, removeBadData, getSesh
 from utils import create_subplot_grid
 import numpy as np
+import pandas as pd
 from scipy.stats import mannwhitneyu as mwu
-from scipy.stats import spearmanr, wilcoxon, kruskal
-from utils.config import SAVELOC
+from scipy.stats import wilcoxon, kruskal
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, FS, eo_groups, pooled_events, pooled_intervals,
-                                       event_traces, session_rate, session_rates)
-plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = ['Arial']
-plt.rcParams['font.size'] = 6
-plt.rcParams['svg.fonttype'] = 'none'
+from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, FS, EO_BINS, eo_groups, pooled_events,
+                                       pooled_intervals, event_traces, session_rate, session_rates,
+                                       load_results, set_style, session_trend)
+set_style()
 
 # LOAD DATA
-SESSION = getSesh.by_ferret(402, 405, 407, 420)
-Results = []
-for session in SESSION:
-    R = load_session_data(session)
-    removeBadData(R)
-    process_session(R, window_in_sec=5,
-                    velocity_threshold_eye=40, velocity_threshold_gaze=40,
-                    velocity_threshold_head=1, min_duration=8, min_inter_event=8)
-    Results.append(R)
-n_sesh = len(Results)
-print(n_sesh, "sessions loaded")
+Results = load_results()
 
 # settings for every plot below
 # how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
-eo_bins = [(0, 3), (4, 7), (8, 20)]
+eo_bins = EO_BINS
 
 flip_eye = "RE"     
 amp_bins = [0, 4, 8, 12, 20, 45]
@@ -56,10 +43,6 @@ bin_by = "amplitude"     # "amplitude" | "peak_velocity" (cell 4 only)
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
-for R in Results:
-    counts = [len(pooled_events([R], "eye", c, "amplitude_deg",
-                                speed_threshold, min_bout, head_still_thresh))
-              for c in conditions]
 
 
 # %% 3. amplitude vs peak velocity by condition
@@ -129,6 +112,8 @@ for kind in ("speed", "displacement"):
                 traces += t
                 nominal += a
 
+            if len(traces) < 10:
+                continue
             arr = np.array(traces)
             m = arr.mean(axis=0)
             se = arr.std(axis=0) / np.sqrt(len(arr))
@@ -142,7 +127,7 @@ for kind in ("speed", "displacement"):
 
 
 # %% event rate (one point per session)
-# NOT a sliding window. pooled_rates gated only which events were COUNTED while still
+# NOT a sliding window. The old sliding-window rate (pooled_rates, removed) gated only which events were COUNTED while still
 # emitting every NaN-free window and dividing by the full window length, so n was the
 # window count (identical for every condition) and the rate was the all-condition rate
 # scaled by the fraction of time in condition.
@@ -186,52 +171,33 @@ sns.despine(fig)
 fig.tight_layout()
 
 # --- stats -------------------------------------------------------------------
-# Sessions are the unit. EO trend uses all sessions pooled across animals; the
-# per-animal rows are there because pooling treats 33 sessions from 4 ferrets as
-# independent when they are not, and F407/F420 contribute 23 of them. The
-# all-vs-quiet test is PAIRED: both rates come from the same session.
+# Sessions are the unit. session_trend gives the pooled-session Spearman, a mixed model with
+# ferret as a random effect (pooling treats 33 sessions from 4 ferrets as independent when
+# they are not; F407/F420 contribute 23 of them) and per-ferret rows. The all-vs-quiet test
+# is PAIRED: both rates come from the same session. Rates count only tracked-eye time.
 
 for signal in ("eye", "gaze"):
 
     print(f"\n--- {signal} ---")
 
-    for cond in conditions:
-        eo = np.array([R.eo for R in Results], float)
-        r = np.array([session_rate(R, signal, cond, speed_threshold, min_bout,
-                                   head_still_thresh) for R in Results])
-        ok = np.isfinite(r)
-        rho, p = spearmanr(eo[ok], r[ok])
-        print(f"  EO trend  {cond:26s} n={ok.sum():3d}  rho={rho:+.3f}  p={p:.4g}")
+    S = pd.DataFrame(dict(id=[R.id for R in Results], eo=[R.eo for R in Results]))
+    for cond, col in zip(conditions, ("rate_all", "rate_quiet")):
+        S[col] = [session_rate(R, signal, cond, speed_threshold, min_bout, head_still_thresh)
+                  for R in Results]
+        session_trend(S, col, f"EO trend {cond}")
 
         vals = [session_rates(g, signal, cond, speed_threshold, min_bout,
                               head_still_thresh) for g in groups if g]
         if len(vals) > 2:
-            print(f"  {'':10s} {'':26s} Kruskal p={kruskal(*vals)[1]:.4g}  "
+            print(f"  {'':22s} Kruskal p={kruskal(*vals)[1]:.4g}  "
                   f"youngest-vs-oldest MWU p={mwu(vals[0], vals[-1])[1]:.4g}")
 
     # paired within session: does the quiet state change rate?
-    a = np.array([session_rate(R, signal, "all", speed_threshold, min_bout,
-                               head_still_thresh) for R in Results])
-    b = np.array([session_rate(R, signal, "stationary_and_head_still",
-                               speed_threshold, min_bout, head_still_thresh)
-                  for R in Results])
+    a, b = S.rate_all.to_numpy(), S.rate_quiet.to_numpy()
     ok = np.isfinite(a) & np.isfinite(b)
     print(f"  paired all vs quiet  n={ok.sum():3d}  "
           f"median {np.median(a[ok]):.2f} vs {np.median(b[ok]):.2f} Hz  "
           f"diff={np.median(a[ok] - b[ok]):+.3f}  Wilcoxon p={wilcoxon(a[ok], b[ok])[1]:.4g}")
-
-    for fid in sorted({R.id for R in Results}):
-        sub = [R for R in Results if R.id == fid]
-        eo = np.array([R.eo for R in sub], float)
-        r = np.array([session_rate(R, signal, "all", speed_threshold, min_bout,
-                                   head_still_thresh) for R in sub])
-        ok = np.isfinite(r)
-        if ok.sum() < 4:
-            print(f"  F{fid} n={ok.sum():2d}  too few sessions for a trend")
-            continue
-        rho, p = spearmanr(eo[ok], r[ok])
-        print(f"  F{fid} n={ok.sum():2d}  EO {eo[ok].min():.0f}-{eo[ok].max():.0f}  "
-              f"rho={rho:+.3f}  p={p:.4g}  (all)")
 
 
 # %% inter-event interval distributions (timing, not magnitude)

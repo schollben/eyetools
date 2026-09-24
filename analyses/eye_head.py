@@ -158,6 +158,68 @@ if save_figs:
     save_fig(fig, "eye_head_B_head_triggered")
 
 
+# %% B.2 head-onset-triggered averages by head saccade amplitude
+# One line per head-amplitude bin (like movement_stats "mean kinematic traces"). Does the eye
+# contribute more, and does gaze follow the head more fully, as head movements get larger?
+# Summary: gaze_frac = gaze shift / head shift at head_post, per session (1 = gaze follows
+# the head completely; < 1 = the eye counter-rotated and held gaze back).
+
+head_amp_bins = [0, 40, 80, 360]   # deg, head saccade amplitude (unwrapped)
+amp_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(head_amp_bins) - 1))
+
+traces = {}   # (group index, amp bin index) -> dict of head / eye / gaze arrays
+frac_rows = []
+for gi, group in enumerate(groups):
+    for R in group:
+        T = head_triggered_windows(R, HEAD[id(R)], flip_eye, head_pre, head_post)
+        amp = HEAD[id(R)]["amplitude_deg"].to_numpy(float)
+        hk = np.all(np.isfinite(T["head_pos"]), axis=1)
+        fr = []
+        for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
+            d = traces.setdefault((gi, bi), {"head": [], "eye": [], "gaze": []})
+            sel = hk & (amp >= lo) & (amp < hi)
+            d["head"].append(T["head_pos"][sel])
+            for k in ("LE_pos", "RE_pos"):
+                ok = sel & np.all(np.isfinite(T[k]), axis=1)
+                d["eye"].append(T[k][ok])
+                d["gaze"].append(T["head_pos"][ok] + T[k][ok])
+        for k in ("LE_pos", "RE_pos"):
+            ok = hk & np.all(np.isfinite(T[k]), axis=1) & (np.abs(T["head_pos"][:, -1]) > 5)
+            fr.append((T["head_pos"][ok, -1] + T[k][ok, -1]) / T["head_pos"][ok, -1])
+        fr = np.concatenate(fr)
+        if len(fr) >= 10 and not any(r["id"] == R.id and r["eo"] == R.eo for r in frac_rows):
+            frac_rows.append(dict(id=R.id, eo=R.eo, gaze_frac=np.median(fr)))
+
+for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)"),
+                    ("gaze", "gaze rotation (deg)")):
+    fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2), squeeze=False)
+    for gi, (ax, title) in enumerate(zip(axes[0], titles)):
+        for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
+            arrs = traces.get((gi, bi), {}).get(sig, [])
+            if arrs:
+                plot_mean_se(ax, t_h, np.vstack(arrs), amp_colors[bi], f"{lo}-{hi}")
+        ax.axhline(0, color="0.8", lw=0.5)
+        ax.axvline(0, color="0.8", lw=0.5)
+        ax.set_title(f"{sig}  {title}", fontsize=6)
+        ax.set_xlabel("time from head onset (ms)")
+        ax.set_ylabel(ylabel)
+        ax.legend(fontsize=4, title="head amp (deg)", title_fontsize=4)
+    sns.despine(fig)
+    fig.tight_layout()
+    if save_figs:
+        save_fig(fig, f"eye_head_B2_{sig}_by_head_amp")
+
+GF = pd.DataFrame(frac_rows)
+fig, ax = plt.subplots(figsize=(2.5, 2))
+plot_vs_eo(ax, GF, "gaze_frac")
+ax.axhline(1, color="0.8", lw=0.5)
+ax.set_ylabel("gaze shift / head shift")
+ax.legend(fontsize=4)
+session_trend(GF, "gaze_frac")
+sns.despine(fig)
+fig.tight_layout()
+
+
 # %% C. coupling vs EO: observed vs chance
 # Chance = eye onsets circularly shifted against the head. The raw percentage tracks head
 # saccade rate (more head movement = more eye saccades land inside one by chance), so

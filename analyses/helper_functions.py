@@ -1,3 +1,4 @@
+import warnings
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -730,7 +731,9 @@ def session_trend(df, col, label=None):
     d = df[["id", "eo", col]].dropna()
     label = label or col
     rho, p = spearmanr(d.eo, d[col])
-    fit = smf.mixedlm(f"{col} ~ eo", d, groups=d["id"]).fit()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")   # 4 ferrets: convergence warnings are routine
+        fit = smf.mixedlm(f"{col} ~ eo", d, groups=d["id"]).fit()
     print(f"{label:24s} n={len(d):3d}  rho={rho:+.3f} p={p:.3g}  |  mixedlm "
           f"{fit.params['eo']:+.4f}/EO day  SE={fit.bse['eo']:.4f}  p={fit.pvalues['eo']:.3g}")
     for fid, g in d.groupby("id"):

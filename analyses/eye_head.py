@@ -111,7 +111,8 @@ fig.tight_layout()
 
 
 # %% B. head-onset-triggered average: head and eye-in-head (head frame)
-# Sign-aligned so every head saccade turns positive. # while the head keeps turning is the eye counter-rotating ("saccade and fixate").
+# Sign-aligned so every head saccade turns positive. An eye trace moving negative while the
+# head keeps turning is the eye counter-rotating ("saccade and fixate").
 
 t_h = np.arange(-head_pre, head_post) / FS * 1000
 fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2), squeeze=False)
@@ -119,7 +120,7 @@ fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2), squeeze
 for ax, group, title in zip(axes[0], groups, titles):
     if not group:
         continue
-    head, eye, gaze = [], [], []
+    head, eye = [], []
     for R in group:
         T = head_triggered_windows(R, HEAD[id(R)], flip_eye, head_pre, head_post)
         hk = np.all(np.isfinite(T["head_pos"]), axis=1)
@@ -127,20 +128,18 @@ for ax, group, title in zip(axes[0], groups, titles):
         for k in ("LE_pos", "RE_pos"):
             ok = hk & np.all(np.isfinite(T[k]), axis=1)
             eye.append(T[k][ok])
-            gaze.append(T["head_pos"][ok] + T[k][ok])
-    # eye on the left axis; head and gaze (head-sized) on the right, as in
+    # eye on the left axis, head on the right, as in
     # saccade_andHead_triggered_average
     ax_h = ax.twinx()
     plot_mean_se(ax, t_h, np.vstack(eye), EYE_COLOR, "eye")
     plot_mean_se(ax_h, t_h, np.vstack(head), HEAD_COLOR, "head")
-    plot_mean_se(ax_h, t_h, np.vstack(gaze), "k", "gaze")
-    ax.axhline(0, color="0.8", lw=0.5)
-    ax.axvline(0, color="0.8", lw=0.5)
+    ax.axhline(0, color="0.8", lw=0.25)
+    ax.axvline(0, color="0.8", lw=0.25)
     ax.set_title(title, fontsize=6)
     ax.set_xlabel("time from head onset (ms)")
     ax.set_ylabel("eye rotation (deg)", color=EYE_COLOR)
     ax.tick_params(axis="y", colors=EYE_COLOR)
-    ax_h.set_ylabel("head / gaze rotation (deg)", color=HEAD_COLOR)
+    ax_h.set_ylabel("head rotation (deg)", color=HEAD_COLOR)
     ax_h.tick_params(axis="y", colors=HEAD_COLOR)
     lines = ax.get_legend_handles_labels()
     lines_h = ax_h.get_legend_handles_labels()
@@ -152,38 +151,26 @@ if save_figs:
 
 # %% B.2 head-onset-triggered averages by head saccade amplitude
 # One line per head-amplitude bin (like movement_stats "mean kinematic traces"). Does the eye
-# contribute more, and does gaze follow the head more fully, as head movements get larger?
-# Summary: gaze_frac = gaze shift / head shift at head_post, per session (1 = gaze follows
-# the head completely; < 1 = the eye counter-rotated and held gaze back).
+# contribute more as head movements get larger?
 
 head_amp_bins = [0, 40, 80, 360]   # deg, head saccade amplitude (unwrapped)
 amp_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(head_amp_bins) - 1))
 
-traces = {}   # (group index, amp bin index) -> dict of head / eye / gaze arrays
-frac_rows = []
+traces = {}   # (group index, amp bin index) -> dict of head / eye arrays
 for gi, group in enumerate(groups):
     for R in group:
         T = head_triggered_windows(R, HEAD[id(R)], flip_eye, head_pre, head_post)
         amp = HEAD[id(R)]["amplitude_deg"].to_numpy(float)
         hk = np.all(np.isfinite(T["head_pos"]), axis=1)
-        fr = []
         for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
-            d = traces.setdefault((gi, bi), {"head": [], "eye": [], "gaze": []})
+            d = traces.setdefault((gi, bi), {"head": [], "eye": []})
             sel = hk & (amp >= lo) & (amp < hi)
             d["head"].append(T["head_pos"][sel])
             for k in ("LE_pos", "RE_pos"):
                 ok = sel & np.all(np.isfinite(T[k]), axis=1)
                 d["eye"].append(T[k][ok])
-                d["gaze"].append(T["head_pos"][ok] + T[k][ok])
-        for k in ("LE_pos", "RE_pos"):
-            ok = hk & np.all(np.isfinite(T[k]), axis=1) & (np.abs(T["head_pos"][:, -1]) > 5)
-            fr.append((T["head_pos"][ok, -1] + T[k][ok, -1]) / T["head_pos"][ok, -1])
-        fr = np.concatenate(fr)
-        if len(fr) >= 10 and not any(r["id"] == R.id and r["eo"] == R.eo for r in frac_rows):
-            frac_rows.append(dict(id=R.id, eo=R.eo, gaze_frac=np.median(fr)))
 
-for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)"),
-                    ("gaze", "gaze rotation (deg)")):
+for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)")):
     fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2), squeeze=False)
     for gi, (ax, title) in enumerate(zip(axes[0], titles)):
         for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
@@ -200,16 +187,6 @@ for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)
     fig.tight_layout()
     if save_figs:
         save_fig(fig, f"eye_head_B2_{sig}_by_head_amp")
-
-GF = pd.DataFrame(frac_rows)
-fig, ax = plt.subplots(figsize=(2.5, 2))
-plot_vs_eo(ax, GF, "gaze_frac")
-ax.axhline(1, color="0.8", lw=0.5)
-ax.set_ylabel("gaze shift / head shift")
-ax.legend(fontsize=4)
-session_trend(GF, "gaze_frac")
-sns.despine(fig)
-fig.tight_layout()
 
 
 # %% C. coupling by EO bin: observed vs chance (one point per session, bin median)

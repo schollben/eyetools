@@ -1,11 +1,19 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import statsmodels.formula.api as smf
 from scipy.signal import savgol_filter
+from scipy.stats import spearmanr
 
-from utils import non_saccade_mask
-from utils.extract_saccades import _detect, _COLS
+from utils import non_saccade_mask, load_session_data, process_session, removeBadData, getSesh
+from utils.config import SAVELOC
 
 FS = 120.0
+FERRETS = (402, 405, 407, 420)
+EO_BINS = [(0, 3), (4, 7), (8, 20)]
+EXTRACT = dict(window_in_sec=5, velocity_threshold_eye=40, velocity_threshold_gaze=40,
+               velocity_threshold_head=1, min_duration=8, min_inter_event=8)
+FERRET_MARKERS = ("o", "s", "^", "D", "v", "P")
 LOCO_COLORS = {"all": "#444444", "stationary": "#725EE7", "running": "#E93115"}
 # Eye and head traces, shared by every script. EYE_COLOR is the default when LE and RE
 # are not being compared.
@@ -125,7 +133,7 @@ def pooled_intervals(group, signal, condition="all", speed_threshold=100,
     1425 ms vs 275 ms for clean gaps, max 119.8 s).
 
     Note: extraction enforces min_inter_event frames between events, so this distribution
-    is truncated at min_inter_event / FS seconds (100 ms at the default 12 frames).
+    is truncated at min_inter_event / FS seconds (67 ms at min_inter_event=8).
     """
     out = []
     for R in group:
@@ -200,21 +208,30 @@ def event_traces(R, signal, kind, lo, hi, bin_col, condition, pre, post,
     return traces, nominal
 
 
+# The loaders store eye velocity SWAPPED: R.{eye}_vx is vertical and R.{eye}_vy is
+# horizontal, with per-eye signs (corr = +-1.00 against d(x)/dt and d(y)/dt in all 33
+# sessions checked). eye_signal maps them back so "vx" = d(x)/dt and "vy" = d(y)/dt.
+_VEL = {("LE", "vx"): ("vy", -1.0), ("LE", "vy"): ("vx", -1.0),
+        ("RE", "vx"): ("vy", 1.0), ("RE", "vy"): ("vx", -1.0)}
+
+
 def eye_signal(R, eye, key, flip_eye=None):
-    """One eye signal. 'speed' is sqrt(vx^2 + vy^2).
+    """One eye signal. 'speed' is sqrt(vx^2 + vy^2). vx / vy are remapped through _VEL.
 
     flip_eye: None keeps each eye in its own nasal/temporal frame (correct for
     integrator/drift, where the eye drifts toward its own orbital center). "LE" or "RE"
-    negates that eye's horizontal signal to put both eyes in a common conjugate frame
-    (needed for VOR and binocular measures). Which eye is flipped only sets a global sign
-    on the shared axis.
+    negates that eye's horizontal signal to put both eyes in a common conjugate frame.
+    For LE-vs-RE measures the choice only sets a global sign. Against the HEAD it matters:
+    "LE" is the head frame (eye + = head yaw +, world gaze = yaw + eye); "RE" points the
+    other way. Head-vs-eye measures (VOR, eye_head) use "LE".
     """
     if key == "speed":
         vx = np.asarray(getattr(R, f"{eye}_vx"), float)
         vy = np.asarray(getattr(R, f"{eye}_vy"), float)
         return np.sqrt(vx ** 2 + vy ** 2)
 
-    v = np.asarray(getattr(R, f"{eye}_{key}"), float)
+    attr, sign = _VEL.get((eye, key), (key, 1.0))
+    v = sign * np.asarray(getattr(R, f"{eye}_{attr}"), float)
 
     return -v if eye == flip_eye and key.endswith("x") else v
 
@@ -323,96 +340,184 @@ def fit_line(ax, x, y, color="k", min_n=500):
     return slope, intercept
 
 
-def head_saccades(R, velocity_threshold=50, min_duration=12, max_duration=60,
-                  min_inter_event=12, smooth=11):
-    """Head-saccade table, extracted here because R.df_head is not usable.
+def unwrap_deg(a):
+    """Unwrap an angle trace (deg) across the +-180 seam, skipping NaNs."""
+    a = np.asarray(a, float).copy()
+    ok = np.isfinite(a)
+    a[ok] = np.unwrap(a[ok], period=360)
+    return a
 
-    Same columns as R.df_LE. Thresholds are in deg/s.
 
-    TODO — UPSTREAM FIX. R.df_head is unusable because of three bugs in utils/:
-      1. extract_saccades._get_arrays smooths skull velocity with savgol_filter(L=121)
-         = 1.01 s at 120 Hz, while the eye branch uses raw velocity (corr = 0.715).
-      2. process_session passes max_duration=600 (5 s) for skull vs 60 for eyes.
-      3. velocity_threshold_head=2 is rad/s (~115 deg/s), not deg/s.
-    Measured on 402/420: current df_head = 449 events, median 692 ms, 47 deg.
-    This function = 2363 events, median 225 ms, 18 deg. Fixing utils/ would change
-    df_head for every existing script, so the correction lives here for now.
+def in_head_saccade(onsets, head_df, pair_window=30):
+    """Index of the head saccade each onset falls in, or -1.
+
+    "In" = onset within [head onset - pair_window, head peak], so the eye may lead the head
+    by up to pair_window frames. Windows do not overlap while pair_window < the head
+    min_inter_event (60 frames).
     """
-    sg = lambda a: np.rad2deg(savgol_filter(np.asarray(a, float), smooth, 3))
-    events = _detect(sg(R.yaw_v), sg(R.pitch_v), sg(R.yaw_a), sg(R.pitch_a),
-                     np.asarray(R.yaw, float), np.asarray(R.pitch, float),
-                     velocity_threshold, min_duration, max_duration, min_inter_event)
-    return pd.DataFrame(events, columns=_COLS)
+    onsets = np.asarray(onsets, int)
+    if not len(head_df):
+        return np.full(len(onsets), -1)
+    h_on = head_df["onset"].to_numpy().astype(int)
+    h_pk = head_df["peak"].to_numpy().astype(int)
+    i = np.searchsorted(h_on - pair_window, onsets, side="right") - 1
+    ok = (i >= 0) & (onsets <= h_pk[np.clip(i, 0, None)])
+    return np.where(ok, i, -1)
 
 
-def _aligned_windows(R, eye, head_df, flip_eye, pre, post):
-    """Yield (onset, amplitude, head_pos, eye_pos, head_vel, eye_vel, sign, lag) per
-    eye saccade. Traces are baseline-subtracted at onset and sign-aligned so the head's
-    dominant rotation is positive — the convention Wallace Fig 4D requires."""
-    df = R.df_LE if eye == "LE" else R.df_RE
-    px = eye_signal(R, eye, "x", flip_eye)
-    vx = eye_signal(R, eye, "vx", flip_eye)
-    yaw = np.asarray(R.yaw, float)
+def eye_head_coupling(R, head_df, pair_window=30, n_shift=100, seed=0):
+    """(frac_eye, chance_eye, frac_head, chance_head) for one session.
+
+    frac_eye: fraction of eye saccades (both eyes) starting inside a head saccade.
+    frac_head: fraction of head saccades containing at least one. Chance circularly shifts
+    the eye onsets against the head by random offsets >= 10 s, keeping both rates.
+    """
+    n = len(R.LE_vx)
+    e = np.concatenate([R.df_LE["onset"].to_numpy(), R.df_RE["onset"].to_numpy()]).astype(int)
+    if not len(e) or not len(head_df):
+        return np.nan, np.nan, np.nan, np.nan
+
+    def fracs(onsets):
+        idx = in_head_saccade(onsets, head_df, pair_window)
+        return (idx >= 0).mean(), len(np.unique(idx[idx >= 0])) / len(head_df)
+
+    obs_e, obs_h = fracs(e)
+    shifts = np.random.default_rng(seed).integers(int(10 * FS), n - int(10 * FS), n_shift)
+    chance = np.array([fracs((e + s) % n) for s in shifts])
+    return obs_e, chance[:, 0].mean(), obs_h, chance[:, 1].mean()
+
+
+def onset_correlogram(R, head_df, max_lag=60, bin_frames=3):
+    """Eye onsets (both eyes) around each head onset.
+
+    Lag = head onset - eye onset (positive = eye led), -max_lag..+max_lag frames. Returns
+    bin centers (ms), counts, and counts expected if eye onsets were unrelated to the head.
+    """
+    edges = np.arange(-max_lag, max_lag + bin_frames, bin_frames)
+    h = head_df["onset"].to_numpy().astype(int) if len(head_df) else np.array([], int)
+    e = np.concatenate([R.df_LE["onset"].to_numpy(), R.df_RE["onset"].to_numpy()]).astype(int)
+    counts = np.histogram((h[:, None] - e[None, :]).ravel(), edges)[0]
+    expected = len(h) * len(e) / len(R.LE_vx) * np.diff(edges)
+    return (edges[:-1] + edges[1:]) / 2 / FS * 1000, counts, expected
+
+
+def head_eye_windows(R, head_df, flip_eye="LE", pre=24, post=72, pair_window=30, pscr_win=24):
+    """One row per eye saccade with its head context (E), plus onset-aligned traces (W).
+
+    E keeps EVERY eye saccade, so timing measures are not filtered by trace quality;
+    trace-derived columns are NaN unless the window is clean. Columns:
+      onset, peak, eye, amplitude_deg, peak_velocity_deg_s   as extracted
+      amp_h, eye_disp    horizontal |displacement| and signed displacement, peak - onset
+      head_idx, paired   head saccade the onset falls in (in_head_saccade); -1 / False
+      lag_ms             head onset - eye onset (positive = eye led); NaN if unpaired
+      phase              (eye onset - head onset) / head duration: 0 = head onset, 1 = end
+      head_sign          sign of the paired head saccade's unwrapped yaw displacement
+                         (unpaired: dominant head velocity in the window)
+      same_direction     1 = eye moved with the paired head saccade, 0 = against, else NaN
+      clean              window [onset-pre, onset+post) in range and NaN-free
+      head_peak_vel      peak head velocity after eye onset (sign-aligned, deg/s)
+      eye_cr_vel         most negative eye velocity in the pscr_win frames after the eye
+                         saccade ends: the counter-rotation (Wallace Fig 4D y)
+      pscr_gain          mean eye / mean head velocity over that window when head > 30
+                         deg/s there; -1 = full compensation
+    W: head_pos, eye_pos, head_vel, eye_vel (n x pre+post) in E's row order, baseline-
+    subtracted at onset and sign-aligned so the head turns positive; NaN rows where not
+    clean. Head and eye velocity get the same savgol(11, 3). Use flip_eye="LE" (head frame).
+    """
+    yaw = unwrap_deg(R.yaw)
     yv = np.rad2deg(savgol_filter(np.asarray(R.yaw_v, float), 11, 3))
-    h_on = head_df["onset"].to_numpy() if len(head_df) else np.array([], int)
+    h_on = head_df["onset"].to_numpy().astype(int) if len(head_df) else np.array([], int)
+    h_pk = head_df["peak"].to_numpy().astype(int) if len(head_df) else np.array([], int)
+    h_sign = np.sign(yaw[h_pk] - yaw[h_on])
+    win = pre + post
+    rows, traces = [], {k: [] for k in ("head_pos", "eye_pos", "head_vel", "eye_vel")}
 
-    for onset, amp in zip(df["onset"].to_numpy().astype(int),
-                          df["amplitude_deg"].to_numpy().astype(float)):
-        a, b = onset - pre, onset + post
-        if a < 0 or b > len(px):
-            continue
-        hp, ep, hv, ev = yaw[a:b], px[a:b], yv[a:b], vx[a:b]
-        if not (np.all(np.isfinite(hp)) and np.all(np.isfinite(ep))
-                and np.all(np.isfinite(hv)) and np.all(np.isfinite(ev))):
-            continue
-        sign = np.sign(hv[np.argmax(np.abs(hv))]) or 1.0
-        lag = np.nan if not len(h_on) else float(h_on[np.argmin(np.abs(h_on - onset))] - onset)
-        yield (onset, amp, (hp - hp[pre]) * sign, (ep - ep[pre]) * sign,
-               hv * sign, ev * sign, sign, lag)
+    for eye, df in (("LE", R.df_LE), ("RE", R.df_RE)):
+        px = eye_signal(R, eye, "x", flip_eye)
+        vx = savgol_filter(eye_signal(R, eye, "vx", flip_eye), 11, 3)
+        onsets = df["onset"].to_numpy().astype(int)
+        peaks = df["peak"].to_numpy().astype(int)
+        idx = in_head_saccade(onsets, head_df, pair_window)
+
+        for o, p, i, amp, pkv in zip(onsets, peaks, idx, df["amplitude_deg"].to_numpy(float),
+                                     df["peak_velocity_deg_s"].to_numpy(float)):
+            a, b = o - pre, o + post
+            clean = bool(a >= 0 and b <= len(px) and np.all(np.isfinite(yaw[a:b]))
+                         and np.all(np.isfinite(yv[a:b])) and np.all(np.isfinite(px[a:b]))
+                         and np.all(np.isfinite(vx[a:b])))
+            if i >= 0:
+                s = h_sign[i] or 1.0
+            elif clean:
+                s = np.sign(yv[a:b][np.argmax(np.abs(yv[a:b]))]) or 1.0
+            else:
+                s = np.nan
+
+            if clean:
+                hp, ep = (yaw[a:b] - yaw[o]) * s, (px[a:b] - px[o]) * s
+                hv, ev = yv[a:b] * s, vx[a:b] * s
+                k = p - o + pre
+                w = slice(k + 1, min(k + 1 + pscr_win, win))
+                hpk = hv[pre:].max()
+                cr = ev[w].min() if w.stop > w.start else np.nan
+                gain = (ev[w].mean() / hv[w].mean()
+                        if w.stop > w.start and hv[w].mean() > 30 else np.nan)
+            else:
+                hp = ep = hv = ev = np.full(win, np.nan)
+                hpk = cr = gain = np.nan
+
+            disp = px[p] - px[o]
+            paired = i >= 0
+            rows.append((o, p, eye, amp, pkv, abs(disp), disp, i, paired,
+                         (h_on[i] - o) / FS * 1000 if paired else np.nan,
+                         (o - h_on[i]) / max(h_pk[i] - h_on[i], 1) if paired else np.nan,
+                         s,
+                         float(np.sign(disp) == s) if paired and np.isfinite(disp) and disp
+                         else np.nan,
+                         clean, hpk, cr, gain))
+            for key, tr in zip(traces, (hp, ep, hv, ev)):
+                traces[key].append(tr)
+
+    E = pd.DataFrame(rows, columns=["onset", "peak", "eye", "amplitude_deg",
+                                    "peak_velocity_deg_s", "amp_h", "eye_disp", "head_idx",
+                                    "paired", "lag_ms", "phase", "head_sign",
+                                    "same_direction", "clean", "head_peak_vel", "eye_cr_vel",
+                                    "pscr_gain"]).assign(id=R.id, eo=R.eo)
+    W = {k: np.array(v).reshape(-1, win) for k, v in traces.items()}
+    return E, W
 
 
-def head_eye_events(R, head_df, flip_eye=None, pre=24, post=72):
-    """One row per eye saccade with its head context.
+def head_triggered_windows(R, head_df, flip_eye="LE", pre=24, post=144):
+    """Head-onset-aligned traces, one row per head saccade.
 
-    Columns: onset, eye, amplitude_deg, peak_velocity_deg_s, lag_ms (head onset minus eye
-    onset; NaN if the session has no head saccades), same_direction, head_peak_pos_vel,
-    eye_peak_neg_vel. Velocities are sign-aligned to the head's dominant direction, so
-    "peak positive head" and "peak negative eye" are well defined (Wallace Fig 4D).
+    Dict of (n_head x pre+post) arrays head_pos, LE_pos, RE_pos, baseline-subtracted at head
+    onset and sign-aligned so the head turns positive. NaN rows where the window runs off
+    the recording; eye rows may contain NaN. In the head frame (flip_eye="LE"),
+    head_pos + eye_pos is gaze.
     """
-    rows = []
-    for eye in ("LE", "RE"):
-        df = R.df_LE if eye == "LE" else R.df_RE
-        pkv = dict(zip(df["onset"].to_numpy().astype(int),
-                       df["peak_velocity_deg_s"].to_numpy().astype(float)))
-        for onset, amp, _, _, hv, ev, _, lag in _aligned_windows(
-                R, eye, head_df, flip_eye, pre, post):
-            rows.append((onset, eye, amp, pkv.get(onset, np.nan),
-                         lag / FS * 1000 if np.isfinite(lag) else np.nan,
-                         np.sign(ev[np.argmax(np.abs(ev))]) > 0,
-                         hv.max(), ev.min()))
-    return pd.DataFrame(rows, columns=["onset", "eye", "amplitude_deg",
-                                       "peak_velocity_deg_s", "lag_ms", "same_direction",
-                                       "head_peak_pos_vel", "eye_peak_neg_vel"])
-
-
-def head_eye_traces(R, head_df, lo, hi, flip_eye=None, pair_window=30, pre=24, post=72):
-    """Onset-aligned traces for eye saccades with amplitude in [lo, hi), paired with a head
-    saccade within pair_window frames. Returns a dict of lists keyed
-    head_pos/LE_pos/RE_pos/head_vel/LE_vel/RE_vel — head traces are collected once per
-    eye saccade, so head_pos aligns with whichever eye contributed it (Wallace Fig 4A/4C).
-    """
-    out = {k: [] for k in ("head_pos", "LE_pos", "RE_pos",
-                           "head_vel", "LE_vel", "RE_vel")}
-    for eye in ("LE", "RE"):
-        for _, amp, hp, ep, hv, ev, _, lag in _aligned_windows(
-                R, eye, head_df, flip_eye, pre, post):
-            if not (lo <= amp < hi) or not np.isfinite(lag) or abs(lag) > pair_window:
-                continue
-            out["head_pos"].append(hp)
-            out["head_vel"].append(hv)
-            out[f"{eye}_pos"].append(ep)
-            out[f"{eye}_vel"].append(ev)
+    yaw = unwrap_deg(R.yaw)
+    eyes = {eye: eye_signal(R, eye, "x", flip_eye) for eye in ("LE", "RE")}
+    out = {k: np.full((len(head_df), pre + post), np.nan) for k in ("head_pos", "LE_pos", "RE_pos")}
+    for i, (o, p) in enumerate(zip(head_df["onset"].to_numpy().astype(int),
+                                   head_df["peak"].to_numpy().astype(int))):
+        a, b = o - pre, o + post
+        if a < 0 or b > len(yaw):
+            continue
+        s = np.sign(yaw[p] - yaw[o]) or 1.0
+        out["head_pos"][i] = (yaw[a:b] - yaw[o]) * s
+        for eye, x in eyes.items():
+            out[f"{eye}_pos"][i] = (x[a:b] - x[o]) * s
     return out
+
+
+def plot_mean_se(ax, t, arr, color, label, min_n=10):
+    """Mean +- SE of the rows of arr; skipped when fewer than min_n rows."""
+    arr = np.asarray(arr, float)
+    if arr.ndim != 2 or len(arr) < min_n:
+        return
+    m = arr.mean(axis=0)
+    se = arr.std(axis=0) / np.sqrt(len(arr))
+    ax.plot(t, m, color=color, lw=1, label=f"{label} (n={len(arr)})")
+    ax.fill_between(t, m - se, m + se, color=color, alpha=0.25)
 
 
 def paired_saccades(R, pair_window=12, flip_eye="RE", axis="horizontal"):
@@ -553,54 +658,26 @@ def logamp_logvel(group):
     return x[inds], y[inds]
 
 
-def pooled_rates(group, signal, condition="all", win_sec=10.0, step_sec=1.0,
-                 speed_threshold=100, min_bout=30, head_still_thresh=50):
-    """Sliding-window event rate (Hz), pooled over eyes and sessions.
-
-    A window of win_sec is stepped by step_sec across each recording; the rate is the
-    number of event onsets satisfying `condition` inside the window divided by win_sec.
-    Windows whose position trace contains any NaN are dropped, so a tracking dropout reads
-    as missing rather than as zero rate.
-    """
-    win = int(round(win_sec * FS))
-    step = int(round(step_sec * FS))
-    out = []
-    for R in group:
-        for eye, df in zip(("LE", "RE"), event_dfs(R, signal)):
-            pos = np.asarray(getattr(R, f"{eye}_x" if signal == "eye"
-                                     else f"{eye}_gaze_horizontal_deg"), float)
-            n = len(pos)
-            if n < win:
-                continue
-            keep = event_condition(R, df, condition, speed_threshold, min_bout,
-                                   head_still_thresh) if len(df) else np.array([], bool)
-            onsets = (df["onset"].to_numpy().astype(int)[keep] if len(df)
-                      else np.array([], int))
-            counts = np.cumsum(np.bincount(onsets, minlength=n + 1))
-            ok = np.concatenate(([0], np.cumsum(np.isfinite(pos))))
-            for a in range(0, n - win + 1, step):
-                b = a + win
-                if ok[b] - ok[a] < win:
-                    continue
-                out.append((counts[b] - counts[a]) / win_sec)
-    return np.array(out)
-
-
 def session_rate(R, signal, condition="all", speed_threshold=100, min_bout=30,
                  head_still_thresh=50, min_exposure_sec=5.0):
     """One session's event rate (Hz): in-condition events / in-condition time.
 
-    Averaged over the two eyes. Returns nan when the session has less than
-    min_exposure_sec in condition, so callers can align rates across conditions by
-    session index.
+    Per eye, counting only frames on which that eye is tracked (finite position), then
+    averaged over eyes with >= min_exposure_sec. Returns nan when neither eye has enough,
+    so callers can align rates across conditions by session index.
     """
     m = condition_frames(R, condition, speed_threshold, min_bout, head_still_thresh)
-    exposure = m.sum() / FS
-    if exposure < min_exposure_sec:
-        return np.nan
-    counts = [m[df["onset"].to_numpy().astype(int)].sum()
-              for df in event_dfs(R, signal) if len(df)]
-    return np.mean(counts) / exposure if counts else np.nan
+    rates = []
+    for eye, df in zip(("LE", "RE"), event_dfs(R, signal)):
+        pos = np.asarray(getattr(R, f"{eye}_x" if signal == "eye"
+                                 else f"{eye}_gaze_horizontal_deg"), float)
+        me = m & np.isfinite(pos)
+        exposure = me.sum() / FS
+        if exposure < min_exposure_sec:
+            continue
+        onsets = df["onset"].to_numpy().astype(int) if len(df) else np.array([], int)
+        rates.append(me[onsets].sum() / exposure)
+    return np.mean(rates) if rates else np.nan
 
 
 def session_rates(group, signal, condition="all", speed_threshold=100, min_bout=30,
@@ -616,3 +693,58 @@ def session_rates(group, signal, condition="all", speed_threshold=100, min_bout=
     r = np.array([session_rate(R, signal, condition, speed_threshold, min_bout,
                                head_still_thresh, min_exposure_sec) for R in group])
     return r[np.isfinite(r)]
+
+
+def load_results(ferrets=FERRETS, **params):
+    """Load, clean and extract every session of the given ferrets with one shared set of
+    extraction params (EXTRACT, overridable per call)."""
+    Results = []
+    for session in getSesh.by_ferret(*ferrets):
+        R = load_session_data(session)
+        removeBadData(R)
+        process_session(R, **{**EXTRACT, **params})
+        Results.append(R)
+    print(len(Results), "sessions loaded")
+    return Results
+
+
+def set_style():
+    plt.rcParams['font.family'] = 'sans-serif'
+    plt.rcParams['font.sans-serif'] = ['Arial']
+    plt.rcParams['font.size'] = 6
+    plt.rcParams['svg.fonttype'] = 'none'
+
+
+def save_fig(fig, name):
+    """Save fig as SVG in SAVELOC (no-op when SAVELOC is not set)."""
+    if SAVELOC is not None:
+        fig.savefig(SAVELOC / f"{name}.svg", format="svg", bbox_inches="tight")
+
+
+def session_trend(df, col, label=None):
+    """EO trend of one per-session measure (df needs columns id, eo, col).
+
+    Prints pooled-session Spearman, a mixed model (EO fixed, ferret random intercept) and
+    per-ferret Spearman for ferrets with >= 4 sessions. Sessions are the unit.
+    """
+    d = df[["id", "eo", col]].dropna()
+    label = label or col
+    rho, p = spearmanr(d.eo, d[col])
+    fit = smf.mixedlm(f"{col} ~ eo", d, groups=d["id"]).fit()
+    print(f"{label:24s} n={len(d):3d}  rho={rho:+.3f} p={p:.3g}  |  mixedlm "
+          f"{fit.params['eo']:+.4f}/EO day  SE={fit.bse['eo']:.4f}  p={fit.pvalues['eo']:.3g}")
+    for fid, g in d.groupby("id"):
+        if len(g) >= 4:
+            r, pp = spearmanr(g.eo, g[col])
+            print(f"{'':24s} F{fid} n={len(g):2d}  rho={r:+.3f} p={pp:.3g}")
+    return fit
+
+
+def plot_vs_eo(ax, df, col, color="k"):
+    """One line per ferret of a per-session measure against EO."""
+    for i, (fid, g) in enumerate(df.groupby("id")):
+        g = g.sort_values("eo")
+        ax.plot(g.eo, g[col], marker=FERRET_MARKERS[i % len(FERRET_MARKERS)], ms=3, lw=0.8,
+                color=color, label=f"F{fid}")
+    ax.set_xlabel("EO (days)")
+    ax.set_ylabel(col)

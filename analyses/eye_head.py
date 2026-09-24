@@ -13,7 +13,7 @@ from analyses.helper_functions import (FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_
                                        RE_COLOR, eo_groups, unwrap_deg, load_results, set_style,
                                        save_fig, head_eye_windows, head_triggered_windows,
                                        eye_head_coupling, in_head_saccade, running_mask, onset_correlogram, plot_mean_se,
-                                       session_trend, plot_vs_eo)
+                                       session_trend)
 set_style()
 
 # LOAD DATA
@@ -29,6 +29,7 @@ Results = load_results()  # FERRETS in helper_functions; 753, 757 -> look carefu
 # counter-rotation would read as positive.
 
 # how panels are split: False = one panel per session, True = one panel per EO range
+save_figs = False
 pool_by_eo = True
 eo_bins = EO_BINS
 
@@ -36,11 +37,10 @@ flip_eye = "LE"
 pair_window = 30         # frames (250 ms) an eye saccade may lead its head saccade
 pre, post = 24, 72       # frames: -200 to +600 ms from eye-saccade onset
 pscr_win = 24            # frames (200 ms) after the eye saccade ends: counter-rotation window
-head_pre, head_post = 24, 144   # frames: -200 to +1200 ms from head onset (panel B)
+head_pre, head_post = 24, 72   # frames: -200 to +1200 ms from head onset (panel B)
 
 amp_classes = [(5, 10), (10, 15), (15, np.inf)]   # Wallace Fig 4A/4C classes, horizontal deg
 head_vel_bins = np.arange(50, 551, 100)            # Wallace Fig 4D bins, deg/s
-save_figs = False
 
 # locomotion flag for the Wallace 4A / 4C / 4D cells: "all" | "stationary" | "running",
 # judged at eye saccade onset (running_mask, same thresholds as movement_stats.py)
@@ -49,7 +49,6 @@ speed_threshold = 50     # mm/s
 min_bout = 30            # frames
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
-colors = AGE_COLORS if pool_by_eo else [None] * len(groups)
 
 # Head saccades are R.df_head as extracted by process_session. Two columns are recomputed:
 # peak velocity (stored in rad/s) and amplitude, taken from UNWRAPPED yaw at the same
@@ -74,13 +73,6 @@ for R in Results:
     ok = np.isfinite(np.asarray(R.speed, float))
     on = E[id(R)]["onset"].to_numpy()
     E[id(R)]["loco"] = np.where(~ok[on], "unknown", np.where(run[on], "running", "stationary"))
-
-
-def pool(group):
-    """E rows and W traces of a session group, stacked in the same order."""
-    e = pd.concat([E[id(R)] for R in group], ignore_index=True)
-    w = {k: np.vstack([W[id(R)][k] for R in group]) for k in W[id(group[0])]}
-    return e, w
 
 
 # %% per-session table — every developmental summary below reads from here
@@ -359,7 +351,9 @@ for row, (group, title) in enumerate(zip(groups, titles)):
     if not group:
         continue
     
-    e, w = pool(group)
+    # this EO bin's eye saccades (e) and their traces (w), stacked in the same row order
+    e = pd.concat([E[id(R)] for R in group], ignore_index=True)
+    w = {k: np.vstack([W[id(R)][k] for R in group]) for k in W[id(group[0])]}
 
     for col, (lo, hi) in enumerate(amp_classes):
         
@@ -397,17 +391,25 @@ if save_figs:
 fig, axes = plt.subplots(len(groups), len(amp_classes),
                          figsize=(3 * len(amp_classes), 2 * len(groups)), squeeze=False)
 for row, (group, title) in enumerate(zip(groups, titles)):
+    
     if not group:
         continue
-    e, w = pool(group)
+    
+    # this EO bin's eye saccades (e) and their traces (w), stacked in the same row order
+    e = pd.concat([E[id(R)] for R in group], ignore_index=True)
+    w = {k: np.vstack([W[id(R)][k] for R in group]) for k in W[id(group[0])]}
+    
     for col, (lo, hi) in enumerate(amp_classes):
+        
         ax = axes[row][col]
+        
         sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)
                & ((e.loco == loco) | (loco == "all"))).to_numpy()
         ax_h = ax.twinx()   # eye on the left axis, head on the right
         plot_mean_se(ax, t_ms, w["eye_vel"][sel & (e.eye == "LE").to_numpy()], LE_COLOR, "LE")
         plot_mean_se(ax, t_ms, w["eye_vel"][sel & (e.eye == "RE").to_numpy()], RE_COLOR, "RE")
         plot_mean_se(ax_h, t_ms, w["head_vel"][sel], HEAD_COLOR, "head")
+
         ax_h.set_ylabel("head velocity (deg/s)", color=HEAD_COLOR)
         ax_h.tick_params(axis="y", colors=HEAD_COLOR)
         ax.axhline(0, color="0.8", lw=0.5)
@@ -417,9 +419,11 @@ for row, (group, title) in enumerate(zip(groups, titles)):
         ax.set_ylabel("eye velocity (deg/s)")
         lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
         ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4)
+
 fig.tight_layout()
-if save_figs:
-    save_fig(fig, "eye_head_4C_velocity")
+
+# if save_figs:
+#     save_fig(fig, "eye_head_4C_velocity")
 
 
 # %% Wallace Fig 4D — peak head velocity vs peak counter-rotation eye velocity, per EO bin
@@ -438,7 +442,7 @@ fig, axes = plt.subplots(1, len(groups), figsize=(2.6 * len(groups), 2.4), squee
 for ax, group, title, c in zip(axes[0], groups, titles, colors):
     if not group:
         continue
-    e, _ = pool(group)
+    e = pd.concat([E[id(R)] for R in group], ignore_index=True)
     p = e[e.paired & e.clean & (e.same_direction == 1)
           & ((e.loco == loco) | (loco == "all"))].dropna(subset=["head_peak_vel", "eye_cr_vel"])
     x = p.head_peak_vel.to_numpy()
@@ -510,7 +514,7 @@ for group, title, c in zip(groups, titles, colors):
     if not group:
         continue
     H = pd.concat([HEAD[id(R)] for R in group])
-    e, _ = pool(group)
+    e = pd.concat([E[id(R)] for R in group], ignore_index=True)
     p = e[e.paired]
     axes[0].scatter(H.amplitude_deg, H.peak_velocity_deg_s, s=1, alpha=0.2, color=c,
                     label=title)
@@ -606,7 +610,7 @@ fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2), squeeze
 for ax, group, title in zip(axes[0], groups, titles):
     if not group:
         continue
-    e, _ = pool(group)
+    e = pd.concat([E[id(R)] for R in group], ignore_index=True)
     p = e[e.paired]
     for val, lbl, c in ((1, "with head", EYE_COLOR), (0, "against head", "0.5")):
         ph = p.phase[p.same_direction == val].to_numpy(float)

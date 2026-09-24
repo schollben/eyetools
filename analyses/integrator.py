@@ -11,6 +11,7 @@ from utils import create_subplot_grid, non_saccade_mask
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy.stats import kruskal, mannwhitneyu as mwu
 from analyses.helper_functions import (load_results, set_style, EO_BINS,FS, EYE_COLORS, eo_groups, fit_line, clean_runs,
                                        eye_signal, drift_frames, drift_by_position)
 set_style()
@@ -303,3 +304,67 @@ ax.set_ylabel("pad_post (frames)")
 ax.set_title("tau (s)")
 fig.colorbar(im, ax=ax)
 fig.tight_layout()
+
+
+# %% 7. per-run net drift, compared across EO bins
+# Net position change across each clean run averages out frame-to-frame velocity noise.
+# One point per session x eye; EO bins are compared, not a continuous EO trend.
+
+run_len = 30     # frames, shortest run used here (gated runs are short: median ~8 frames)
+min_runs = 10    # runs per session x eye
+
+fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
+cols = ("slope", "centripetal", "abs_drift")
+vals = {c: [] for c in cols}
+
+for i, (group, title) in enumerate(zip(groups, titles)):
+
+    for c in cols:
+        vals[c].append([])
+    n_runs = 0
+
+    for R in group:
+        for eye in EYES:
+            x, _, m = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)
+            if not len(x):
+                continue
+            xf = eye_signal(R, eye, "x", flip_eye) - np.median(x)
+
+            xm, vn = [], []
+            for a, b in clean_runs(m, run_len):
+                xm.append(xf[a:b].mean())
+                vn.append((xf[b - 1] - xf[a]) / ((b - a - 1) / FS))
+            xm, vn = np.array(xm), np.array(vn)
+            keep = np.abs(xm) > 1.0
+            xm, vn = xm[keep], vn[keep]
+            if len(xm) < min_runs:
+                continue
+            n_runs += len(xm)
+
+            s = dict(slope=np.polyfit(xm, vn, 1)[0],
+                     centripetal=(np.sign(vn) != np.sign(xm)).mean(),
+                     abs_drift=np.median(np.abs(vn)))
+            for ax, c in zip(axes, cols):
+                vals[c][i].append(s[c])
+                ax.plot(i + (-0.1 if eye == "LE" else 0.1), s[c], "o", ms=3, alpha=0.6,
+                        color=EYE_COLORS[eye])
+
+    for ax, c in zip(axes, cols):
+        if vals[c][i]:
+            ax.plot(i, np.median(vals[c][i]), "_", ms=14, mew=2, color="k")
+    print(f"{title:10s} n_sesh_eye={len(vals['slope'][i]):3d}  n_runs={n_runs:6d}  "
+          + "  ".join(f"{c}={np.median(vals[c][i]):+.3f}" for c in cols if vals[c][i]))
+
+for ax, c, lbl in zip(axes, cols, ("slope (1/s)", "fraction centripetal", "median |net drift| (deg/s)")):
+    ax.set_xticks(range(len(titles)), titles)
+    ax.set_ylabel(lbl)
+axes[0].axhline(0, color="k", ls="--", lw=0.5)
+axes[1].axhline(0.5, color="k", ls="--", lw=0.5)
+sns.despine(fig)
+fig.tight_layout()
+
+for c in cols:
+    v = [np.array(g) for g in vals[c] if len(g)]
+    if len(v) > 2:
+        print(f"{c:12s} Kruskal p={kruskal(*v)[1]:.3g}  "
+              f"youngest-vs-oldest MWU p={mwu(v[0], v[-1])[1]:.3g}")

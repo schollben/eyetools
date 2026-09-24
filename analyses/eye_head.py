@@ -350,15 +350,18 @@ for row, (group, title) in enumerate(zip(groups, titles)):
     for col, (lo, hi) in enumerate(amp_classes):
         ax = axes[row][col]
         sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)).to_numpy()
-        plot_mean_se(ax, t_ms, w["head_pos"][sel], HEAD_COLOR, "head")
+        ax_h = ax.twinx()   # eye on the left axis, head on the right
         plot_mean_se(ax, t_ms, w["eye_pos"][sel & (e.eye == "LE").to_numpy()], LE_COLOR, "LE")
         plot_mean_se(ax, t_ms, w["eye_pos"][sel & (e.eye == "RE").to_numpy()], RE_COLOR, "RE")
+        plot_mean_se(ax_h, t_ms, w["head_pos"][sel], HEAD_COLOR, "head")
+        ax_h.set_ylabel("head rotation (deg)", color=HEAD_COLOR)
+        ax_h.tick_params(axis="y", colors=HEAD_COLOR)
         ax.axvline(0, color="0.8", lw=0.5)
         ax.set_title(f"{title}  eye amp {lo}-{hi} deg", fontsize=6)
         ax.set_xlabel("time from eye onset (ms)")
-        ax.set_ylabel("horizontal rotation (deg)")
-        ax.legend(fontsize=4)
-sns.despine(fig)
+        ax.set_ylabel("eye rotation (deg)")
+        lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
+        ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4)
 fig.tight_layout()
 if save_figs:
     save_fig(fig, "eye_head_4A_position")
@@ -378,16 +381,19 @@ for row, (group, title) in enumerate(zip(groups, titles)):
     for col, (lo, hi) in enumerate(amp_classes):
         ax = axes[row][col]
         sel = (e.paired & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)).to_numpy()
-        plot_mean_se(ax, t_ms, w["head_vel"][sel], HEAD_COLOR, "head")
+        ax_h = ax.twinx()   # eye on the left axis, head on the right
         plot_mean_se(ax, t_ms, w["eye_vel"][sel & (e.eye == "LE").to_numpy()], LE_COLOR, "LE")
         plot_mean_se(ax, t_ms, w["eye_vel"][sel & (e.eye == "RE").to_numpy()], RE_COLOR, "RE")
+        plot_mean_se(ax_h, t_ms, w["head_vel"][sel], HEAD_COLOR, "head")
+        ax_h.set_ylabel("head velocity (deg/s)", color=HEAD_COLOR)
+        ax_h.tick_params(axis="y", colors=HEAD_COLOR)
         ax.axhline(0, color="0.8", lw=0.5)
         ax.axvline(0, color="0.8", lw=0.5)
         ax.set_title(f"{title}  eye amp {lo}-{hi} deg", fontsize=6)
         ax.set_xlabel("time from eye onset (ms)")
-        ax.set_ylabel("horizontal velocity (deg/s)")
-        ax.legend(fontsize=4)
-sns.despine(fig)
+        ax.set_ylabel("eye velocity (deg/s)")
+        lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
+        ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4)
 fig.tight_layout()
 if save_figs:
     save_fig(fig, "eye_head_4C_velocity")

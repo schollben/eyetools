@@ -1,6 +1,6 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
 # main init
-# Set your paths in local_config.py (copy local_config.py.example to get started).
+# Set your paths in local_config.py (copy local_config.py.example to get started): cd /Users/benjaminscholl/Documents/eyetools/
 import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
@@ -28,7 +28,7 @@ Results = load_results()
 # deciding which filters are still needed.
 # Candidate filters, roughly in order of expected payoff:
 #
-# 1. Head-velocity gate. Every frame here still includes head motion, so VOR-driven eye
+# 1. [DONE: head_rot / head_trans] Head-velocity gate. Every frame here still includes head motion, so VOR-driven eye
 #    velocity is being counted as integrator drift. Gate on R.angVelocities (rad/s in the
 #    csv — convert) below some ceiling to isolate true fixation. Biggest likely confound.
 # 2. Position stability within the window. A run spanning a slow drift PLUS a small
@@ -52,6 +52,8 @@ flip_eye = None
 pad_pre = 3          # frames before saccade onset excluded
 pad_post = 30        # frames after saccade peak excluded (non_saccade_mask default is 12)
 vel_ceiling = 20     # deg/s; drop residual fast frames the saccade detector missed
+head_rot = 20        # deg/s, head angular speed ceiling (None = off)
+head_trans = 20      # mm/s, head translation speed ceiling (None = off)
 min_run = 60         # frames, shortest contiguous clean stretch (cell 4)
 pos_bins = np.arange(-10, 10, 2)   # signed, never folded to |x|
 EYES = ("LE", "RE")
@@ -60,7 +62,7 @@ groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
 for R in Results:
     n = len(R.LE_vx)
-    counts = [len(drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye)[0])
+    counts = [len(drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)[0])
               for eye in EYES]
 
 
@@ -80,7 +82,7 @@ for eye in EYES:
 
         xs, vs = [], []
         for R in group:
-            x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye)
+            x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)
             xs.append(x - np.median(x) if len(x) else x)
             vs.append(v)
         x = np.concatenate(xs)
@@ -108,7 +110,7 @@ for group, title in zip(groups, titles):
         continue
 
     centers, means, sems, counts = drift_by_position(
-        group, EYES, pos_bins, pad_post, pad_pre, vel_ceiling, flip_eye)
+        group, EYES, pos_bins, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot_thresh=head_rot, head_trans_thresh=head_trans)
 
     ok = counts > 100
     ax.errorbar(centers[ok], means[ok], yerr=sems[ok], marker="o", ms=3, lw=1,
@@ -144,7 +146,7 @@ for group, title in zip(groups, titles):
     xs, vs = [], []
     for R in group:
         for eye in EYES:
-            x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye)
+            x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)
             xs.append(x - np.median(x) if len(x) else x)
             vs.append(v)
     x = np.concatenate(xs)
@@ -184,7 +186,7 @@ for group, title in zip(groups, titles):
     slopes = []
     for R in group:
         for eye in EYES:
-            x, v, m = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye)
+            x, v, m = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)
             xf = eye_signal(R, eye, "x", flip_eye)
             vf = eye_signal(R, eye, "vx", flip_eye)
             for a, b in clean_runs(m, min_run):
@@ -219,13 +221,13 @@ min_frames = 500
 for R in Results:
     for eye in EYES:
 
-        x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye)
+        x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)
         if len(x) < min_frames:
             print(f"skip ferret {R.id} EO{R.eo} {eye}: only {len(x)} frames")
             continue
 
         centers, means, sems, counts = drift_by_position(
-            [R], [eye], pos_bins, pad_post, pad_pre, vel_ceiling, flip_eye)
+            [R], [eye], pos_bins, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot_thresh=head_rot, head_trans_thresh=head_trans)
 
         ok = counts > 100
         if ok.sum() < 3:
@@ -266,7 +268,7 @@ for i, pp in enumerate(pad_sweep):
     for j, vc in enumerate(vel_sweep):
 
         centers, means, sems, counts = drift_by_position(
-            Results, EYES, pos_bins, pp, pad_pre, vc, flip_eye)
+            Results, EYES, pos_bins, pp, pad_pre, vc, flip_eye, head_rot_thresh=head_rot, head_trans_thresh=head_trans)
 
         ok = counts > 100
         if ok.sum() < 3:
@@ -280,7 +282,7 @@ for i, pp in enumerate(pad_sweep):
         xs, vs = [], []
         for R in Results:
             for eye in EYES:
-                x, v, _ = drift_frames(R, eye, pp, pad_pre, vc, flip_eye)
+                x, v, _ = drift_frames(R, eye, pp, pad_pre, vc, flip_eye, head_rot, head_trans)
                 xs.append(x - np.median(x) if len(x) else x)
                 vs.append(v)
         x = np.concatenate(xs)

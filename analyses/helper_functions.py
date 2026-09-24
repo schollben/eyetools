@@ -397,13 +397,13 @@ def eye_head_coupling(R, head_df, pair_window=30, n_shift=100, seed=0):
 def onset_correlogram(R, head_df, max_lag=60, bin_frames=3):
     """Eye onsets (both eyes) around each head onset.
 
-    Lag = head onset - eye onset (positive = eye led), -max_lag..+max_lag frames. Returns
+    Lag = eye onset - head onset (positive = eye followed), -max_lag..+max_lag frames. Returns
     bin centers (ms), counts, and counts expected if eye onsets were unrelated to the head.
     """
     edges = np.arange(-max_lag, max_lag + bin_frames, bin_frames)
     h = head_df["onset"].to_numpy().astype(int) if len(head_df) else np.array([], int)
     e = np.concatenate([R.df_LE["onset"].to_numpy(), R.df_RE["onset"].to_numpy()]).astype(int)
-    counts = np.histogram((h[:, None] - e[None, :]).ravel(), edges)[0]
+    counts = np.histogram((e[None, :] - h[:, None]).ravel(), edges)[0]
     expected = len(h) * len(e) / len(R.LE_vx) * np.diff(edges)
     return (edges[:-1] + edges[1:]) / 2 / FS * 1000, counts, expected
 
@@ -416,7 +416,7 @@ def head_eye_windows(R, head_df, flip_eye="LE", pre=24, post=72, pair_window=30,
       onset, peak, eye, amplitude_deg, peak_velocity_deg_s   as extracted
       amp_h, eye_disp    horizontal |displacement| and signed displacement, peak - onset
       head_idx, paired   head saccade the onset falls in (in_head_saccade); -1 / False
-      lag_ms             head onset - eye onset (positive = eye led); NaN if unpaired
+      lag_ms             eye onset - head onset (positive = eye followed); NaN if unpaired
       phase              (eye onset - head onset) / head duration: 0 = head onset, 1 = end
       head_sign          sign of the paired head saccade's unwrapped yaw displacement
                          (unpaired: dominant head velocity in the window)
@@ -475,7 +475,7 @@ def head_eye_windows(R, head_df, flip_eye="LE", pre=24, post=72, pair_window=30,
             disp = px[p] - px[o]
             paired = i >= 0
             rows.append((o, p, eye, amp, pkv, abs(disp), disp, i, paired,
-                         (h_on[i] - o) / FS * 1000 if paired else np.nan,
+                         (o - h_on[i]) / FS * 1000 if paired else np.nan,
                          (o - h_on[i]) / max(h_pk[i] - h_on[i], 1) if paired else np.nan,
                          s,
                          float(np.sign(disp) == s) if paired and np.isfinite(disp) and disp

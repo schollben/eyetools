@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from utils.session_data import SessionData
+from utils.eye_velocity import eye_velocity
 from utils.saccade_triggered_average import _plot_mean_se, LE_COLOR, HEAD_COLOR
 
 EYE_VEL_COLOR = "#5aae61"
@@ -44,15 +45,12 @@ def classify_saccades(
         window: frames after onset for triggered averages.
         pre_avg: frames before onset for triggered averages.
     """
-    vx_key = f"{eye}_vx"
-    vy_key = f"{eye}_vy"
-    x_key  = f"{eye}_x"
-
-    eye_vx = np.array(getattr(session, vx_key), dtype=float)
-    eye_vy = np.array(getattr(session, vy_key), dtype=float)
-    eye_x  = np.array(getattr(session, x_key),  dtype=float)
-    yaw_v  = np.array(session.yaw_v,  dtype=float)
-    pitch_v = np.array(session.pitch_v, dtype=float)
+    # head frame: eye + = head yaw + for both eyes; head velocity stored in rad/s -> deg/s
+    eye_vx = eye_velocity(session, eye, "vx", head_frame=True)
+    eye_vy = eye_velocity(session, eye, "vy")
+    eye_x  = np.array(getattr(session, f"{eye}_x"), dtype=float) * (-1 if eye == "LE" else 1)
+    yaw_v  = np.rad2deg(np.array(session.yaw_v,  dtype=float))
+    pitch_v = np.rad2deg(np.array(session.pitch_v, dtype=float))
     n_frames = len(eye_vx)
 
     saccade_types  = []

@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from utils.session_data import SessionData
+from utils.eye_velocity import eye_velocity
 from utils.saccade_triggered_average import _plot_mean_se, LE_COLOR, HEAD_COLOR
 
 SAME_COLOR = "#4DAF4A"
@@ -20,7 +21,7 @@ def eye_head_correlogram(session, eye="LE", max_lag=120, bin_size=6):
         counts_all, counts_same, counts_opp: event counts per bin
     """
     df_eye  = session.df_LE if eye == "LE" else session.df_RE
-    vx_arr  = np.array(session.LE_vx if eye == "LE" else session.RE_vx, dtype=float)
+    vx_arr  = eye_velocity(session, eye, "vx", head_frame=True)  # + = head yaw +
     yaw_v   = np.array(session.yaw_v, dtype=float)
     df_head = session.df_head
 

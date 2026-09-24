@@ -8,6 +8,7 @@ from scipy.stats import spearmanr
 
 from utils import non_saccade_mask, load_session_data, process_session, removeBadData, getSesh
 from utils.config import SAVELOC
+from utils.eye_velocity import eye_velocity
 
 FS = 120.0
 FERRETS = (402, 405, 407, 420)
@@ -209,15 +210,8 @@ def event_traces(R, signal, kind, lo, hi, bin_col, condition, pre, post,
     return traces, nominal
 
 
-# The loaders store eye velocity SWAPPED: R.{eye}_vx is vertical and R.{eye}_vy is
-# horizontal, with per-eye signs (corr = +-1.00 against d(x)/dt and d(y)/dt in all 33
-# sessions checked). eye_signal maps them back so "vx" = d(x)/dt and "vy" = d(y)/dt.
-_VEL = {("LE", "vx"): ("vy", -1.0), ("LE", "vy"): ("vx", -1.0),
-        ("RE", "vx"): ("vy", 1.0), ("RE", "vy"): ("vx", -1.0)}
-
-
 def eye_signal(R, eye, key, flip_eye=None):
-    """One eye signal. 'speed' is sqrt(vx^2 + vy^2). vx / vy are remapped through _VEL.
+    """One eye signal. 'speed' is sqrt(vx^2 + vy^2). vx / vy come from utils.eye_velocity (stored channels are swapped).
 
     flip_eye: None keeps each eye in its own nasal/temporal frame (correct for
     integrator/drift, where the eye drifts toward its own orbital center). "LE" or "RE"
@@ -231,8 +225,10 @@ def eye_signal(R, eye, key, flip_eye=None):
         vy = np.asarray(getattr(R, f"{eye}_vy"), float)
         return np.sqrt(vx ** 2 + vy ** 2)
 
-    attr, sign = _VEL.get((eye, key), (key, 1.0))
-    v = sign * np.asarray(getattr(R, f"{eye}_{attr}"), float)
+    if key in ("vx", "vy"):
+        v = eye_velocity(R, eye, key)
+    else:
+        v = np.asarray(getattr(R, f"{eye}_{key}"), float)
 
     return -v if eye == flip_eye and key.endswith("x") else v
 

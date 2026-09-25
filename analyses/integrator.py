@@ -1,6 +1,6 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
 # main init
-# Set your paths in local_config.py (copy local_config.py.example to get started): cd /Users/benjaminscholl/Documents/eyetools/
+# Set your paths in local_config.py (copy local_config.py.example to get started)
 %load_ext autoreload
 %autoreload 2
 import sys
@@ -53,12 +53,12 @@ eo_bins = EO_BINS
 flip_eye = None
 
 pad_pre = 3          # frames before saccade onset excluded
-pad_post = 60        # frames after saccade peak excluded (non_saccade_mask default is 12)
+pad_post = 30        # frames after saccade peak excluded (non_saccade_mask default is 12)
 vel_ceiling = 20     # deg/s; drop residual fast frames the saccade detector missed
 head_rot = 20        # deg/s, head angular speed ceiling (None = off)
 head_trans = 20      # mm/s, head translation speed ceiling (None = off)
-min_run = 60         # frames, shortest contiguous clean stretch (cell 4)
-pos_bins = np.arange(-10, 12, 2)   # signed, never folded to |x|
+min_run = 30         # frames, shortest contiguous clean stretch (cell 4)
+pos_bins = np.arange(-20, 22, 2)   # signed, never folded to |x|
 EYES = ("LE", "RE")
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)

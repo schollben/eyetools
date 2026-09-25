@@ -264,10 +264,10 @@ def head_eye_pairs(group, head_name, eye_key, sacc_subset="non_saccade", loco_su
 
 
 def drift_frames(R, eye, pad_post=24, pad_pre=3, vel_ceiling=20, flip_eye=None,
-                 head_rot_thresh=None, head_trans_thresh=None):
-    """Saccade-free (position, velocity) frames for one eye. Horizontal only."""
-    x = eye_signal(R, eye, "x", flip_eye)
-    v = eye_signal(R, eye, "vx", flip_eye)
+                 head_rot_thresh=None, head_trans_thresh=None, axis="x"):
+    """Saccade-free (position, velocity) frames for one eye. axis: "x" horizontal, "y" vertical."""
+    x = eye_signal(R, eye, axis, flip_eye)
+    v = eye_signal(R, eye, "v" + axis, flip_eye)
     m = non_saccade_mask(R, pad_pre=pad_pre, pad_post=pad_post)
     m = m & np.isfinite(x) & np.isfinite(v)
     if vel_ceiling:
@@ -280,7 +280,7 @@ def drift_frames(R, eye, pad_post=24, pad_pre=3, vel_ceiling=20, flip_eye=None,
 
 
 def drift_by_position(group, eyes, bins, pad_post=24, pad_pre=3, vel_ceiling=20,
-                      flip_eye=None, center=True, head_rot_thresh=None, head_trans_thresh=None):
+                      flip_eye=None, head_rot_thresh=None, head_trans_thresh=None, axis="x"):
     """Mean drift velocity per signed eye-position bin.
 
     Returns centers, means, sems, counts — one entry per bin, NaN where a bin is empty.
@@ -289,9 +289,7 @@ def drift_by_position(group, eyes, bins, pad_post=24, pad_pre=3, vel_ceiling=20,
     for R in group:
         for eye in eyes:
             x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye,
-                                   head_rot_thresh, head_trans_thresh)
-            if center and len(x):
-                x = x - np.median(x)
+                                   head_rot_thresh, head_trans_thresh, axis)
             xs.append(x)
             vs.append(v)
     x = np.concatenate(xs) if xs else np.array([])

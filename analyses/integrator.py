@@ -27,7 +27,7 @@ Results = load_results()
 #
 # TODO — CLEANER FRAME SELECTION (not yet implemented)
 # The first-pass results that motivated this list (no centripetal bias, unstable tau) used
-# the stored vx, which is VERTICAL velocity (fixed in eye_signal). Re-run cells 2-6 before
+# the stored vx, which is VERTICAL velocity (fixed in eye_signal). Re-run cells 2-5 before
 # deciding which filters are still needed.
 # Candidate filters, roughly in order of expected payoff:
 #
@@ -42,7 +42,7 @@ Results = load_results()
 # 4. Minimum hold duration. Any contiguous run currently contributes to the binned estimate;
 #    requiring ~0.5 s of continuous clean fixation first would bias toward genuine holds.
 #
-# Each would go in as a flag in this cell and a new axis in the cell 6 sweep.
+# Each would go in as a flag in this cell.
 
 pool_by_eo = True
 eo_bins = EO_BINS
@@ -51,6 +51,11 @@ eo_bins = EO_BINS
 # toward each eye's own orbital center, so no flip is applied here. (vor.py flips one eye
 # to put both in a common conjugate frame — that is the right choice there, not here.)
 flip_eye = None
+
+# Position 0 = neutral from the 3D model fit; no per-session re-centering.
+axis = "x"           # "x" horizontal (nasal + / temporal -) | "y" vertical
+POS_LABEL = "eye position (deg, nasal + / temporal -)" if axis == "x" else "eye position (deg, up + / down -)"
+SIDES = ("nasal", "temporal") if axis == "x" else ("up", "down")
 
 pad_pre = 3          # frames before saccade onset excluded
 pad_post = 30        # frames after saccade peak excluded (non_saccade_mask default is 12)
@@ -65,7 +70,7 @@ groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
 for R in Results:
     n = len(R.LE_vx)
-    counts = [len(drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)[0])
+    counts = [len(drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans, axis)[0])
               for eye in EYES]
 
 
@@ -85,8 +90,8 @@ for eye in EYES:
 
         xs, vs = [], []
         for R in group:
-            x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)
-            xs.append(x - np.median(x) if len(x) else x)
+            x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans, axis)
+            xs.append(x)
             vs.append(v)
         x = np.concatenate(xs)
         v = np.concatenate(vs)
@@ -96,7 +101,7 @@ for eye in EYES:
         tau = -1 / slope if slope < 0 else np.nan
 
         ax.set_title(f"{eye} {title}  slope={slope:+.3f}  tau={tau:.1f}s")
-        ax.set_xlabel("eye position (deg, nasal + / temporal -)")
+        ax.set_xlabel(POS_LABEL)
         ax.set_ylabel("eye velocity (deg/s)")
 
     fig.suptitle(f"{eye} phase plane", y=1.02)
@@ -113,9 +118,9 @@ for group, title in zip(groups, titles):
         continue
 
     centers, means, sems, counts = drift_by_position(
-        group, EYES, pos_bins, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot_thresh=head_rot, head_trans_thresh=head_trans)
+        group, EYES, pos_bins, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot_thresh=head_rot, head_trans_thresh=head_trans, axis=axis)
 
-    ok = counts > 100
+    ok = np.isfinite(means)
     ax.errorbar(centers[ok], means[ok], yerr=sems[ok], marker="o", ms=3, lw=1,
                 capsize=2, label=title)
 
@@ -123,12 +128,11 @@ for group, title in zip(groups, titles):
     tau = -1 / slope if slope < 0 else np.nan
     print(f"\n{title}  slope={slope:+.4f}/s  tau={tau:.1f}s")
     for c, m, s, n in zip(centers, means, sems, counts):
-        flag = "" if n > 100 else "  (low n, excluded from fit)"
-        print(f"   pos {c:+6.1f} deg  n={n:7d}  mean={m:+7.3f}  sem={s:6.3f}{flag}")
+        print(f"   pos {c:+6.1f} deg  n={n:7d}  mean={m:+7.3f}  sem={s:6.3f}")
 
 ax.axhline(0, color="0.8", lw=0.5)
 ax.axvline(0, color="0.8", lw=0.5)
-ax.set_xlabel("eye position (deg, nasal + / temporal -)")
+ax.set_xlabel(POS_LABEL)
 ax.set_ylabel("drift velocity (deg/s)")
 ax.legend(fontsize=5)
 sns.despine(fig)
@@ -149,8 +153,8 @@ for group, title in zip(groups, titles):
     xs, vs = [], []
     for R in group:
         for eye in EYES:
-            x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)
-            xs.append(x - np.median(x) if len(x) else x)
+            x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans, axis)
+            xs.append(x)
             vs.append(v)
     x = np.concatenate(xs)
     v = np.concatenate(vs)
@@ -189,9 +193,9 @@ for group, title in zip(groups, titles):
     slopes = []
     for R in group:
         for eye in EYES:
-            x, v, m = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)
-            xf = eye_signal(R, eye, "x", flip_eye)
-            vf = eye_signal(R, eye, "vx", flip_eye)
+            x, v, m = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans, axis)
+            xf = eye_signal(R, eye, axis, flip_eye)
+            vf = eye_signal(R, eye, "v" + axis, flip_eye)
             for a, b in clean_runs(m, min_run):
                 xx, vv = xf[a:b], vf[a:b]
                 if xx.std() < 0.1:
@@ -214,157 +218,70 @@ ax.legend(fontsize=5)
 sns.despine(fig)
 
 
-# %% 5. drift measures vs EO (developmental summary)
-# One point per session per eye, so LE/RE agreement is visible — a large mismatch flags a
-# tracking problem rather than biology.
-
-fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
-min_frames = 500
-
-for R in Results:
-    for eye in EYES:
-
-        x, v, _ = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)
-        if len(x) < min_frames:
-            print(f"skip ferret {R.id} EO{R.eo} {eye}: only {len(x)} frames")
-            continue
-
-        centers, means, sems, counts = drift_by_position(
-            [R], [eye], pos_bins, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot_thresh=head_rot, head_trans_thresh=head_trans)
-
-        ok = counts > 100
-        if ok.sum() < 3:
-            print(f"skip ferret {R.id} EO{R.eo} {eye}: only {ok.sum()} usable bins")
-            continue
-
-        slope, _ = np.polyfit(centers[ok], means[ok], 1, w=np.sqrt(counts[ok]))
-        tau = -1 / slope if slope < 0 else np.nan
-
-        xc = x - np.median(x)
-        ecc = np.abs(xc) > 1.0
-        frac = (np.sign(v) != np.sign(xc))[ecc].mean()
-
-        band = (np.abs(xc) >= 3) & (np.abs(xc) < 9)
-        drift = np.abs(v[band]).mean() if band.sum() > 100 else np.nan
-
-        for ax, val in zip(axes, (tau, frac, drift)):
-            ax.plot(R.eo, val, "o", ms=4, color=EYE_COLORS[eye], alpha=0.7)
-
-for ax, lbl in zip(axes, ("tau (s)", "fraction centripetal", "mean |drift| 3-9 deg (deg/s)")):
-    ax.set_xlabel("EO day")
-    ax.set_ylabel(lbl)
-axes[1].axhline(0.5, color="k", ls="--", lw=0.5)
-sns.despine(fig)
-fig.tight_layout()
-
-
-# %% 6. threshold sensitivity
-# "Saccade-free" is a judgement call. Sweep the two thresholds that define it and check the headline numbers do not swing wildly.
-
-pad_sweep = [12, 24, 48, 72]
-vel_sweep = [None, 30, 20, 10]
-
-taus = np.full((len(pad_sweep), len(vel_sweep)), np.nan)
-print("pad_post  vel_ceil |    frames |   tau (s) | centripetal")
-
-for i, pp in enumerate(pad_sweep):
-    for j, vc in enumerate(vel_sweep):
-
-        centers, means, sems, counts = drift_by_position(
-            Results, EYES, pos_bins, pp, pad_pre, vc, flip_eye, head_rot_thresh=head_rot, head_trans_thresh=head_trans)
-
-        ok = counts > 100
-        if ok.sum() < 3:
-            print(f"{pp:8d}  {str(vc):8s} | too few usable bins")
-            continue
-
-        slope, _ = np.polyfit(centers[ok], means[ok], 1, w=np.sqrt(counts[ok]))
-        tau = -1 / slope if slope < 0 else np.nan
-        taus[i, j] = tau
-
-        xs, vs = [], []
-        for R in Results:
-            for eye in EYES:
-                x, v, _ = drift_frames(R, eye, pp, pad_pre, vc, flip_eye, head_rot, head_trans)
-                xs.append(x - np.median(x) if len(x) else x)
-                vs.append(v)
-        x = np.concatenate(xs)
-        v = np.concatenate(vs)
-        ecc = np.abs(x) > 1.0
-        frac = (np.sign(v) != np.sign(x))[ecc].mean()
-
-        print(f"{pp:8d}  {str(vc):8s} | {counts.sum():9d} | {tau:9.1f} | {frac:11.3f}")
-
-fig, ax = plt.subplots(figsize=(3, 2.5))
-im = ax.imshow(taus, cmap="viridis", aspect="auto")
-ax.set_xticks(range(len(vel_sweep)), [str(v) for v in vel_sweep])
-ax.set_yticks(range(len(pad_sweep)), [str(p) for p in pad_sweep])
-ax.set_xlabel("velocity ceiling (deg/s)")
-ax.set_ylabel("pad_post (frames)")
-ax.set_title("tau (s)")
-fig.colorbar(im, ax=ax)
-fig.tight_layout()
-
-
-# %% 7. per-run net drift, compared across EO bins
+# %% 5. per-run net drift, compared across EO bins, each side of neutral fit separately
 # Net position change across each clean run averages out frame-to-frame velocity noise.
 # One point per session x eye; EO bins are compared, not a continuous EO trend.
+# Rows: runs on the + side (nasal / up) and the - side (temporal / down) of neutral. A leak can differ
+# between them; on either side, drift toward neutral gives a negative slope.
 
 run_len = 30     # frames, shortest run used here (gated runs are short: median ~8 frames)
-min_runs = 10    # runs per session x eye
+min_runs = 10    # runs per session x eye x side
+min_ecc = 1.0    # deg, runs closer to neutral than this are dropped
 
-fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
 cols = ("slope", "centripetal", "abs_drift")
-vals = {c: [] for c in cols}
+fig, axes = plt.subplots(len(SIDES), 3, figsize=(7.5, 2 * len(SIDES)), squeeze=False)
+vals = {(side, c): [[] for _ in groups] for side in SIDES for c in cols}
 
 for i, (group, title) in enumerate(zip(groups, titles)):
 
-    for c in cols:
-        vals[c].append([])
-    n_runs = 0
+    n_runs = {side: 0 for side in SIDES}
 
     for R in group:
         for eye in EYES:
-            x, _, m = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans)
+            x, _, m = drift_frames(R, eye, pad_post, pad_pre, vel_ceiling, flip_eye, head_rot, head_trans, axis)
             if not len(x):
                 continue
-            xf = eye_signal(R, eye, "x", flip_eye) - np.median(x)
+            xf = eye_signal(R, eye, axis, flip_eye)
 
             xm, vn = [], []
             for a, b in clean_runs(m, run_len):
                 xm.append(xf[a:b].mean())
                 vn.append((xf[b - 1] - xf[a]) / ((b - a - 1) / FS))
             xm, vn = np.array(xm), np.array(vn)
-            keep = np.abs(xm) > 1.0
-            xm, vn = xm[keep], vn[keep]
-            if len(xm) < min_runs:
-                continue
-            n_runs += len(xm)
 
-            s = dict(slope=np.polyfit(xm, vn, 1)[0],
-                     centripetal=(np.sign(vn) != np.sign(xm)).mean(),
-                     abs_drift=np.median(np.abs(vn)))
-            for ax, c in zip(axes, cols):
-                vals[c][i].append(s[c])
-                ax.plot(i + (-0.1 if eye == "LE" else 0.1), s[c], "o", ms=3, alpha=0.6,
-                        color=EYE_COLORS[eye])
+            for r, side in enumerate(SIDES):
+                keep = xm > min_ecc if r == 0 else xm < -min_ecc
+                if keep.sum() < min_runs:
+                    continue
+                n_runs[side] += keep.sum()
 
-    for ax, c in zip(axes, cols):
-        if vals[c][i]:
-            ax.plot(i, np.median(vals[c][i]), "_", ms=14, mew=2, color="k")
-    print(f"{title:10s} n_sesh_eye={len(vals['slope'][i]):3d}  n_runs={n_runs:6d}  "
-          + "  ".join(f"{c}={np.median(vals[c][i]):+.3f}" for c in cols if vals[c][i]))
+                s = dict(slope=np.polyfit(xm[keep], vn[keep], 1)[0],
+                         centripetal=(np.sign(vn[keep]) != np.sign(xm[keep])).mean(),
+                         abs_drift=np.median(np.abs(vn[keep])))
+                for ax, c in zip(axes[r], cols):
+                    vals[side, c][i].append(s[c])
+                    ax.plot(i + (-0.1 if eye == "LE" else 0.1), s[c], "o", ms=3, alpha=0.6,
+                            color=EYE_COLORS[eye])
 
-for ax, c, lbl in zip(axes, cols, ("slope (1/s)", "fraction centripetal", "median |net drift| (deg/s)")):
-    ax.set_xticks(range(len(titles)), titles)
-    ax.set_ylabel(lbl)
-axes[0].axhline(0, color="k", ls="--", lw=0.5)
-axes[1].axhline(0.5, color="k", ls="--", lw=0.5)
+    for r, side in enumerate(SIDES):
+        for ax, c in zip(axes[r], cols):
+            if vals[side, c][i]:
+                ax.plot(i, np.median(vals[side, c][i]), "_", ms=14, mew=2, color="k")
+        print(f"{title:10s} {side:9s} n_sesh_eye={len(vals[side, 'slope'][i]):3d}  n_runs={n_runs[side]:6d}  "
+              + "  ".join(f"{c}={np.median(vals[side, c][i]):+.3f}" for c in cols if vals[side, c][i]))
+
+for r, side in enumerate(SIDES):
+    for ax, lbl in zip(axes[r], ("slope (1/s)", "fraction centripetal", "median |net drift| (deg/s)")):
+        ax.set_xticks(range(len(titles)), titles)
+        ax.set_ylabel(f"{side}: {lbl}")
+    axes[r, 0].axhline(0, color="k", ls="--", lw=0.5)
+    axes[r, 1].axhline(0.5, color="k", ls="--", lw=0.5)
 sns.despine(fig)
 fig.tight_layout()
 
-for c in cols:
-    v = [np.array(g) for g in vals[c] if len(g)]
-    if len(v) > 2:
-        print(f"{c:12s} Kruskal p={kruskal(*v)[1]:.3g}  "
-              f"youngest-vs-oldest MWU p={mwu(v[0], v[-1])[1]:.3g}")
+for side in SIDES:
+    for c in cols:
+        v = [np.array(g) for g in vals[side, c] if len(g)]
+        if len(v) > 2:
+            print(f"{side:9s} {c:12s} Kruskal p={kruskal(*v)[1]:.3g}  "
+                  f"youngest-vs-oldest MWU p={mwu(v[0], v[-1])[1]:.3g}")

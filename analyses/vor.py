@@ -9,9 +9,12 @@ from utils import create_subplot_grid, non_saccade_mask
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import load_results, set_style, EO_BINS
+from analyses.helper_functions import (load_results,set_style,FS, 
+                                       EYE_COLOR, EO_BINS, HEAD_COLOR, LOCO_COLORS, 
+                                       frame_mask, head_signal,
+                                       eye_signal, head_eye_pairs, eo_groups,
+                                       fit_line, clean_runs, run_xcorr)
 set_style()
-
 # LOAD DATA
 Results = load_results()
 
@@ -21,13 +24,9 @@ Results = load_results()
 # and the loaders do not convert them. Every cell below converts with np.rad2deg;
 # do not edit the loading scripts.
 
-from analyses.helper_functions import (FS, EYE_COLOR, HEAD_COLOR, LOCO_COLORS, frame_mask, head_signal,
-                                       eye_signal, head_eye_pairs, eo_groups,
-                                       fit_line, clean_runs, run_xcorr)
-
 # how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
-eo_bins = [(0, 3), (4, 7), (8, 20)]
+eo_bins = EO_BINS
 
 flip_eye = "LE"  # head frame: eye + = head yaw +, so VOR gain is negative (None = nasal/temporal)
 speed_threshold = 100      # mm/s, stationary vs running

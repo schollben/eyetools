@@ -7,7 +7,7 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
-from utils import create_subplot_grid, non_saccade_mask
+from utils import create_subplot_grid
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -53,7 +53,7 @@ eo_bins = EO_BINS
 flip_eye = None
 
 # Position 0 = neutral from the 3D model fit; no per-session re-centering.
-axis = "x"           # "x" horizontal (nasal + / temporal -) | "y" vertical
+axis = "y"           # "x" horizontal (nasal + / temporal -) | "y" vertical
 POS_LABEL = "eye position (deg, nasal + / temporal -)" if axis == "x" else "eye position (deg, up + / down -)"
 SIDES = ("nasal", "temporal") if axis == "x" else ("up", "down")
 
@@ -63,7 +63,7 @@ vel_ceiling = 20     # deg/s; drop residual fast frames the saccade detector mis
 head_rot = 20        # deg/s, head angular speed ceiling (None = off)
 head_trans = 20      # mm/s, head translation speed ceiling (None = off)
 min_run = 30         # frames, shortest contiguous clean stretch (cell 4)
-pos_bins = np.arange(-20, 22, 2)   # signed, never folded to |x|
+pos_bins = np.arange(-10, 12, 2)   # signed, never folded to |x|
 EYES = ("LE", "RE")
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)

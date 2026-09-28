@@ -137,20 +137,26 @@ for ax, group, title in zip(axes[0], groups, titles):
     ax_h = ax.twinx()
     plot_mean_se(ax, t_h, np.vstack(eye), EYE_COLOR, "eye")
     plot_mean_se(ax_h, t_h, np.vstack(head), HEAD_COLOR, "head")
+
     ax.axhline(0, color="0.8", lw=0.25)
     ax.axvline(0, color="0.8", lw=0.25)
+    
     ax.set_title(title, fontsize=6)
     ax.set_xlabel("time from head onset (ms)")
     ax.set_ylabel("eye rotation (deg)", color=EYE_COLOR)
     ax.tick_params(axis="y", colors=EYE_COLOR)
     ax_h.set_ylabel("head rotation (deg)", color=HEAD_COLOR)
     ax_h.tick_params(axis="y", colors=HEAD_COLOR)
+
     lines = ax.get_legend_handles_labels()
     lines_h = ax_h.get_legend_handles_labels()
+    
     ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4)
-fig.tight_layout()
+    fig.tight_layout()
+
 if save_figs:
-    save_fig(fig, "eye_head_B_head_triggered")
+    fig.tight_layout()
+    save_fig(fig, "eye_head_B_head_triggered " + loco)
 
 
 # %% B.2 head-onset-triggered averages by head saccade amplitude
@@ -190,8 +196,9 @@ for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)
     sns.despine(fig)
     fig.tight_layout()
 
-    # if save_figs:
-    #     save_fig(fig, f"eye_head_B2_{sig}_by_head_amp")
+    if save_figs:
+        fig.tight_layout()
+        save_fig(fig, f"eye_head_B2_{sig}_by_head_amp " + loco) 
 
 
 # %% D. timing: when do eye saccades start relative to head onset?
@@ -294,10 +301,12 @@ for ax, state in zip(axes[0], states):
     ax.set_xlabel("eye onset - head onset (ms)")
     ax.set_ylabel(f"P(eye saccade onset) per {bin_ms} ms")
     ax.legend(fontsize=4)
-sns.despine(fig)
-fig.tight_layout()
+
 if save_figs:
-    save_fig(fig, "eye_head_D_correlogram")
+    sns.despine(fig)
+    fig.tight_layout()
+    save_fig(fig, "eye_head_D_correlogram " + loco)
+
 
 # figure 2: rows = state; columns = coincidence (obs vs chance), coincidence excess,
 # first lag (obs vs chance), first-lag excess. Session dots + bin median per EO bin.
@@ -328,7 +337,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 # if save_figs:
-#     save_fig(fig, "eye_head_D_timing")
+#     save_fig(fig, "eye_head_D_timing " + loco)
 
 
 
@@ -376,7 +385,8 @@ for row, (group, title) in enumerate(zip(groups, titles)):
         
 fig.tight_layout()
 if save_figs:
-    save_fig(fig, "eye_head_4A_position")
+    fig.tight_layout()
+    save_fig(fig, "eye_head_4A_position " + loco)
 
 
 # %% Wallace Fig 4C — horizontal eye and head velocity, same amplitude classes as 4A
@@ -418,10 +428,10 @@ for row, (group, title) in enumerate(zip(groups, titles)):
         lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
         ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4)
 
-fig.tight_layout()
-
-# if save_figs:
-#     save_fig(fig, "eye_head_4C_velocity")
+if save_figs:
+    sns.despine(fig)
+    fig.tight_layout()
+    save_fig(fig, "eye_head_4C_velocity " + loco)
 
 
 # %% Wallace Fig 4D — peak head velocity vs peak counter-rotation eye velocity, per EO bin
@@ -466,12 +476,10 @@ for ax, group, title, c in zip(axes[0], groups, titles, AGE_COLORS):
     ax.set_xlim([0, 1000])
     ax.set_ylim([-300, 0])
 
-sns.despine(fig)
-
-fig.tight_layout()
-
-# if save_figs:
-#     save_fig(fig, "eye_head_4D_counter_rotation")
+if save_figs:
+    sns.despine(fig)
+    fig.tight_layout()
+    save_fig(fig, "eye_head_4D_counter_rotation")
 
 
 # %% S1. head saccade distributions per EO bin

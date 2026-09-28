@@ -18,7 +18,6 @@ set_style()
 # LOAD DATA
 Results = load_results()
 
-
 # %% settings for every plot below
 # note: roll_v/pitch_v/yaw_v are stored as rad/s in the csv (units column says "rad_s")
 # and the loaders do not convert them. Every cell below converts with np.rad2deg;
@@ -28,20 +27,15 @@ Results = load_results()
 pool_by_eo = True
 eo_bins = EO_BINS
 
-flip_eye = "LE"  # head frame: eye + = head yaw +, so VOR gain is negative (None = nasal/temporal)
-speed_threshold = 100      # mm/s, stationary vs running
-min_bout = 30              # frames, shortest run of frames counted as running
+flip_eye = "RE"  # head frame: eye + = head yaw +, so VOR gain is negative (None = nasal/temporal)
+speed_threshold = 50      # mm/s, stationary vs running
+min_bout = 60              # frames, shortest run of frames counted as running
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
-print("head speed deg/s, session 0:",
-      np.round(np.nanpercentile(np.rad2deg(Results[0].angVelocities), [50, 99]), 1))
-print()
 for R in Results:
     n = len(R.LE_vx)
     usable = (non_saccade_mask(R) & np.isfinite(np.asarray(R.LE_vx, float))).sum()
-    print(f"ferret {R.id} EO{R.eo:<3d} n={n:6d}  usable non-saccade LE frames={usable:6d}"
-          f" ({100*usable/n:4.1f}%)")
 
 
 # %% 1. head total angular velocity vs eye speed (saccades INCLUDED)
@@ -56,9 +50,8 @@ for ax, group, title in zip(axes, groups, titles):
 
     h, e = head_eye_pairs(group, "speed", "speed", "all", "all")
     sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color=EYE_COLOR)
-    slope, _ = fit_line(ax, h, e)
+    # slope, _ = fit_line(ax, h, e)
 
-    ax.set_title(f"{title}  ratio={slope:.2f}")
     ax.set_xlabel("head angular speed (deg/s)")
     ax.set_ylabel("eye speed (deg/s)")
 
@@ -66,8 +59,7 @@ for ax, group, title in zip(axes, groups, titles):
 fig, ax = plt.subplots(figsize=(2.5, 2.5))
 h, e = head_eye_pairs(Results, "speed", "speed", "all", "all")
 sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.2, color=EYE_COLOR)
-slope, _ = fit_line(ax, h, e)
-ax.set_title(f"all sessions  ratio={slope:.2f}")
+# slope, _ = fit_line(ax, h, e)
 ax.set_xlabel("head angular speed (deg/s)")
 ax.set_ylabel("eye speed (deg/s)")
 sns.despine(fig)
@@ -113,9 +105,11 @@ for ax, group, title in zip(axes, groups, titles):
         continue
 
     h, e = head_eye_pairs(group, "pitch", "y", "non_saccade", "all")
-    sns.scatterplot(ax=ax, x=h, y=e, s=3, alpha=0.3, color=EYE_COLOR)
+    sns.scatterplot(ax=ax, x=h, y=e, s=2, alpha=0.1, color=EYE_COLOR)
     slope, _ = fit_line(ax, h, e)
-
+    
+    ax.set_xlim([-90, 90])
+    ax.set_ylim([-20, 20])
     ax.set_title(f"{title}  slope={slope:.2f}")
     ax.set_xlabel("head pitch (deg)")
     ax.set_ylabel("eye vertical position (deg)")

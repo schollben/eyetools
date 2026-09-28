@@ -11,7 +11,7 @@ def non_saccade_mask(R, eyes=("LE", "RE"), pad_pre=3, pad_post=None):
     """
     n_frames = len(R.LE_vx)
     if pad_post is None:
-        pad_post = getattr(R, "min_inter_event", 12)
+        pad_post = getattr(R, "min_inter_event", 30)
 
     sacc = np.zeros(n_frames, bool)
     for eye in eyes:

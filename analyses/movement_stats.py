@@ -13,22 +13,24 @@ from scipy.stats import wilcoxon, kruskal
 import matplotlib.pyplot as plt
 import seaborn as sns
 from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, FS, EO_BINS, eo_groups, pooled_events,
-                                       pooled_intervals, event_traces, session_rate, session_rates,
+                                       pooled_intervals, event_traces, save_fig, session_rate, session_rates,
                                        load_results, set_style, session_trend)
 set_style()
 
 # LOAD DATA
 Results = load_results()
 
-# settings for every plot below
-# how panels are split: False = one panel per session, True = one panel per EO range
+# SAVE FIGS
+SAVE_FIGS = True
+
+# SETTINGS FOR PLOTS -- how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True
 eo_bins = EO_BINS
 
 flip_eye = "RE"     
 amp_bins = [0, 4, 8, 12, 20, 45]
 
-speed_threshold = 50    # mm/s, locomotion
+speed_threshold = 50     # mm/s, locomotion
 min_bout = 30            # frames
 head_still_thresh = 20   # deg/s
 
@@ -42,7 +44,6 @@ pre, post = 12, 48       # frames: -100 to +400 ms from onset (cell 4 only)
 bin_by = "amplitude"     # "amplitude" | "peak_velocity" (cell 4 only)
 
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
-
 
 
 # %% 3. amplitude vs peak velocity by condition
@@ -80,6 +81,11 @@ for ax, group, title in zip(axes, groups, titles):
     ax.set_xlabel("log10 amplitude (deg)")
     ax.set_ylabel("log10 peak velocity (deg/s)")
     ax.legend(fontsize=4)
+
+if SAVE_FIGS:
+    # fig.set_size_inches(8, 3)
+    fig.tight_layout()
+    save_fig(fig, "main sequence all vs stationary")
 
 # %% 4. mean kinematic traces
 # Onset-aligned, so displacement traces start at zero by construction.
@@ -124,6 +130,12 @@ for kind in ("speed", "displacement"):
         ax.set_xlabel("time from onset (ms)")
         ax.set_ylabel("speed (deg/s)" if kind == "speed" else "displacement (deg)")
         ax.legend(fontsize=4)
+
+        if SAVE_FIGS:
+            # fig.set_size_inches(8, 3)
+            fig.tight_layout()
+            fname = "time averaged kinetics " + kind + " " + signal + " " + condition
+            save_fig(fig, fname)
 
 
 # %% event rate (one point per session)
@@ -231,6 +243,8 @@ for ax, signal in zip(axes, ("eye", "gaze")):
     ax.set_xlabel(f"{signal} inter-event interval (ms)")
     ax.legend(fontsize=6)
 
-sns.despine(fig)
-fig.tight_layout()
+if SAVE_FIGS:
+    sns.despine(fig)
+    fig.tight_layout()
+    save_fig(fig, "inter-event-intervals")
 

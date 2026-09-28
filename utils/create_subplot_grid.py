@@ -4,8 +4,9 @@ import matplotlib.pyplot as plt
 
 def create_subplot_grid(n_sesh):
 
-    n_cols = min(int(np.ceil(np.sqrt(n_sesh))), 4)
+    n_cols = min(n_sesh, 3)
     n_rows = int(np.ceil(n_sesh / n_cols))
+
     fig, axes = plt.subplots(n_rows, n_cols,
                              figsize=(2*n_cols, 2*n_rows),
                              sharex=False,

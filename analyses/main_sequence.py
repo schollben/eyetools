@@ -12,18 +12,20 @@ from scipy.stats import mannwhitneyu as mwu
 import matplotlib.pyplot as plt
 import seaborn as sns
 from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, EO_BINS, eo_groups, logamp_logvel,
-                                       load_results, set_style, session_trend, plot_vs_eo)
+                                       load_results, set_style, session_trend, plot_vs_eo, save_fig)
 set_style()
 
 # LOAD DATA
 Results = load_results()  # 753, 757 -> look carefully at these files
 
+# SAVE FIGURES
+SAVE_FIGS = True
 
-# %% settings for every plot below
+# PLOT SETTINGS
 pool_by_eo = True                     # False: one panel per session | True: one panel per EO range
 eo_bins = EO_BINS
-fit_by = "session"                      # "pooled": one fit per EO bin | "session": one fit per session
-min_n = 5                              # minimum number of saccades a group must have before it gets fitted
+fit_by = "session"                    # "pooled": one fit per EO bin | "session": one fit per session
+min_n = 5                             # minimum number of saccades a group must have before it gets fitted
 groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
 for group, title in zip(groups, titles):
@@ -50,6 +52,10 @@ for ax, group, title in zip(axes, groups, titles):
     ax.set_xlabel("log10 amplitude (deg)")
     ax.set_ylabel("log10 peak velocity (deg/s)")
 
+if SAVE_FIGS:
+    # fig.set_size_inches(8, 3)
+    fig.tight_layout()
+    save_fig(fig, "amplitude vs peak velocity")
 
 # amplitude vs duration (ms), eyes combined
 fig, axes = create_subplot_grid(len(groups))
@@ -76,13 +82,16 @@ for ax, group, title in zip(axes, groups, titles):
     ax.set_xlabel("Amplitude (deg)")
     ax.set_ylabel("Duration (ms)")
 
+if SAVE_FIGS:
+    # fig.set_size_inches(8, 3)
+    fig.tight_layout()
+    save_fig(fig, "amplitude vs duration")
+
 
 # %% main sequence fit per EO bin
 
 fig, axes = create_subplot_grid(len(groups))
-
 fits = []  # (title, id, slope, intercept, n)
-
 for ax, group, title in zip(axes, groups, titles):
 
     if not group:
@@ -113,8 +122,12 @@ for ax, group, title in zip(axes, groups, titles):
     ax.axis([0.25, 1.75, 1, 3])
     ax.set_xlabel("log10 amplitude (deg)")
     ax.set_ylabel("log10 peak velocity (deg/s)")
+    sns.despine(fig)
 
-sns.despine(fig)
+if SAVE_FIGS:
+    # fig.set_size_inches(8, 3)
+    fig.tight_layout()
+    save_fig(fig, "amplitude vs velocity with fits")
 
 fig, ax = plt.subplots(figsize=(3, 2))
 
@@ -130,6 +143,11 @@ ax.set_xticks(range(len(titles)), titles)
 ax.set_ylabel("main sequence slope")
 ax.set(ylim=[0.5, 1])
 sns.despine(fig)
+
+if SAVE_FIGS:
+    # fig.set_size_inches(8, 3)
+    fig.tight_layout()
+    save_fig(fig, "main sequence slopes")
 
 for f in fits:
     print(f"{f[0]}  id={f[1]}  slope={f[2]:.3f}  intercept={f[3]:.3f}  n={f[4]}")
@@ -164,6 +182,11 @@ axes[0].set_xlabel("log10 amplitude (deg)")
 axes[1].set_xlabel("log10 peak velocity (deg/s)")
 axes[0].legend()
 sns.despine(fig)
+
+if SAVE_FIGS:
+    # fig.set_size_inches(8, 3)
+    fig.tight_layout()
+    save_fig(fig, "distributions__amplitude and velocity")
 
 # effect size only: rank-biserial r between EO bins on pooled saccades (positive = the later
 # bin is larger). No p-values here — saccades are not independent; the tests are per

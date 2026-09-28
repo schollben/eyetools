@@ -722,7 +722,7 @@ def load_results(ferrets=FERRETS, **params):
 def set_style():
     plt.rcParams['font.family'] = 'sans-serif'
     plt.rcParams['font.sans-serif'] = ['Arial']
-    plt.rcParams['font.size'] = 6
+    plt.rcParams['font.size'] = 8
     plt.rcParams['svg.fonttype'] = 'none'
 
 
@@ -730,6 +730,7 @@ def save_fig(fig, name):
     """Save fig as SVG in SAVELOC (no-op when SAVELOC is not set)."""
     if SAVELOC is not None:
         fig.savefig(SAVELOC / f"{name}.svg", format="svg", bbox_inches="tight")
+        fig.savefig(SAVELOC / f"{name}.png", format="png", dpi=300, bbox_inches="tight")
 
 
 def session_trend(df, col, label=None):

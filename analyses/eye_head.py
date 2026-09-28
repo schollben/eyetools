@@ -10,16 +10,19 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from analyses.helper_functions import (FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR, LE_COLOR,
-                                       RE_COLOR, eo_groups, unwrap_deg, load_results, set_style,
-                                       save_fig, head_eye_windows, head_triggered_windows,
-                                       eye_head_coupling, in_head_saccade, running_mask, eye_signal, onset_correlogram, plot_mean_se,
+                                       RE_COLOR, eo_groups, unwrap_deg, load_results, set_style, save_fig,
+                                       head_eye_windows, head_triggered_windows, eye_head_coupling, 
+                                       in_head_saccade, running_mask, eye_signal, onset_correlogram, plot_mean_se,
                                        session_trend)
 set_style()
 
 # LOAD DATA
 Results = load_results()  # FERRETS in helper_functions; 753, 757 -> look carefully at these files
 
-# %% settings for every plot below
+# SAVE DATA
+save_figs = True
+
+# %% SETTING AND DATA EXTRACTED FOR PLOTS
 # Eye-head dynamics, replicating Wallace, Voit, Martin Machado et al., Kerr lab,
 # Current Biology 35:761-775 (Feb 2025), Figure 4, across development.
 # Their term for the return phase is PSCR — post-saccadic counter-rotation.
@@ -28,9 +31,7 @@ Results = load_results()  # FERRETS in helper_functions; 753, 757 -> look carefu
 # (checked against the pipeline's gaze). With "RE" the eye axis points the other way and a
 # counter-rotation would read as positive.
 
-# how panels are split: False = one panel per session, True = one panel per EO range
-save_figs = False
-pool_by_eo = True
+pool_by_eo = True # how panels are split: False = one panel per session, True = one panel per EO range
 eo_bins = EO_BINS
 
 flip_eye = "LE"
@@ -106,11 +107,11 @@ for ax, col, lbl in zip(axes, ("head_rate", "head_amp", "head_pkv"),
     ax.set_xticks(range(len(eo_bins)), [f"EO {lo}-{hi}" for lo, hi in eo_bins])
     ax.set_ylabel(lbl)
     session_trend(SESS, col)
-sns.despine(fig)
-fig.tight_layout()
 
-# if save_figs:
-#     save_fig(fig, "eye_head_A_head_saccades")
+if save_figs:
+    sns.despine(fig)
+    fig.tight_layout()
+    save_fig(fig, "eye_head_A_head_saccades")
 
 
 # %% B. head-onset-triggered average: head and eye-in-head (head frame)

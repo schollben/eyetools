@@ -12,9 +12,6 @@ from utils.eye_velocity import eye_velocity
 
 FS = 120.0
 
-FERRETS = (402, 405, 407, 420) 
-# delayed experience: 411, 416, 403
-# TO ADD (once fixed): 753, 757
 EO_BINS = [(0, 3), (4, 7), (8, 20)]
 
 EXTRACT = dict(window_in_sec=5, velocity_threshold_eye=40, velocity_threshold_gaze=40,
@@ -706,7 +703,7 @@ def session_rates(group, signal, condition="all", speed_threshold=100, min_bout=
     return r[np.isfinite(r)]
 
 
-def load_results(ferrets=FERRETS, **params):
+def load_results(ferrets, **params):
     """Load, clean and extract every session of the given ferrets with one shared set of
     extraction params (EXTRACT, overridable per call)."""
     Results = []

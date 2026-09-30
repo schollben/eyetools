@@ -18,10 +18,12 @@ from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, FS, EO_BINS, eo_gr
 set_style()
 
 # LOAD DATA
-Results = load_results()
+# good = (402, 405, 407, 420)  # TO ADD (once fixed): 753, 757
+# delayed experience: 411, 416, 403
+Results = load_results( (402, 405) ) 
 
 # SAVE FIGS
-SAVE_FIGS = True
+SAVE_FIGS = False
 
 # SETTINGS FOR PLOTS -- how panels are split: False = one panel per session, True = one panel per EO range
 pool_by_eo = True

@@ -10,3 +10,11 @@ qc:
   max_abs_pitch_deg: 75
   max_ang_speed_deg_s: 1500
   pad_frames: 6
+
+features:
+  fs_out: 30          # Hz, common rate for all sessions
+  min_run_s: 2        # drop valid runs shorter than this
+  sg_win_s: 0.1       # Savitzky–Golay derivative window for omega_yaw
+  lowpass_hz: 12      # anti-alias before resampling
+
+seed: 0

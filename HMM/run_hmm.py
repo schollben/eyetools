@@ -510,6 +510,7 @@ axes[1].set_ylabel("median state duration (s)")
 axes[1].legend(fontsize=7)
 for ax in axes:
     ax.set_xscale("symlog", linthresh=100)
+    ax.set_xlim(-30, 3e8)
     ax.set_xlabel("kappa")
 plt.tight_layout()
 plt.savefig(RESULTS_DIR / "decide_kappa.png", dpi=120, bbox_inches="tight")

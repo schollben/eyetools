@@ -53,8 +53,8 @@ def apply_scaler(Xs: list[np.ndarray], scaler: dict) -> list[np.ndarray]:
     return [(X - scaler["median"]) / scaler["iqr"] for X in Xs]
 
 
-def mirror(X: np.ndarray) -> np.ndarray:
+def mirror(X: np.ndarray, signed=SIGNED) -> np.ndarray:
     """Left/right mirror: flip the sign of signed features."""
     Xm = X.copy()
-    Xm[:, SIGNED] *= -1
+    Xm[:, signed] *= -1
     return Xm

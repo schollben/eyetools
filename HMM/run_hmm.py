@@ -215,9 +215,9 @@ plt.show()
 # %% SYNTH 3: mirror augmentation -> turn left / turn right come out as a sign-flipped pair
 # With mirrored training data, a left-turn state should have a right-turn partner whose AR parameters are the sign-flipped
 # copy (A -> S A S, b -> S b, S = diag(-1, 1, 1)); mirror_pairs finds these by parameter distance.
-m_mir, _ = fit_model("ar", Xs_syn[:7] + [mirror(X) for X in Xs_syn[:7]], 6, L=2)
+m_mir, _ = fit_model("ar", Xs_syn[:7] + [mirror(X, [0]) for X in Xs_syn[:7]], 6, L=2)   # synthetic data: 3 features, omega signed
 to_true = match_states(np.concatenate(zs_syn[:7]), np.concatenate([m_mir.most_likely_states(X) for X in Xs_syn[:7]]), 6)
-pair, dist = mirror_pairs(m_mir, SIGNED)
+pair, dist = mirror_pairs(m_mir, [0])
 partner = {int(to_true[k]): int(to_true[pair[k]]) for k in range(6)}   # in true labels
 print("mirror partner (true labels):", dict(sorted(partner.items())), " param distance:", dist.round(3))
 assert partner[1] == 2 and partner[2] == 1 and all(partner[k] == k for k in (0, 3, 4, 5))

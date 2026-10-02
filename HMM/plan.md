@@ -318,3 +318,9 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
   - label a small set of turns in video and use it *only to evaluate* (precision and recall of each method);
   - if unsupervised methods remain inadequate, train a classifier on window features (e.g. A-SOiD active learning; Tillmann et al. 2024).
   - This departs from the unsupervised principle in §1, so treat it as a separate model.
+
+## Feature change (2026-10-02): no extra filtering
+- The skull kinematics are already smoothed upstream by the rigid-body fit; the loaded signals have under 1% of their power above 15 Hz. The non-smooth moments that remain are real.
+- **Decision:** use the loaded data exactly as is. ω_yaw = `np.gradient` of loaded yaw, with no Savitzky–Golay and no low-pass (`sg_win_s: null`, `lowpass_hz: null`). Resampling to 30 Hz then aliases under 1% of the power.
+- All earlier fits (everything in "Results, first full run" above, plus the DECIDE plots) used SG 100 ms + 12 Hz low-pass. They are archived in `HMM/results_filtered_sg100ms_lp12/` and are not comparable with new fits.
+- K=4, L=3, κ=100 (SELECTED cell) was chosen on the filtered features. Rerun M1 / M2 / DECIDE on the unfiltered features to confirm it.

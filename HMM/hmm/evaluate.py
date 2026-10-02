@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import ruptures as rpt
+from joblib import Parallel, delayed
 from scipy.optimize import linear_sum_assignment
 from scipy.signal import welch
 
@@ -82,14 +83,15 @@ def spectrum(xs: list[np.ndarray], col: int = 0, fs: float = 30, nperseg: int = 
     return np.fft.rfftfreq(nperseg, 1 / fs), np.mean(P, axis=0)
 
 
-def changepoint_sweep(Xs: list[np.ndarray], pens, min_size: int = 3, jump: int = 3) -> dict:
+def _pelt(X, pens, min_size, jump):
+    algo = rpt.Pelt(model="l2", min_size=min_size, jump=jump).fit(X)
+    return [np.array(algo.predict(pen=pen)[:-1]) for pen in pens]   # drop the end index
+
+
+def changepoint_sweep(Xs: list[np.ndarray], pens, min_size: int = 3, jump: int = 3, n_jobs: int = 8) -> dict:
     """PELT (l2 cost) changepoints of each segment for each penalty: {pen: [indices per segment]}."""
-    out = {pen: [] for pen in pens}
-    for X in Xs:
-        algo = rpt.Pelt(model="l2", min_size=min_size, jump=jump).fit(X)
-        for pen in pens:
-            out[pen].append(np.array(algo.predict(pen=pen)[:-1]))   # drop the end index
-    return out
+    per_seg = Parallel(n_jobs=n_jobs)(delayed(_pelt)(X, pens, min_size, jump) for X in Xs)
+    return {pen: [c[i] for c in per_seg] for i, pen in enumerate(pens)}
 
 
 def boundary_agreement(zs: list[np.ndarray], cps: list[np.ndarray], tol: int = 3,

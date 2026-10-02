@@ -29,7 +29,7 @@ def grid_scores(segs, folds, kind, Ks, Ls=(1,), kappas=(100,), seeds=(0,), num_i
                 augment=True, r_max=10, n_jobs=8) -> pd.DataFrame:
     """Held-out log-likelihood per frame for every fold x K x L x kappa x seed (fits run in parallel)."""
     combos = list(itertools.product(range(len(folds)), Ks, Ls, kappas, seeds))
-    scores = Parallel(n_jobs=n_jobs)(
+    scores = Parallel(n_jobs=n_jobs, verbose=10, pre_dispatch="all")(
         delayed(_score)(segs, folds[f], kind, K, L, kappa, seed, num_iters, augment, r_max)
         for f, K, L, kappa, seed in combos)
     return pd.DataFrame([dict(kind=kind, fold=f, K=K, L=L, kappa=kappa, seed=seed, **sc)

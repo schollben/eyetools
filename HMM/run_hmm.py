@@ -128,6 +128,13 @@ folds_loso = leave_one_session_out(segs)
 folds_loao = leave_one_animal_out(segs)
 print(len(folds_loso), "LOSO folds,", len(folds_loao), "LOAO folds")
 
+# data halves for reproducibility: alternate sessions (sorted by EO) within each animal
+halves = [[], []]
+for a in sorted({g["animal_id"] for g in segs}):
+    sess = sorted({(g["eo"], g["session_id"]) for g in segs if g["animal_id"] == a})
+    for i, (_, sid) in enumerate(sess):
+        halves[i % 2].append(sid)
+
 train_ids, test_ids = folds_loso[0]
 assert not set(train_ids) & set(test_ids)
 train = select(segs, train_ids)
@@ -256,7 +263,7 @@ else:
                          seed=cfg["seed"], num_iters=sel["num_iters"])
         d = np.concatenate(dwell_times([m.most_likely_states(X) for X in X_all], sel["kappa_K"]))
         return np.median(d) / f["fs_out"]
-    meds = Parallel(n_jobs=sel["n_jobs"])(delayed(_median_dwell)(k) for k in sel["kappas"])
+    meds = Parallel(n_jobs=sel["n_jobs"], verbose=10, pre_dispatch="all")(delayed(_median_dwell)(k) for k in sel["kappas"])
     kappa_df = pd.DataFrame(dict(kappa=sel["kappas"], median_state_dur_s=meds))
     kappa_df.to_csv(path, index=False)
 
@@ -355,6 +362,126 @@ plt.show()
 
 
 # =============================================================================
+# DECIDE K AND KAPPA — held-out likelihood + reproducibility (plan: model selection uses only these)
+# =============================================================================
+
+# %% DECIDE K: held-out LL, restart / half-split agreement, reproducible states vs K (L=3)  [cached; ~25 min]
+L_dec = 3
+kappas_dec = [100.0, kappa]                       # moderate vs changepoint-matched kappa
+seeds = list(range(cfg["seed"], cfg["seed"] + sel["n_restarts"]))
+
+# held-out LL (LOSO) at each kappa; the M2 grid already has the changepoint-matched kappa
+path = RESULTS_DIR / f"m2_ar_L{L_dec}_kappa100.csv"
+if path.exists():
+    ll_100 = pd.read_csv(path)
+else:
+    ll_100 = grid_scores(segs, folds_loso, "ar", sel["m2_Ks"], [L_dec], kappas=[100.0],
+                         num_iters=sel["num_iters"], n_jobs=sel["n_jobs"])
+    ll_100.to_csv(path, index=False)
+ll_dec = pd.concat([ll_100, m2[m2.L == L_dec]])
+
+# reproducibility: n_restarts fits on all sessions + one fit per data half, for every K x kappa
+path = RESULTS_DIR / f"decide_K_L{L_dec}.csv"
+if path.exists():
+    dec_K = pd.read_csv(path)
+else:
+    Xh = [[X for g, X in zip(segs, X_all) if g["session_id"] in h] for h in halves]
+    jobs = ([(K, kap, "all", sd) for K in sel["m2_Ks"] for kap in kappas_dec for sd in seeds] +
+            [(K, kap, h, cfg["seed"]) for K in sel["m2_Ks"] for kap in kappas_dec for h in (0, 1)])
+
+    def _fit(K, kap, which, sd):
+        Xs = X_all if which == "all" else Xh[which]
+        m, _ = fit_model("ar", Xs + [mirror(X) for X in Xs], K, L=L_dec, kappa=kap, seed=sd, num_iters=sel["num_iters"])
+        return m
+    fitted = Parallel(n_jobs=sel["n_jobs"], verbose=10, pre_dispatch="all")(delayed(_fit)(*j) for j in jobs)
+
+    rows = []
+    for K in sel["m2_Ks"]:
+        for kap in kappas_dec:
+            ms = [m for j, m in zip(jobs, fitted) if j[:3] == (K, kap, "all")]
+            mh = [m for j, m in zip(jobs, fitted) if j[:2] == (K, kap) and j[2] != "all"]
+            zr = [np.concatenate([m.most_likely_states(X) for X in X_all]) for m in ms]
+            ref = int(np.argmax([ll_per_frame(m, X_all) for m in ms]))
+            jacc = np.zeros((K, len(ms)))
+            for r, z in enumerate(zr):
+                z = match_states(zr[ref], z, K)[z]
+                for k in range(K):
+                    jacc[k, r] = np.sum((zr[ref] == k) & (z == k)) / max(np.sum((zr[ref] == k) | (z == k)), 1)
+            zh = [np.concatenate([m.most_likely_states(X) for X in X_all]) for m in mh]
+            rows.append(dict(K=K, kappa=kap,
+                             ari_restarts=np.mean([adjusted_rand_score(zr[a], zr[b]) for a in range(len(zr)) for b in range(a)]),
+                             ari_halves=adjusted_rand_score(*zh),
+                             frac_states_reproducible=np.mean(np.delete(jacc, ref, axis=1).mean(1) > 0.75)))
+    dec_K = pd.DataFrame(rows)
+    dec_K.to_csv(path, index=False)
+print(dec_K.round(3))
+
+fig, axes = plt.subplots(1, 4, figsize=(14, 3))
+for kap, c in zip(kappas_dec, ["C0", "C3"]):
+    summ = best_restarts(ll_dec[ll_dec.kappa == kap]).groupby("K").test_ll.agg(["mean", "sem"])
+    axes[0].errorbar(summ.index, summ["mean"], summ["sem"], marker="o", color=c, label=f"kappa={kap:g}")
+    d = dec_K[dec_K.kappa == kap]
+    axes[1].plot(d.K, d.ari_restarts, "o-", color=c)
+    axes[2].plot(d.K, d.ari_halves, "o-", color=c)
+    axes[3].plot(d.K, d.frac_states_reproducible, "o-", color=c)
+for fold, df in m2_loao.groupby("fold"):
+    axes[0].plot(df.K, df.test_ll, "--", color="0.5", lw=0.8)
+axes[0].set_title("held-out LL / frame\n(LOSO mean ± SE; dashed: held-out animal)")
+axes[1].set_title("ARI across 5 restarts")
+axes[2].set_title("ARI between data halves")
+axes[3].set_title("fraction of states reproducible\n(Jaccard > 0.75 across restarts)")
+axes[0].legend()
+for ax in axes:
+    ax.set_xlabel("K")
+plt.tight_layout()
+plt.savefig(RESULTS_DIR / "decide_K.png", dpi=120, bbox_inches="tight")
+plt.show()
+
+
+# %% DECIDE KAPPA: held-out LL and dwell times (decoded vs implied by the model) vs kappa, K=6, L=3  [cached; ~10 min]
+K_dec = 6
+kappas_sweep = [0, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8]
+
+path = RESULTS_DIR / f"decide_kappa_ll_K{K_dec}_L{L_dec}.csv"
+if path.exists():
+    ll_kap = pd.read_csv(path)
+else:
+    ll_kap = grid_scores(segs, folds_loso, "ar", [K_dec], [L_dec], kappas=kappas_sweep,
+                         num_iters=sel["num_iters"], n_jobs=sel["n_jobs"])
+    ll_kap.to_csv(path, index=False)
+
+path = RESULTS_DIR / f"decide_kappa_dwell_K{K_dec}_L{L_dec}.csv"
+if path.exists():
+    dw_kap = pd.read_csv(path)
+else:
+    def _dwell(kap):
+        m, _ = fit_model("ar", X_all_aug, K_dec, L=L_dec, kappa=kap, seed=cfg["seed"], num_iters=sel["num_iters"])
+        decoded = np.concatenate(dwell_times([m.most_likely_states(X) for X in X_all], K_dec)) / f["fs_out"]
+        implied = 1 / (1 - np.diag(m.transitions.transition_matrix)) / f["fs_out"]
+        return dict(kappa=kap, decoded_median_s=np.median(decoded), implied_median_s=np.median(implied))
+    dw_kap = pd.DataFrame(Parallel(n_jobs=sel["n_jobs"], verbose=10, pre_dispatch="all")(delayed(_dwell)(k) for k in kappas_sweep))
+    dw_kap.to_csv(path, index=False)
+print(dw_kap.round(3))
+
+summ = ll_kap.groupby("kappa").test_ll.agg(["mean", "sem"])
+fig, axes = plt.subplots(1, 2, figsize=(9, 3))
+axes[0].errorbar(summ.index, summ["mean"], summ["sem"], marker="o")
+axes[0].set_title(f"held-out LL / frame (LOSO), K={K_dec}, L={L_dec}")
+axes[1].plot(dw_kap.kappa, dw_kap.decoded_median_s, "o-", label="decoded (Viterbi)")
+axes[1].plot(dw_kap.kappa, dw_kap.implied_median_s, "s-", label="implied by transition matrix")
+axes[1].axhline(np.median(cp_dur), color="k", ls="--", lw=0.8, label="changepoint median")
+axes[1].set_yscale("log")
+axes[1].set_ylabel("median state duration (s)")
+axes[1].legend(fontsize=7)
+for ax in axes:
+    ax.set_xscale("symlog", linthresh=100)
+    ax.set_xlabel("kappa")
+plt.tight_layout()
+plt.savefig(RESULTS_DIR / "decide_kappa.png", dpi=120, bbox_inches="tight")
+plt.show()
+
+
+# =============================================================================
 # §6 VALIDATION OF THE SELECTED MODEL
 # =============================================================================
 
@@ -364,7 +491,7 @@ path = RESULTS_DIR / f"final_ar_K{K_sel}_L{L_sel}_kappa{kappa:g}.pkl"
 if path.exists():
     models = pickle.load(open(path, "rb"))
 else:
-    models = [m for m, _ in Parallel(n_jobs=sel["n_jobs"])(
+    models = [m for m, _ in Parallel(n_jobs=sel["n_jobs"], verbose=10, pre_dispatch="all")(
         delayed(fit_model)("ar", X_all_aug, K_sel, L=L_sel, kappa=kappa, seed=sd, num_iters=sel["num_iters"])
         for sd in seeds)]
     pickle.dump(models, open(path, "wb"))
@@ -401,18 +528,13 @@ repro = pd.DataFrame(dict(occupancy=np.bincount(z_ref, minlength=K_sel) / len(z_
                           jaccard_across_restarts=np.delete(jacc, int(np.argmax(train_lls)), axis=1).mean(1)))
 print(repro.round(3))
 
-# halves: alternate sessions (by EO) within each animal; fit each half, decode everything, compare
-halves = [[], []]
-for a in sorted({g["animal_id"] for g in segs}):
-    sess = sorted({(g["eo"], g["session_id"]) for g in segs if g["animal_id"] == a})
-    for i, (_, sid) in enumerate(sess):
-        halves[i % 2].append(sid)
+# halves: fit each half of the sessions, decode everything, compare
 path = RESULTS_DIR / f"halves_ar_K{K_sel}_L{L_sel}_kappa{kappa:g}.pkl"
 if path.exists():
     m_halves = pickle.load(open(path, "rb"))
 else:
     Xh = [[X for g, X in zip(segs, X_all) if g["session_id"] in h] for h in halves]
-    m_halves = [m for m, _ in Parallel(n_jobs=2)(
+    m_halves = [m for m, _ in Parallel(n_jobs=2, verbose=10, pre_dispatch="all")(
         delayed(fit_model)("ar", Xs + [mirror(X) for X in Xs], K_sel, L=L_sel, kappa=kappa,
                            seed=cfg["seed"], num_iters=sel["num_iters"]) for Xs in Xh)]
     pickle.dump(m_halves, open(path, "wb"))
@@ -543,7 +665,7 @@ if need_hsmm:
             mh, _ = fit_model("hsmm", Xtr, K_sel, L=L_sel, num_iters=cfg["hsmm"]["num_iters"],
                               r_max=cfg["hsmm"]["r_max"], init_from=ms)
             return dict(sticky=ll_per_frame(ms, Xte), hsmm=ll_per_frame(mh, Xte))
-        m3 = pd.DataFrame(Parallel(n_jobs=sel["n_jobs"])(delayed(_m3)(fold) for fold in folds_loso))
+        m3 = pd.DataFrame(Parallel(n_jobs=sel["n_jobs"], verbose=10, pre_dispatch="all")(delayed(_m3)(fold) for fold in folds_loso))
         m3.to_csv(path, index=False)
     m3["diff"] = m3.hsmm - m3.sticky
     print(m3.round(4))

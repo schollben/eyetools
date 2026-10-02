@@ -90,7 +90,7 @@ def _pelt(X, pens, min_size, jump):
 
 def changepoint_sweep(Xs: list[np.ndarray], pens, min_size: int = 3, jump: int = 3, n_jobs: int = 8) -> dict:
     """PELT (l2 cost) changepoints of each segment for each penalty: {pen: [indices per segment]}."""
-    per_seg = Parallel(n_jobs=n_jobs)(delayed(_pelt)(X, pens, min_size, jump) for X in Xs)
+    per_seg = Parallel(n_jobs=n_jobs, verbose=10, pre_dispatch="all")(delayed(_pelt)(X, pens, min_size, jump) for X in Xs)
     return {pen: [c[i] for c in per_seg] for i, pen in enumerate(pens)}
 
 

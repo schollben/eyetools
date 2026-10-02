@@ -1,4 +1,6 @@
 # %% init
+# Models are fit with ssm (Linderman lab, Stanford; github.com/lindermanlab/ssm): EM (Baum-Welch) for fitting,
+# Viterbi for decoding (most_likely_states). Settings come from HMM/config/hmm.yaml.
 %load_ext autoreload
 %autoreload 2
 import sys
@@ -47,12 +49,15 @@ def plot_states(t, X, z, title="", seconds=60, fs=30):
 
 
 # %% load
+# Skull kinematics via utils.load_skull_data (bs repo load_kinematics). Frames are marked invalid for
+# speed > 800 mm/s, |pitch| > 75 deg (Euler gimbal lock) or |omega| > 1500 deg/s (tracking glitches), padded by 6 frames.
 q = cfg["qc"]
 S = [load_session(s, max_speed=q["max_speed_mm_s"], max_abs_pitch=q["max_abs_pitch_deg"],
                   max_ang_speed=q["max_ang_speed_deg_s"], pad=q["pad_frames"]) for s in ids]
 
 
 # %% QC: one row per session + sanity asserts
+# One row per session: sampling rate, duration, fraction valid, largest yaw step. The asserts catch broken timestamps / yaw range.
 rows = []
 for s in S:
     assert np.all(np.diff(s.t) > 0), s.session_id
@@ -74,6 +79,7 @@ print("minutes per animal:\n", (qc.groupby("animal_id").duration_s.sum() / 60).r
 
 
 # %% inspect one session: yaw, speed, valid
+# Raw signals for one session, to check by eye that the valid mask removes the yaw jumps and speed spikes.
 n = 0
 s = S[n]
 speed = np.linalg.norm(s.vel_global, axis=1)
@@ -91,6 +97,8 @@ plt.show()
 
 
 # %% FEATURES: valid runs -> omega_yaw, log_speed, pitch at a common rate
+# Per valid run (>= 2 s): yaw velocity by Savitzky-Golay derivative (100 ms window), log(speed + 1), pitch;
+# 4th-order Butterworth low-pass at 12 Hz (anti-alias), then interpolated to 30 Hz so all sessions share one rate.
 f = cfg["features"]
 segs = [g for s in S for g in session_features(s, **f)]
 
@@ -102,6 +110,7 @@ print("total minutes:", round(seg_df.n.sum() / f["fs_out"] / 60, 1))
 
 
 # %% FEATURES: inspect one segment
+# The longest segment's three features in raw units, to check that turns, runs and rears look plausible.
 g = max(segs, key=lambda g: len(g["t"]))   # longest segment
 fig, axes = plt.subplots(len(FEATURE_NAMES), 1, figsize=(10, 5), sharex=True)
 for j, name in enumerate(FEATURE_NAMES):
@@ -113,6 +122,7 @@ plt.show()
 
 
 # %% FEATURES: distributions per animal (raw units: rad/s, log(mm/s+1), rad)
+# Feature histograms per animal; large offsets between animals would bias leave-one-animal-out scores.
 fig, axes = plt.subplots(1, len(FEATURE_NAMES), figsize=(10, 2.5))
 for a in sorted({g["animal_id"] for g in segs}):
     Xa = np.concatenate([g["X"] for g in segs if g["animal_id"] == a])
@@ -124,6 +134,8 @@ plt.show()
 
 
 # %% SPLITS + SCALING: leakage guard on one fold, mirror check
+# Cross-validation folds: leave-one-session-out (LOSO) and leave-one-animal-out (LOAO). Features are robust-z-scored
+# (median / IQR) using training sessions only; mirroring (omega -> -omega) doubles the training data and makes left/right symmetric.
 folds_loso = leave_one_session_out(segs)
 folds_loao = leave_one_animal_out(segs)
 print(len(folds_loso), "LOSO folds,", len(folds_loao), "LOAO folds")
@@ -161,6 +173,8 @@ print(drift)
 # =============================================================================
 
 # %% SYNTH 1: round trip — synthetic Session -> features -> fit -> states on the original 120 Hz frames
+# Synthetic 3-state session (still / turn left / turn right) at 120 Hz; checks that the feature pipeline and the
+# mapping of 30 Hz states back onto the original frames line up (accuracy away from boundaries).
 s_syn, z_syn = synth_session()
 segs_syn = session_features(s_syn, **f)
 X_syn = apply_scaler([g["X"] for g in segs_syn], fit_scaler([g["X"] for g in segs_syn]))
@@ -173,6 +187,8 @@ assert len(z_full) == len(s_syn.t) and acc >= 0.85
 
 
 # %% SYNTH 2: AR-HMM (K=6, L=2) recovers 6 synthetic movement types; Gaussian HMM for comparison
+# AR-HMM: each state is a linear autoregressive dynamical system x_t = sum_l A_l x_{t-l} + b + noise, the model behind
+# MoSeq (Wiltschko et al. 2015, Datta lab). It can tell apart states with equal means but different dynamics (3 Hz oscillation vs still).
 zs_syn, Xs_syn = synth_segments(n_segments=10, seed=1)   # 7 train, 3 held-out segments
 m_ar, _ = fit_model("ar", Xs_syn[:7], 6, L=2)
 m_g, _ = fit_model("gaussian", Xs_syn[:7], 6)
@@ -191,6 +207,8 @@ plt.show()
 
 
 # %% SYNTH 3: mirror augmentation -> turn left / turn right come out as a sign-flipped pair
+# With mirrored training data, a left-turn state should have a right-turn partner whose AR parameters are the sign-flipped
+# copy (A -> S A S, b -> S b, S = diag(-1, 1, 1)); mirror_pairs finds these by parameter distance.
 m_mir, _ = fit_model("ar", Xs_syn[:7] + [mirror(X) for X in Xs_syn[:7]], 6, L=2)
 to_true = match_states(np.concatenate(zs_syn[:7]), np.concatenate([m_mir.most_likely_states(X) for X in Xs_syn[:7]]), 6)
 pair, dist = mirror_pairs(m_mir, SIGNED)
@@ -200,6 +218,8 @@ assert partner[1] == 2 and partner[2] == 1 and all(partner[k] == k for k in (0, 
 
 
 # %% SYNTH 4: gamma dwell times -> HSMM beats the sticky AR-HMM on held-out LL (geometric = control)
+# HMM state durations are geometric; an HSMM (hidden semi-Markov model, cf. Johnson & Willsky 2013) models them explicitly.
+# ssm's HSMM uses negative-binomial durations; it is warm-started from the sticky AR-HMM's emissions. It should only win when durations are peaked.
 gain = {}
 for dwell in ["gamma", "geometric"]:
     zs_d, Xs_d = synth_segments(n_segments=8, dwell=dwell, gamma_shape=10, seed=2)
@@ -215,6 +235,8 @@ assert gain["gamma"] > 0.005 and abs(gain["geometric"]) < 0.005
 # =============================================================================
 
 # %% TIMESCALE: model-free changepoints (PELT, l2) on scaled features, penalty sweep
+# PELT (Killick, Fearnhead & Eckley 2012) via the ruptures package (Truong et al. 2020) finds mean shifts in the features with no model.
+# Sweeping the penalty and taking the plateau (or elbow) gives a model-free reference duration for movement segments.
 ts = cfg["timescale"]
 sc_all = fit_scaler([g["X"] for g in segs])   # descriptive only; held-out scores refit scaling per fold
 X_all = apply_scaler([g["X"] for g in segs], sc_all)
@@ -252,6 +274,8 @@ plt.show()
 
 
 # %% KAPPA: sweep kappa (AR-HMM, all sessions, mirrored); pick median state duration ~ changepoint median
+# kappa is the 'sticky' bias (Fox, Sudderth, Jordan & Willsky 2011): extra prior counts on self-transitions, so larger kappa
+# means longer states. Here kappa is chosen so the median decoded state duration matches the changepoint median.
 sel = cfg["selection"]
 X_all_aug = X_all + [mirror(X) for X in X_all]
 path = RESULTS_DIR / f"kappa_sweep_K{sel['kappa_K']}_L{sel['kappa_L']}.csv"
@@ -277,6 +301,8 @@ print(f"changepoint median {np.median(cp_dur):.2f} s -> kappa = {kappa:g}")
 # =============================================================================
 
 # %% M1: held-out LL per frame vs K (leave-one-session-out within one animal)  [cached]
+# Baseline: sticky Gaussian HMM (each state = one Gaussian over the 3 features, no dynamics) on one animal.
+# Held-out log-likelihood per frame vs number of states K; the 'plateau' is the smallest K within one paired SE of the best (one-SE rule).
 segs_m1 = [g for g in segs if g["animal_id"] == sel["m1_animal"]]
 folds_m1 = leave_one_session_out(segs_m1)
 path = RESULTS_DIR / f"m1_gaussian_{sel['m1_animal']}_kappa{sel['m1_kappa']:g}.csv"
@@ -300,6 +326,7 @@ plt.show()
 
 
 # %% M1: decoded states over the kinematics, held-out session
+# Viterbi state sequence of the M1 model on a held-out session, drawn over the features, to see what the states pick up.
 train_ids, test_ids = folds_m1[0]
 Xtr, Xte, _ = fold_data(segs_m1, train_ids, test_ids)
 m, _ = fit_model("gaussian", Xtr, K_m1, kappa=sel["m1_kappa"], seed=cfg["seed"], num_iters=sel["num_iters"])
@@ -313,6 +340,8 @@ plot_states(g_test[i]["t"], g_test[i]["X"], m.most_likely_states(Xte[i]), title=
 # =============================================================================
 
 # %% M2: K x L grid, leave-one-session-out over all sessions  [cached; ~30 min on 8 cores]
+# Primary model: sticky AR-HMM (MoSeq-style) over all sessions. Grid of K (states) x L (AR lags = how many past frames
+# each state's dynamics use), scored by held-out LL per frame with LOSO; best of several restarts per setting.
 path = RESULTS_DIR / f"m2_ar_kappa{kappa:g}.csv"
 if path.exists():
     m2 = pd.read_csv(path)
@@ -323,6 +352,7 @@ else:
 
 
 # %% M2: choose K at the plateau for each L, then the smallest L within one SE of the best
+# Same one-SE rule as M1: smallest K per L, then smallest L, whose held-out LL is statistically tied with the best.
 best_m2 = best_restarts(m2)
 K_by_L = {L: plateau(best_m2[best_m2.L == L]) for L in sel["m2_Ls"]}
 at_plateau = pd.concat([best_m2[(best_m2.L == L) & (best_m2.K == K)] for L, K in K_by_L.items()])
@@ -342,6 +372,7 @@ plt.show()
 
 
 # %% M2: confirm with leave-one-animal-out  [cached]
+# Generalisation to a new animal: train on one ferret, score the other. Only 2 folds, so this is a sanity check, not a selector.
 path = RESULTS_DIR / f"m2_ar_loao_L{L_sel}_kappa{kappa:g}.csv"
 if path.exists():
     m2_loao = pd.read_csv(path)
@@ -366,6 +397,8 @@ plt.show()
 # =============================================================================
 
 # %% DECIDE K: held-out LL, restart / half-split agreement, reproducible states vs K (L=3)  [cached; ~25 min]
+# Held-out LL alone keeps rising with K, so also ask whether states are reproducible: ARI (Hubert & Arabie 1985) between restarts
+# and between models fit on two halves of the sessions; per-state Jaccard after Hungarian matching (scipy linear_sum_assignment).
 L_dec = 3
 kappas_dec = [100.0, kappa]                       # moderate vs changepoint-matched kappa
 seeds = list(range(cfg["seed"], cfg["seed"] + sel["n_restarts"]))
@@ -439,6 +472,8 @@ plt.show()
 
 
 # %% DECIDE KAPPA: held-out LL and dwell times (decoded vs implied by the model) vs kappa, K=6, L=3  [cached; ~10 min]
+# Effect of kappa on held-out LL and on state durations: decoded (Viterbi) median vs the mean implied by the transition matrix,
+# 1 / (1 - p_kk). A kappa where the two disagree badly is one where the model's own dwell times are unrealistic.
 K_dec = 6
 kappas_sweep = [0, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8]
 
@@ -486,6 +521,8 @@ plt.show()
 # =============================================================================
 
 # %% FINAL: selected AR-HMM on all sessions, n_restarts seeds; decode; save run  [cached]
+# Refit the chosen K / L / kappa on all sessions (mirrored) with several seeds; keep the restart with the best training LL.
+# States and posteriors are mapped back onto each session's original frames and saved to HMM/results/<timestamp>_<run_name>/.
 seeds = list(range(cfg["seed"], cfg["seed"] + sel["n_restarts"]))
 path = RESULTS_DIR / f"final_ar_K{K_sel}_L{L_sel}_kappa{kappa:g}.pkl"
 if path.exists():
@@ -514,6 +551,8 @@ if not any(RESULTS_DIR.glob(f"*_{run_name}")):   # save once per selected settin
 
 
 # %% REPRO: agreement across restarts (ARI) and per-state overlap; across data halves  [cached]
+# Are the states a property of the data or of the random seed? ARI across restarts, per-state Jaccard (Hungarian-matched),
+# and ARI between models fit on alternate-session halves.
 z_cat = [np.concatenate([m.most_likely_states(X) for X in X_all]) for m in models]
 ari = np.array([[adjusted_rand_score(a, b) for b in z_cat] for a in z_cat])
 print(f"ARI across restarts: {ari[np.triu_indices(len(models), 1)].mean():.3f} (mean over pairs)")
@@ -543,6 +582,8 @@ print(f"ARI between models fit on the two halves (decoding all data): {adjusted_
 
 
 # %% GENERATIVE: simulate from the fitted model; compare dwell times, omega spectrum, transitions
+# Posterior-predictive check: sample from the model and compare with the data: dwell-time distributions (two-sample KS test),
+# omega_yaw power spectrum (Welch 1967) and state-transition frequencies. A dwell misfit is the reason to try the HSMM (M3).
 zs_sim, xs_sim = simulate(best, [len(X) for X in X_all], seed=cfg["seed"])
 d_real, d_sim = dwell_times(zs_all, K_sel), dwell_times(zs_sim, K_sel)
 implied_s = 1 / (1 - np.diag(best.transitions.transition_matrix)) / f["fs_out"]   # mean dwell the model implies
@@ -589,6 +630,8 @@ print(f"transition-frequency correlation real vs model: {np.corrcoef(T_real.rave
 
 
 # %% BOUNDARIES: state boundaries vs model-free changepoints (±100 ms), circular-shift null
+# Do state switches coincide with PELT changepoints more than chance? Null = state sequences circularly shifted within each
+# segment, which keeps their durations but breaks the alignment with the kinematics.
 obs, null = boundary_agreement(zs_all, cps[pen_star], tol=ts["tol_frames"])
 print(f"{obs:.3f} of state boundaries within ±{ts['tol_frames']} frames of a changepoint "
       f"(null {null.mean():.3f} ± {null.std():.3f}, p = {np.mean(null >= obs):.3f})")
@@ -600,6 +643,8 @@ plt.show()
 
 
 # %% MIRROR: pair states by sign-flipped emission parameters; per-direction vs merged; vs |omega| fit
+# Pair left/right mirror states (sign-flipped AR parameters) and merge them; compare with a model fit on |omega| (direction
+# removed). High ARI means the merged states are the same movements regardless of turn direction.
 pair, dist = mirror_pairs(best, SIGNED)
 merged = np.minimum(np.arange(K_sel), pair)        # each mirror pair labelled by its lower index
 raw_all = np.concatenate([g["X"] for g in segs])
@@ -622,6 +667,8 @@ print(f"ARI merged-mirror states vs |omega| model: {adjusted_rand_score(merged[z
 
 
 # %% DESCRIBE: state-triggered averages of the kinematics (raw units) + event table for video checks
+# Mean features ±1 s around each state's onset (like a spike-triggered average) to name the states; the event table
+# (session, state, start/stop times) is for pulling video clips of each state.
 win = int(1 * f["fs_out"])   # ±1 s around each state onset
 lags = np.arange(-win, win) / f["fs_out"]
 fig, axes = plt.subplots(1, len(FEATURE_NAMES), figsize=(11, 3))
@@ -654,6 +701,8 @@ plot_states(segs[i]["t"], segs[i]["X"], zs_all[i], title=f"AR-HMM K={K_sel} L={L
 # =============================================================================
 
 # %% M3: HSMM (warm-started from the sticky AR-HMM) vs sticky AR-HMM on the same LOSO folds  [cached]
+# HSMM with negative-binomial durations (ssm HSMM, r_max = max NB shape) vs the sticky AR-HMM on the same folds.
+# A consistent positive held-out LL gain means explicit state durations are worth the extra parameters.
 if need_hsmm:
     path = RESULTS_DIR / f"m3_hsmm_K{K_sel}_L{L_sel}_kappa{kappa:g}.csv"
     if path.exists():

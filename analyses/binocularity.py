@@ -9,12 +9,11 @@ from utils import create_subplot_grid
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import load_results, set_style, EO_BINS
+from analyses.helper_functions import NORMAL_IDS, DELAYED_IDS, delayed_groups, load_results, set_style, EO_BINS
 set_style()
 
 # LOAD DATA
-Results = load_results()
-
+Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # %% settings for every plot below
 # BINOCULARITY. Hypothesis: conjugacy INCREASES with age.
@@ -69,7 +68,11 @@ max_lag = 15           # frames (125 ms), LE-RE cross-correlation
 min_run = 4 * max_lag  # frames, shortest NaN-free run worth correlating
 disp_lim = 30          # deg, axis limit for displacement panels
 
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
+compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+if compare_delayed:
+    groups, titles = delayed_groups(Results)
+else:
+    groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
 for R in Results:
     P = paired_saccades(R, pair_window, flip_eye, axis)

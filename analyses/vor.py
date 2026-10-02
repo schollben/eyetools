@@ -9,14 +9,14 @@ from utils import create_subplot_grid, non_saccade_mask
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import (load_results,set_style,FS, 
+from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, load_results,set_style,FS, 
                                        EYE_COLOR, EO_BINS, HEAD_COLOR, LOCO_COLORS, 
                                        frame_mask, head_signal,
                                        eye_signal, head_eye_pairs, eo_groups,
                                        fit_line, clean_runs, run_xcorr)
 set_style()
 # LOAD DATA
-Results = load_results()
+Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # %% settings for every plot below
 # note: roll_v/pitch_v/yaw_v are stored as rad/s in the csv (units column says "rad_s")
@@ -31,7 +31,11 @@ flip_eye = "RE"  # head frame: eye + = head yaw +, so VOR gain is negative (None
 speed_threshold = 50      # mm/s, stationary vs running
 min_bout = 60              # frames, shortest run of frames counted as running
 
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
+compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+if compare_delayed:
+    groups, titles = delayed_groups(Results)
+else:
+    groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
 for R in Results:
     n = len(R.LE_vx)

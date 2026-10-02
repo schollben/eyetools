@@ -10,9 +10,11 @@ from utils import non_saccade_mask, load_session_data, process_session, removeBa
 from utils.config import SAVELOC
 from utils.eye_velocity import eye_velocity
 
+#hardcoded IDS/parameters
 FS = 120.0
-
 EO_BINS = [(0, 3), (4, 7), (8, 20)]
+NORMAL_IDS = (402, 405, 407, 420, 753, 757)
+DELAYED_IDS = (411, 416, 403)
 
 EXTRACT = dict(window_in_sec=5, velocity_threshold_eye=40, velocity_threshold_gaze=40,
                velocity_threshold_head=1, min_duration=8, min_inter_event=8)
@@ -329,6 +331,7 @@ def run_xcorr(x, y, max_lag):
 
 def eo_groups(Results, pool_by_eo, eo_bins):
     """Session groups and panel titles, pooled by EO bin or one per session."""
+    Results = [R for R in Results if R.id in NORMAL_IDS]
     if pool_by_eo:
         groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
         titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
@@ -336,6 +339,14 @@ def eo_groups(Results, pool_by_eo, eo_bins):
         groups = [[R] for R in Results]
         titles = [f"Ferret {R.id} EO{R.eo}" for R in Results]
     return groups, titles
+
+
+def delayed_groups(Results, eo_bin=(8, 20)):
+    """Mature normal ferrets in eo_bin vs. every delayed-experience session pooled."""
+    lo, hi = eo_bin
+    normal = [R for R in Results if R.id in NORMAL_IDS and lo <= R.eo <= hi]
+    delayed = [R for R in Results if R.id in DELAYED_IDS]
+    return [normal, delayed], [f"Normal EO {lo}-{hi}", "Delayed (all)"]
 
 
 def fit_line(ax, x, y, color="k", min_n=500):

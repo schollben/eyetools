@@ -11,14 +11,14 @@ import pandas as pd
 from scipy.stats import mannwhitneyu as mwu
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, EO_BINS, eo_groups, logamp_logvel,
+from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, EYE_COLOR, AGE_COLORS, EO_BINS, eo_groups, logamp_logvel,
                                        load_results, set_style, session_trend, plot_vs_eo, save_fig)
 set_style()
 
 # LOAD DATA
 # good = (402, 405, 407, 420)  # TO ADD (once fixed): 753, 757
 # delayed experience: 411, 416, 403
-Results = load_results( (416, 403) ) 
+Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # SAVE FIGURES
 SAVE_FIGS = False
@@ -28,7 +28,11 @@ pool_by_eo = True                     # False: one panel per session | True: one
 eo_bins = EO_BINS
 fit_by = "session"                    # "pooled": one fit per EO bin | "session": one fit per session
 min_n = 5                             # minimum number of saccades a group must have before it gets fitted
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
+compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+if compare_delayed:
+    groups, titles = delayed_groups(Results)
+else:
+    groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
 for group, title in zip(groups, titles):
     n_pts = sum(len(R.df_LE) + len(R.df_RE) for R in group)

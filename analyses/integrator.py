@@ -12,13 +12,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import kruskal, mannwhitneyu as mwu
-from analyses.helper_functions import (load_results, set_style, EO_BINS,FS, EYE_COLORS, eo_groups, fit_line, clean_runs,
+from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, load_results, set_style, EO_BINS,FS, EYE_COLORS, eo_groups, fit_line, clean_runs,
                                        eye_signal, drift_frames, drift_by_position)
 set_style()
 
 # LOAD DATA
-Results = load_results()
-
+Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # %% settings for every plot below
 # The integrator holds the eye at an eccentric position. A LEAKY integrator lets the eye
@@ -66,7 +65,11 @@ min_run = 30         # frames, shortest contiguous clean stretch (cell 4)
 pos_bins = np.arange(-10, 12, 2)   # signed, never folded to |x|
 EYES = ("LE", "RE")
 
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
+compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+if compare_delayed:
+    groups, titles = delayed_groups(Results)
+else:
+    groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
 for R in Results:
     n = len(R.LE_vx)

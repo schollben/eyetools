@@ -12,7 +12,7 @@ from scipy.stats import mannwhitneyu as mwu
 from scipy.stats import wilcoxon, kruskal
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import (EYE_COLOR, AGE_COLORS, FS, EO_BINS, eo_groups, pooled_events,
+from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, EYE_COLOR, AGE_COLORS, FS, EO_BINS, eo_groups, pooled_events,
                                        pooled_intervals, event_traces, save_fig, session_rate, session_rates,
                                        load_results, set_style, session_trend)
 set_style()
@@ -20,7 +20,7 @@ set_style()
 # LOAD DATA
 # good = (402, 405, 407, 420)  # TO ADD (once fixed): 753, 757
 # delayed experience: 411, 416, 403
-Results = load_results( (402, 405) ) 
+Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # SAVE FIGS
 SAVE_FIGS = False
@@ -45,7 +45,11 @@ COND_COLORS = dict(zip(conditions, ["#444444", "#1B9E77"]))
 pre, post = 12, 48       # frames: -100 to +400 ms from onset (cell 4 only)
 bin_by = "amplitude"     # "amplitude" | "peak_velocity" (cell 4 only)
 
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
+compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+if compare_delayed:
+    groups, titles = delayed_groups(Results)
+else:
+    groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
 
 # %% 3. amplitude vs peak velocity by condition

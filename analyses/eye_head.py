@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import (FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR, LE_COLOR,
+from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR, LE_COLOR,
                                        RE_COLOR, eo_groups, unwrap_deg, load_results, set_style, save_fig,
                                        head_eye_windows, head_triggered_windows, eye_head_coupling, 
                                        in_head_saccade, running_mask, eye_signal, onset_correlogram, plot_mean_se,
@@ -17,10 +17,12 @@ from analyses.helper_functions import (FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_
 set_style()
 
 # LOAD DATA
-Results = load_results()  # FERRETS in helper_functions; 753, 757 -> look carefully at these files
+# good = (402, 405, 407, 420)  # TO ADD (once fixed): 753, 757
+# delayed experience: 411, 416, 403
+Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # SAVE DATA
-save_figs = True
+save_figs = False
 
 # %% SETTING AND DATA EXTRACTED FOR PLOTS
 # Eye-head dynamics, replicating Wallace, Voit, Martin Machado et al., Kerr lab,
@@ -49,7 +51,11 @@ loco = "stationary"
 speed_threshold = 20     # mm/s
 min_bout = 30            # frames
 
-groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
+compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+if compare_delayed:
+    groups, titles = delayed_groups(Results)
+else:
+    groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
 
 # Head saccades are R.df_head as extracted by process_session. Two columns are recomputed:
 # peak velocity (stored in rad/s) and amplitude, taken from UNWRAPPED yaw at the same

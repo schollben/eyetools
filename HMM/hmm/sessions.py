@@ -20,6 +20,8 @@ def eligible_sessions(cfg: dict) -> list[str]:
     ids = []
     for s in get_sessions(*c["ferrets"]):
         eo = parse_session_name(s)["eo"]
+        if s in c.get("exclude", []):
+            continue
         if c["eo_min"] <= eo <= eo_max and (DATA_DIR / s / "skull_kinematics").exists():
             ids.append(s)
     return ids

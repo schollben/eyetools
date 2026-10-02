@@ -2,6 +2,8 @@ sessions:
   ferrets: [402, 405, 407, 420]
   eo_min: 8
   eo_max: null
+  exclude:
+    - session_2026-03-11_ferret_407_E11_analyzable_output   # 68% valid, tracking glitches
 
 qc:
   max_speed_mm_s: 800

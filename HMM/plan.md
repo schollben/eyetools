@@ -355,3 +355,26 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
   - the ω_yaw state-triggered averages;
   - boundary agreement;
   - ARI across data halves.
+
+## Results, 5 features (2026-10-02; run `HMM/results/20261002-112237_ar_K4_L3_kappa100`)
+- **Selection:** K=4, L=3, κ=100 again.
+  - M2 held-out LL rises to K=20 without plateau.
+  - DECIDE K: K=4 is the largest K with restart ARI 1.0 and all states reproducible (K=6: 0.62, 17%).
+  - DECIDE KAPPA: held-out LL flat for κ ≤ 1e3. Above that, implied dwell runs away from decoded.
+- **States:**
+
+  | State | Occupancy | Description | Mean dwell |
+  |---|---|---|---|
+  | 0 | 37% | forward locomotion (high speed and v_fwd) | 0.22 s |
+  | 1, 2 | 20% each | left / right turn, a mirror pair. At onset, forward speed drops to about 0; then ω_yaw and v_lat peak and decay over about 0.3 s. | 0.21 s |
+  | 3 | 25% | brief transitional state (speed and v_fwd drop at onset); hub between 0 and 1/2 | 0.10 s |
+
+- **Validation:**
+  - restart ARI 1.0; halves ARI 0.49;
+  - dwell times are reproduced (KS ≤ 0.12), so no HSMM;
+  - transitions are reproduced (r = 0.999);
+  - boundary agreement with changepoints is weak (6.2% vs null 5.7%, p < 0.001);
+  - the model's ω spectrum is still too low above about 5 Hz.
+- **Takeaway:** the head-frame velocity gives turn-direction states, which the 3-feature model lacked.
+- **Caveat:** states are short (median about 0.1 s), and a turn bout may span several visits.
+- **Next:** compare turn states 1 and 2 with `extract_saccades` head events (`df_head`), and check them against video with `events_ar_K4_L3.csv`.

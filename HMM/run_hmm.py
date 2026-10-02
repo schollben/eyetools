@@ -529,6 +529,7 @@ plt.show()
 
 # %% SELECTED: K, L, kappa chosen from the DECIDE plots (2026-10-02); overrides the automatic M2 / KAPPA picks
 # K=4 is the largest K whose states reproduce (restarts and halves); kappa <= 1e3 is equivalent on held-out LL, 100 adds mild stickiness.
+# Re-checked on the 5 features (with v_fwd, v_lat): same picks.
 K_sel, L_sel, kappa = 4, 3, 100.0
 
 

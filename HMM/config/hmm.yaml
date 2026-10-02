@@ -6,3 +6,5 @@ sessions:
 qc:
   max_speed_mm_s: 800
   max_abs_pitch_deg: 75
+  max_ang_speed_deg_s: 1500
+  pad_frames: 6

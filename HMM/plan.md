@@ -38,7 +38,11 @@ Data contract (filled in):
 - **Sampling.** Uniform within a session (dt jitter < 1e-6 s). fs differs between sessions (112.5–120.0 Hz), so features (§3) resample to a common rate rather than use an integer decimation factor.
 - **Missing frames.** Skull data has no NaNs, because it is filled upstream. There's no head-quality flag; `valid` uses the existing criterion speed < 800 mm/s (`utils/process_session.py`). Eye quality flags (`LEQ`/`REQ`) exist for the eyes only.
 - **Neural data.** None yet, so `Session.neural = None` and §6.5 is deferred.
-- **Yaw gimbal lock (found in QC).** Euler yaw jumps 60–180° in a single frame whenever |pitch| ≈ 80–90° (head pointing straight down or up). This affects 5 of 10 sessions; 407 EO11 is worst, with 544 frames over 20°. §3 should not differentiate Euler yaw. Use a horizontal heading instead, e.g. atan2 of the head's forward vector projected onto the floor, or the global angular velocity about z, and consider masking frames with |pitch| > ~75°.
+- **Yaw jumps (found in QC).** The skull x-axis is exactly the nose direction, and the Euler order is ZYX. So Euler yaw already is the floor-projected nose heading, and recomputing heading from quaternions changes nothing. Jumps come from two sources:
+  - steep pitch, where heading is ill-conditioned: `valid` excludes |pitch| ≥ 75°;
+  - tracking glitches: `valid` excludes |ω| ≥ 1500°/s. In clean sessions |ω| peaks at about 1440°/s; glitches reach 3700–10,000°/s.
+  - Excluded stretches are padded by 6 frames, as in `removeBadData`.
+  - 407 EO11 is only 68% valid after this and is a candidate for exclusion.
 
 ## 1. Approach
 **Fitting is unsupervised.** Labels never enter any fit.

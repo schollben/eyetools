@@ -2,6 +2,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
+from scipy.ndimage import binary_dilation
 
 _EYETOOLS_ROOT = Path(__file__).resolve().parents[2]
 if str(_EYETOOLS_ROOT) not in sys.path:
@@ -32,7 +33,8 @@ class Session:
     neural:      object | None = None
 
 
-def load_session(session_id: str, max_speed: float = 800, max_abs_pitch: float = 75) -> Session:
+def load_session(session_id: str, max_speed: float = 800, max_abs_pitch: float = 75,
+                 max_ang_speed: float = 1500, pad: int = 6) -> Session:
     meta = load_skull_data(DATA_DIR / session_id)
     info = parse_session_name(session_id)
 
@@ -46,6 +48,10 @@ def load_session(session_id: str, max_speed: float = 800, max_abs_pitch: float =
     valid = np.isfinite(meta["yaw"]) & np.isfinite(pos_xy).all(axis=1) & (speed < max_speed)
     # Euler yaw is ill-defined near |pitch| = 90 (gimbal lock)
     valid &= np.abs(meta["pitch"]) < max_abs_pitch
+    # tracking glitches: head angular speed (deg/s) far above real movement
+    valid &= np.degrees(np.linalg.norm(omega_local, axis=1)) < max_ang_speed
+    # pad excluded stretches, as in utils/removeBadData.py
+    valid = ~binary_dilation(~valid, iterations=pad)
 
     return Session(
         session_id=session_id,

@@ -17,7 +17,9 @@ print(len(ids), "eligible sessions")
 
 
 # %% load
-S = [load_session(s, max_speed=cfg["qc"]["max_speed_mm_s"], max_abs_pitch=cfg["qc"]["max_abs_pitch_deg"]) for s in ids]
+q = cfg["qc"]
+S = [load_session(s, max_speed=q["max_speed_mm_s"], max_abs_pitch=q["max_abs_pitch_deg"],
+                  max_ang_speed=q["max_ang_speed_deg_s"], pad=q["pad_frames"]) for s in ids]
 
 
 # %% QC: one row per session + sanity asserts

@@ -10,7 +10,7 @@ Purpose: learn discrete movement states (sticky HMM → AR-HMM → HSMM) from ex
    - fields available: timestamps, yaw (global, 0–360°), global and local position/velocity, pitch/roll, z;
    - units, sampling rate, how missing frames are represented;
    - how neural data and tracking are aligned in time.
-2. **Thin adapter only: `hmm/adapter.py`.** Write `load_session(session_id) -> Session`. It calls the existing loaders and maps their output onto the contract below.
+2. **Thin adapter only: `HMM/hmm/adapter.py`.** Write `load_session(session_id) -> Session`. It calls the existing loaders and maps their output onto the contract below.
    - Don't copy or modify the existing loaders. If a change is needed, propose it and ask first.
    - Reuse existing derived quantities (velocities, speed, pitch) instead of recomputing them, unless they're missing or noisy.
 3. **`Session` contract** (dataclass):
@@ -19,12 +19,25 @@ Purpose: learn discrete movement states (sticky HMM → AR-HMM → HSMM) from ex
    - The adapter is responsible for:
      - resampling to a uniform grid if timestamps are irregular (yaw interpolated on the circle);
      - returning a boolean `valid` mask marking interpolated or dropped stretches.
-4. **Session index: `hmm/sessions.py`.** List the eligible sessions from the existing metadata or database, not hard-coded paths, and keep the inclusion criteria in config.
-5. **Accept:**
-   - `pytest -q -k adapter` passes on one real session (behind an environment variable or a config path) and on a synthetic `Session`.
-   - A QC report (`scripts/qc_sessions.py`) runs on all sessions: fs, duration, fraction valid, max |Δyaw| per frame, position range.
+4. **Session index: `HMM/hmm/sessions.py`.** List the eligible sessions from the existing metadata or database, not hard-coded paths, and keep the inclusion criteria in config.
+5. **Accept:** the QC cell in `HMM/run_hmm.py` runs on all eligible sessions (fs, duration, fraction valid, max |Δyaw| per frame, position range) and its sanity asserts pass.
 
-Data contract (filled in): _TODO after survey_
+Data contract (filled in):
+- **Entry points.**
+  - `utils.load_skull_data(dir) -> dict` wraps bs `load_kinematics` and reads `skull_kinematics.csv`.
+  - `utils.load_session_data(session)` also loads eye, gaze and toy data; it's heavier and not needed here.
+  - `utils.get_sessions(*ferret_ids)` and `utils.parse_session_name(name) -> {session, date, id, age, eo}`.
+  - Session ID = the directory name under `DATA_DIR` (`local_config.EYETOOLS_DATA_DIR`), e.g. `session_2025-10-17_ferret_420_E08_analyzable_output`.
+- **Fields (`load_skull_data`):**
+  - `skull_timestamps` (s, starting at 0);
+  - `position_x/y` (mm, world);
+  - `linearVel_x/y` (mm/s, world);
+  - `roll/pitch/yaw` in degrees (Euler angles from arctan2, so yaw is in (−180, 180]; the adapter maps it to 0–360);
+  - `roll_v/pitch_v/yaw_v`: rad/s, head-frame angular velocity.
+  - z position and velocity, global angular velocity and keypoints are in the CSV but not returned.
+- **Sampling.** Uniform within a session (dt jitter < 1e-6 s). fs differs between sessions (112.5–120.0 Hz), so features (§3) resample to a common rate rather than use an integer decimation factor.
+- **Missing frames.** Skull data has no NaNs, because it is filled upstream. There's no head-quality flag; `valid` uses the existing criterion speed < 800 mm/s (`utils/process_session.py`). Eye quality flags (`LEQ`/`REQ`) exist for the eyes only.
+- **Neural data.** None yet, so `Session.neural = None` and §6.5 is deferred.
 
 ## 1. Approach
 **Fitting is unsupervised.** Labels never enter any fit.
@@ -121,7 +134,7 @@ Append each run (config, seed, library versions, git hash) to `results/hmm/runs.
    - State-triggered averages of the kinematics.
    - An event table (state, t_start, t_stop, session_id) for video spot checks.
 
-## 7. Tests: `tests/test_hmm.py`
+## 7. Checks: cells in `HMM/run_hmm.py` (no pytest suite; keep it simple)
 - **Synthetic `Session` generator.** Multiple sessions with randomized movement-type order and durations; optionally gamma-distributed dwell times. Reuse `synth.py` if it's present.
 - **Accept:**
   - Adapter round trip: a synthetic `Session` → features → fit → states mapped back to the original timestamps.
@@ -129,20 +142,20 @@ Append each run (config, seed, library versions, git hash) to `results/hmm/runs.
   - Mirror augmentation produces sign-paired states.
   - With gamma dwell times, the HSMM beats the sticky HMM on held-out likelihood.
   - Leakage guard: no held-out session contributes to the fit or to the scaling statistics.
-- Default `pytest -q` stays under about 2 min. Put long fits behind `@pytest.mark.slow`.
+- Checks are plain asserts and plots in cells; keep long fits in their own cells.
 
-## Layout (inside the existing repo)
+## Layout (self-contained in `HMM/`, conda env `eyetools-hmm`)
 ```
-hmm/adapter.py      Session contract + wrapper over existing loaders
-hmm/sessions.py     session index from existing metadata
-hmm/features.py     feature extraction, downsampling, scaling, mirroring
-hmm/splits.py       CV folds
-hmm/fit.py          ssm fitting (Gaussian, AR, HSMM)
-hmm/select.py       grids, held-out scoring, K/L/κ selection
-hmm/evaluate.py     validation (§6)
-config/hmm.yaml     features, grids, folds, seeds, paths
-scripts/            qc_sessions.py, run_fit.py, run_eval.py
-tests/test_hmm.py
+HMM/hmm/adapter.py      Session contract + wrapper over existing loaders
+HMM/hmm/sessions.py     session index from existing metadata
+HMM/hmm/features.py     feature extraction, downsampling, scaling, mirroring
+HMM/hmm/splits.py       CV folds
+HMM/hmm/fit.py          ssm fitting (Gaussian, AR, HSMM)
+HMM/hmm/select.py       grids, held-out scoring, K/L/κ selection
+HMM/hmm/evaluate.py     validation (§6)
+HMM/config/hmm.yaml     sessions, features, grids, folds, seeds, paths
+HMM/run_hmm.py          # %% cell script: QC, fit, run, examine each method
+HMM/results/            outputs (gitignored)
 ```
 
 ## Minimal starting sketch (M1/M2)
@@ -159,14 +172,15 @@ z = [m.most_likely_states(x) for x in X_test]
 ```
 
 ## Conventions
-- Run `pytest -q` after each change. Never tune on test folds.
+- Re-run the relevant `run_hmm.py` cells after each change. Never tune on test folds.
 - Use seconds for time and radians internally; convert to degrees only for display.
 - **Model selection uses held-out likelihood and reproducibility only.**
 - Don't loosen test tolerances without saying so.
 - The user is experienced in Python and MATLAB. Explain choices concisely and skip boilerplate.
 
-## Open questions (fill in during §0)
-- Where are the existing loaders, and what is the session identifier?
-- Are tracking and neural data synchronized? This determines whether §6.5 is feasible now.
-- Is eye tracking available? If so, eye velocity can be added as a feature.
-- Total hours per animal, and number of animals? With little data, prefer the Gaussian HMM, small K and L = 1.
+## Open questions (answered in §0)
+- **Loaders and session ID:** `utils/` (see Data contract); the session ID is the directory name.
+- **Neural data:** none yet, so §6.5 isn't feasible now.
+- **Eye tracking:** available (left and right eye kinematics plus quality masks), so eye velocity is a possible later feature.
+- **Data volume:** the default cohort (ferrets 402/405/407/420, EO ≥ 8; 402 and 405 have no sessions above EO7) is 10 sessions from 2 animals, about 44 min: 420 has 31 min, 407 has 13 min. Prefer the Gaussian HMM with small K and L = 1. Leave-one-animal-out has only 2 folds.
+- **Missing modules:** `head_turn_segmentation` and `synth.py` don't exist, so features compute ω_yaw directly and the synthetic generator is written fresh.

@@ -212,7 +212,7 @@ z = [m.most_likely_states(x) for x in X_test]
 **κ.**
 - Matching the median Viterbi state duration to 2.25 s pushes κ to the top of the grid (1e8 gives only 1.03 s).
 - At that κ the transition matrix implies dwell times of hours, while decoded states last about 1 s.
-- The κ-by-Viterbi-duration rule therefore fails here: decoding is driven by the emissions whatever the prior. **Needs a decision.**
+- The κ-by-Viterbi-duration rule therefore fails here: decoding is driven by the emissions whatever the prior. **Needs a decision.** The DECIDE K / DECIDE KAPPA cells in `run_hmm.py` produce the plots (`results/decide_K.png`, `results/decide_kappa.png`).
 
 **M1 (Gaussian HMM, ferret 420).** Held-out LL rises steadily from K=2 to 12, with no plateau.
 
@@ -230,3 +230,91 @@ z = [m.most_likely_states(x) for x in X_test]
 
 **Outputs:** `HMM/results/` holds cached grids, the run `20261001-234247_ar_K20_L3_kappa1e+08/`, `runs.csv` and `events_ar_K20_L3.csv`.
 
+
+## Status (2026-10-02)
+| Section | Status |
+|---|---|
+| §0 survey, adapter, session index, QC | done |
+| §2 library (ssm), §3 features, §4 splits | done |
+| §7 synthetic checks | done, all pass |
+| §5 timescale, κ, M1, M2 grid + LOAO | done; K and κ selection unresolved (see Results) |
+| §6 validation (1–4, 6) | done for the provisional K=20, L=3, κ=1e8; rerun at the chosen K/κ |
+| M3 HSMM | justified by §6.3, not yet run |
+| §6.5 neural predictivity | deferred, no neural data |
+
+See [info.md](info.md) for how to run the code, the learning path and references.
+
+## Next steps (current methods)
+1. **Choose K and κ** from the DECIDE plots. Favour the smallest K where held-out LL levels off for the held-out animals *and* most states reproduce (Jaccard > 0.75). Favour a κ where the decoded and implied dwell times roughly agree.
+2. **Rerun FINAL → DESCRIBE** at that setting. Set `K_sel`, `L_sel` and `kappa` in the cells, or add them to the config.
+3. **M3:** HSMM vs sticky AR-HMM on the same LOSO folds. If the HSMM wins, rerun REPRO / GENERATIVE / BOUNDARIES with it, since its dwell times are modelled rather than implied.
+4. **Name the states** from the state-triggered averages and the event table: pull 10–20 clips per state from video. Merge mirror pairs for description.
+5. **Robustness:**
+   - rerun with `observations="robust_ar"` (Student-t noise; tolerant of residual glitches);
+   - vary `fs_out` (30 → 60 Hz) and `sg_win_s`;
+   - check that the states survive.
+6. **Development axis:** once states are fixed, add the EO < 8 sessions as *test* data (decode only), and compare state occupancy, dwell times and transitions across EO.
+7. **Neural predictivity (§6.5)** when recordings are available.
+
+## Alternatives, if these methods are not adequate
+
+### (1) For identifying movement states
+**Symptoms that call for a change:**
+- states don't reproduce across restarts or halves, even at small K;
+- held-out LL never levels off;
+- dwell times misfit even with the HSMM;
+- states have no consistent kinematic signature in the triggered averages and video.
+
+**Data and features first** (the cheapest fixes):
+- **More data.** The current cohort is 41 min from 2 animals. Add ferrets and sessions (including EO < 8) so LOAO has more than 2 folds and large K is supported.
+- **Richer features:**
+  - ω_rel (head yaw rate minus the rotation of the travel direction), which separates head-on-body turns from whole-body turns;
+  - forward and lateral velocity in the head frame;
+  - pitch and roll velocity;
+  - z / rearing;
+  - eye or gaze velocity, from the existing eye data.
+- **Rate:** fit at 60 Hz, or on 120 Hz data with lag-stacked features, if fast movements are smeared at 30 Hz.
+
+**Model alternatives, roughly in order of effort:**
+- **Sticky HDP-AR-HMM / keypoint-MoSeq** (`jax-moseq`; Wiltschko et al. 2015, Weinreb et al. 2024).
+  - Gibbs sampling, and the data pick the number of states used.
+  - κ is set by a target median syllable duration, the same idea as here, but with full Bayesian uncertainty.
+  - This is the standard tool for "syllables" from pose or kinematics.
+- **HDP-HSMM** (`pyhsmm`; Johnson & Willsky 2013): nonparametric with explicit duration distributions.
+- **Recurrent switching LDS (rSLDS)** (`ssm.SLDS` / `dynamax`; Linderman et al. 2017).
+  - A continuous low-dimensional latent state with discrete switches that depend on where the latent is.
+  - Better when movements are a continuum with a few regimes rather than discrete motifs.
+- **Hierarchical / two-timescale models:** slow behavioural modes (explore, rest, hunt) that each contain fast movement motifs. Fit an HMM on windowed state-usage vectors from the AR-HMM, or use a hierarchical HMM.
+- **Input-driven HMM (GLM-HMM)** (Ashwood et al. 2022): if task or stimulus variables exist (e.g. prey position during hunting), transitions can depend on them.
+- **Non-Markov embeddings:**
+  - MotionMapper (Berman et al. 2014): wavelet spectrogram → t-SNE/UMAP → watershed;
+  - B-SOiD (Hsu & Yttri 2021);
+  - VAME (Luxem et al. 2022): an RNN autoencoder with an HMM on the latent.
+  - Useful as an independent check: states found by both approaches are more credible.
+- **Clustering of segments:** PELT segments (already computed) → per-segment summaries → GMM / hierarchical clustering. Simple, transparent, and a good sanity baseline.
+
+### (2) For identifying head turns (the original goal)
+The HMM gives turn *states*, not turn *events*. Ways to get from states to turns, or to detect turns directly:
+- **From the HMM:**
+  - define a turn as a contiguous run of the mirror-paired turn states (merge adjacent turn states);
+  - take onset and offset from the posterior crossing 0.5 rather than Viterbi;
+  - report the amplitude (∫ω dt), peak velocity and duration of each turn.
+- **Benchmark against the existing detector.**
+  - `utils/process_session.py` already detects head saccades with a velocity threshold: `extract_saccades(R, 'skull', …)` → `df_head`.
+  - Compare HMM turns with `df_head`: event-level precision and recall, and onset-time differences.
+  - Agreement validates both; disagreements are the interesting cases to check on video.
+- **Main-sequence validation** (`analyses/main_sequence.py`): real head turns should show a stereotyped amplitude–peak velocity–duration relation. Turns that fall off it are likely mis-segmented.
+- **Eye–head coordination** (`utils/eye_head_timing.py`):
+  - gaze-shifting turns should coincide with eye saccades;
+  - compensatory movements should show VOR-like eye counter-rotation.
+  - Use this to split turn types (gaze shifts vs other head movements) without hand labels.
+- **Dedicated turn models**, if the general model blurs turns:
+  - a 3-state HSMM on ω_yaw only (still / left / right) at 60–120 Hz;
+  - a left-to-right "turn template" HMM (onset → accelerate → decelerate → settle) embedded in a background state;
+  - changepoint detection on ω_yaw alone at full rate.
+- **Parametric velocity profiles:** fit a minimum-jerk or gamma-shaped velocity pulse to each candidate turn. The fit quality and parameters (amplitude, duration, asymmetry) give both a detection criterion and a description.
+- **Head-on-body vs whole-body turns:** use ω_rel and travel-direction change to separate turns of the head relative to the body from turns of the whole animal. This matters for interpreting gaze.
+- **Light supervision, as a last resort:**
+  - label a small set of turns in video and use it *only to evaluate* (precision and recall of each method);
+  - if unsupervised methods remain inadequate, train a classifier on window features (e.g. A-SOiD active learning; Tillmann et al. 2024).
+  - This departs from the unsupervised principle in §1, so treat it as a separate model.

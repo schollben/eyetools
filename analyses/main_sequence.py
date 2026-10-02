@@ -25,10 +25,11 @@ SAVE_FIGS = False
 
 # PLOT SETTINGS
 pool_by_eo = True                     # False: one panel per session | True: one panel per EO range
+compare_delayed = False               # True: normal EO 8-20 vs. all delayed sessions
 eo_bins = EO_BINS
 fit_by = "session"                    # "pooled": one fit per EO bin | "session": one fit per session
 min_n = 5                             # minimum number of saccades a group must have before it gets fitted
-compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
 else:

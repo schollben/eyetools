@@ -1,0 +1,7 @@
+sessions:
+  ferrets: [402, 405, 407, 420]
+  eo_min: 8
+  eo_max: null
+
+qc:
+  max_speed_mm_s: 800

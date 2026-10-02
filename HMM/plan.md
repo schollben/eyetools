@@ -189,3 +189,44 @@ z = [m.most_likely_states(x) for x in X_test]
 - **Eye tracking:** available (left and right eye kinematics plus quality masks), so eye velocity is a possible later feature.
 - **Data volume:** the default cohort (ferrets 402/405/407/420, EO ≥ 8; 402 and 405 have no sessions above EO7) is 10 sessions from 2 animals, about 44 min: 420 has 31 min, 407 has 13 min. Prefer the Gaussian HMM with small K and L = 1. Leave-one-animal-out has only 2 folds.
 - **Missing modules:** `head_turn_segmentation` and `synth.py` don't exist, so features compute ω_yaw directly and the synthetic generator is written fresh.
+
+## Results, first full run (2026-10-01; cohort 402/405/407/420, EO ≥ 8, minus 407 EO11: 9 sessions, 2 animals, 41 min)
+
+**Library checks (§2).**
+- `ssm` builds under numpy 2.3; there's no need for `numpy<2`.
+- Stickiness argument: `transition_kwargs=dict(kappa=...)`.
+- `ssm.HSMM` accepts `observations="ar"`.
+- `HSMM.fit` forwards fit kwargs into `initialize()`, so `fit.py` initializes separately.
+- The HSMM must be warm-started from the sticky AR-HMM's emissions. From its own k-means start it lands in worse optima and doesn't beat the sticky model.
+
+**Synthetic checks (§7): all pass.**
+- Round trip: accuracy 1.0 on the original 120 Hz frames.
+- AR-HMM K=6 recovery: 0.99 (Gaussian HMM 0.82; it can't separate oscillation from still).
+- Mirror augmentation gives a turn-left/turn-right pair.
+- Gamma dwell times: the HSMM beats the sticky AR-HMM by +0.02 nats/frame. Geometric dwell times (control): 0.00.
+
+**Timescale (§5).**
+- PELT changepoint rate falls steadily with penalty; there's no plateau.
+- The elbow is at penalty 100, with a median changepoint interval of 2.25 s.
+
+**κ.**
+- Matching the median Viterbi state duration to 2.25 s pushes κ to the top of the grid (1e8 gives only 1.03 s).
+- At that κ the transition matrix implies dwell times of hours, while decoded states last about 1 s.
+- The κ-by-Viterbi-duration rule therefore fails here: decoding is driven by the emissions whatever the prior. **Needs a decision.**
+
+**M1 (Gaussian HMM, ferret 420).** Held-out LL rises steadily from K=2 to 12, with no plateau.
+
+**M2 (AR-HMM, LOSO, κ=1e8).**
+- The number of lags dominates: L=3 is about 2 nats/frame better than L=1.
+- For L=3, gains shrink after K≈6: K 2→4 +0.55, 4→6 +0.12, 6→8 +0.04, 8→20 +0.27 in total.
+- The paired one-SE rule picks the grid edge (K=20).
+- Leave-one-animal-out: both held-out ferrets level off at K≈6.
+
+**Validation of K=20, L=3.**
+- Agreement: ARI 0.58 across restarts, 0.34 across data halves. Only 5 of 20 states have Jaccard > 0.75 across restarts, so most states don't reproduce.
+- Boundaries: 10.6% fall within ±100 ms of a changepoint, against 4.9% for the circular-shift null (p < 0.005).
+- Mirror pairing: 3 left/right pairs, giving 17 merged states. ARI with a |ω| model is 0.36.
+- Generative check: the decoded dwell distributions peak at 0.5–1 s with CV < 1, which is not geometric, while the model implies hours. The sticky HMM misfits dwell times, so §6.3 says to build the HSMM (M3, not yet run).
+
+**Outputs:** `HMM/results/` holds cached grids, the run `20261001-234247_ar_K20_L3_kappa1e+08/`, `runs.csv` and `events_ar_K20_L3.csv`.
+

@@ -423,12 +423,14 @@ print(f"ARI between models fit on the two halves (decoding all data): {adjusted_
 # %% GENERATIVE: simulate from the fitted model; compare dwell times, omega spectrum, transitions
 zs_sim, xs_sim = simulate(best, [len(X) for X in X_all], seed=cfg["seed"])
 d_real, d_sim = dwell_times(zs_all, K_sel), dwell_times(zs_sim, K_sel)
+implied_s = 1 / (1 - np.diag(best.transitions.transition_matrix)) / f["fs_out"]   # mean dwell the model implies
 
 rows = []
 for k in range(K_sel):
     a, b = d_real[k] / f["fs_out"], d_sim[k] / f["fs_out"]
-    ks = ks_2samp(a, b).statistic if len(a) and len(b) else np.nan
-    rows.append(dict(state=k, n_real=len(a), mean_real_s=a.mean() if len(a) else np.nan, mean_sim_s=b.mean() if len(b) else np.nan,
+    ks = ks_2samp(a, b).statistic if len(a) and len(b) else 1.0   # no complete simulated dwell = maximal misfit
+    rows.append(dict(state=k, n_real=len(a), mean_real_s=a.mean() if len(a) else np.nan, implied_mean_s=implied_s[k],
+                     mean_sim_s=b.mean() if len(b) else np.nan,
                      cv_real=a.std() / a.mean() if len(a) else np.nan, cv_sim=b.std() / b.mean() if len(b) else np.nan, ks=ks))
 dwell_fit = pd.DataFrame(rows).set_index("state")
 print(dwell_fit.round(3))

@@ -1,8 +1,8 @@
 import numpy as np
 from scipy.signal import savgol_filter, butter, sosfiltfilt
 
-FEATURE_NAMES = ["omega_yaw", "log_speed", "pitch"]
-SIGNED = [0]   # columns that flip sign under left/right mirroring
+FEATURE_NAMES = ["omega_yaw", "log_speed", "pitch", "v_fwd", "v_lat"]
+SIGNED = [0, 4]   # columns that flip sign under left/right mirroring
 
 
 def _valid_runs(valid: np.ndarray, min_len: int) -> list[tuple[int, int]]:
@@ -26,7 +26,11 @@ def session_features(s, fs_out=30, min_run_s=2, sg_win_s=None, lowpass_hz=None) 
             omega = savgol_filter(yaw, int(round(sg_win_s * s.fs)) | 1, 2, deriv=1, delta=1 / s.fs)
         log_speed = np.log(np.linalg.norm(s.vel_global[a:b], axis=1) + 1)           # log(mm/s + 1)
         pitch = np.radians(s.pitch_deg[a:b])                                          # rad
-        raw = np.column_stack([omega, log_speed, pitch])
+        vx, vy = s.vel_global[a:b].T
+        v_fwd = vx * np.cos(yaw) + vy * np.sin(yaw)                                  # head frame, mm/s
+        v_lat = -vx * np.sin(yaw) + vy * np.cos(yaw)
+        slog = lambda v: np.sign(v) * np.log(np.abs(v) + 1)                          # signed log(mm/s + 1)
+        raw = np.column_stack([omega, log_speed, pitch, slog(v_fwd), slog(v_lat)])
 
         # optional anti-alias, then interpolate onto a common-rate grid
         if lowpass_hz is not None:

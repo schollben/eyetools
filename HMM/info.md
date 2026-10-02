@@ -17,7 +17,7 @@ The plan, decisions and results are in [plan.md](plan.md). This file covers runn
 utils.load_skull_data ──► adapter.load_session ──► Session (120 Hz, valid mask)
                                                      │
 features.session_features ◄──────────────────────────┘
-  valid runs ≥ 2 s → omega_yaw (SG deriv), log(speed+1), pitch → 12 Hz low-pass → 30 Hz
+  valid runs ≥ 2 s → omega_yaw (np.gradient), log(speed+1), pitch, head-frame v_fwd / v_lat (signed log) → 30 Hz (no extra filter)
                                                      │
 splits (LOSO / LOAO) → fit_scaler on train only → mirror augmentation (omega → −omega)
                                                      │
@@ -45,7 +45,7 @@ ssm is installed editable from `~/Documents/ssm`, so its source can be read and 
 
 | Stage | Our code | Under the hood (ssm source) | Read |
 |---|---|---|---|
-| Features | [features.py](hmm/features.py) | scipy `savgol_filter`, `butter` / `sosfiltfilt`, `np.interp` | Savitzky & Golay 1964 |
+| Features | [features.py](hmm/features.py) | `np.gradient` of loaded yaw, head-frame rotation of `vel_global`, `np.interp` (no extra filter) | — |
 | HMM basics (EM, Viterbi) | [fit.py](hmm/fit.py) | `ssm/hmm.py` (`fit`, `most_likely_states`, `expected_states`); `ssm/messages.py` (forward–backward, Viterbi) | Rabiner 1989; Murphy *PML* (HMM chapters) |
 | Sticky κ | `make_model` | `StickyTransitions.m_step` in `ssm/transitions.py`: κ is added to the expected self-transition counts (about 10 lines) | Fox et al. 2011 |
 | AR emissions | `make_model(kind="ar")` | `AutoRegressiveObservations` in `ssm/observations.py`: a weighted linear regression per state on L lagged frames | Wiltschko et al. 2015 |

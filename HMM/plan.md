@@ -324,3 +324,34 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
 - **Decision:** use the loaded data exactly as is. ω_yaw = `np.gradient` of loaded yaw, with no Savitzky–Golay and no low-pass (`sg_win_s: null`, `lowpass_hz: null`). Resampling to 30 Hz then aliases under 1% of the power.
 - All earlier fits (everything in "Results, first full run" above, plus the DECIDE plots) used SG 100 ms + 12 Hz low-pass. They are archived in `HMM/results_filtered_sg100ms_lp12/` and are not comparable with new fits.
 - K=4, L=3, κ=100 (SELECTED cell) was chosen on the filtered features. Rerun M1 / M2 / DECIDE on the unfiltered features to confirm it.
+
+## K=4 run on unfiltered features (2026-10-02; 3 features, archived in `HMM/results_3feat_unfiltered/`)
+- **What the states were:** 4 speed regimes, not turns.
+  - still/slow, log speed 2.4: 21% of frames
+  - moderate, 3.3: 18%
+  - fast sustained, 4.8: 52%
+  - fast burst with head down, 4.8: 9%
+- **Reproducibility:** ARI across restarts 0.999; across data halves 0.47 (vs 0.69 on filtered features).
+- **Dwell times:** the model reproduces them (KS ≤ 0.13), so an HSMM is not needed.
+- **Boundaries:** 7.1% fall within ±100 ms of a changepoint, against 4.7% by chance.
+- **Turn direction is missing:**
+  - every state is its own mirror partner;
+  - the ω_yaw averages around state onsets are flat;
+  - the model's ω_yaw spectrum is 3–10× too low above about 5 Hz.
+- **Decoded state duration** with unfiltered features at κ ≤ 1e3: about 0.1 s (vs 0.2 s filtered).
+
+## Feature change (2026-10-02): head-frame velocity
+- **Why:** to give the model a direct signal for turn direction. World x/y velocity would encode compass direction, so instead it is rotated into the head frame by the loaded yaw.
+- **New features:**
+  - `v_fwd` (forward/backward) and `v_lat` (sideways; flips sign under mirroring), each as signed log(|v| + 1);
+  - features are now `[omega_yaw, log_speed, pitch, v_fwd, v_lat]` and `SIGNED = [0, 4]`;
+  - no filtering.
+- **Checks:**
+  - `v_fwd > 0` in 89–95% of fast frames (speed > 200 mm/s), so the yaw and x/y conventions agree;
+  - corr(ω_yaw, v_lat) ≈ 0.6, i.e. the head moves sideways in the direction of the turn.
+- **Rerun from scratch:** M1, M2, LOAO, DECIDE K and DECIDE KAPPA. K/L/κ will be re-chosen from the new DECIDE plots; the SELECTED cell holds K=4, L=3, κ=100 only as a placeholder.
+- **Compare with the 3-feature run on:**
+  - whether mirror pairs appear (left/right turn states);
+  - the ω_yaw state-triggered averages;
+  - boundary agreement;
+  - ARI across data halves.

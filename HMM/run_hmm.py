@@ -96,11 +96,16 @@ axes[0].set_title(f"{s.animal_id}  EO{s.eo}")
 plt.show()
 
 
-# %% FEATURES: valid runs -> omega_yaw, log_speed, pitch at a common rate
-# Per valid run (>= 2 s): yaw velocity by Savitzky-Golay derivative (100 ms window), log(speed + 1), pitch;
-# 4th-order Butterworth low-pass at 12 Hz (anti-alias), then interpolated to 30 Hz so all sessions share one rate.
+# %% FEATURES: valid runs -> omega_yaw, log_speed, pitch, v_fwd, v_lat at a common rate
+# Per valid run (>= 2 s), from the loaded (upstream-smoothed) data with no extra filter: yaw velocity (np.gradient), log(speed + 1),
+# pitch, and world velocity rotated into the head frame by yaw (forward / lateral, signed log); interpolated to 30 Hz.
 f = cfg["features"]
 segs = [g for s in S for g in session_features(s, **f)]
+
+# sign check: during fast movement the head should mostly move forward (v_fwd > 0); if not, yaw and x/y conventions disagree
+Xc = np.concatenate([g["X"] for g in segs])
+fast = Xc[:, 1] > np.log(200 + 1)
+print(f"fraction v_fwd > 0 when speed > 200 mm/s: {(Xc[fast, 3] > 0).mean():.2f}")
 
 seg_df = pd.DataFrame([dict(session_id=g["session_id"], animal_id=g["animal_id"], eo=g["eo"], n=len(g["t"])) for g in segs])
 summary = seg_df.groupby(["animal_id", "eo"]).agg(n_segs=("n", "size"), minutes=("n", "sum"))
@@ -110,9 +115,9 @@ print("total minutes:", round(seg_df.n.sum() / f["fs_out"] / 60, 1))
 
 
 # %% FEATURES: inspect one segment
-# The longest segment's three features in raw units, to check that turns, runs and rears look plausible.
+# The longest segment's features in raw units, to check that turns, runs and rears look plausible.
 g = max(segs, key=lambda g: len(g["t"]))   # longest segment
-fig, axes = plt.subplots(len(FEATURE_NAMES), 1, figsize=(10, 5), sharex=True)
+fig, axes = plt.subplots(len(FEATURE_NAMES), 1, figsize=(10, 7), sharex=True)
 for j, name in enumerate(FEATURE_NAMES):
     axes[j].plot(g["t"], g["X"][:, j], lw=0.5)
     axes[j].set_ylabel(name)
@@ -123,7 +128,7 @@ plt.show()
 
 # %% FEATURES: distributions per animal (raw units: rad/s, log(mm/s+1), rad)
 # Feature histograms per animal; large offsets between animals would bias leave-one-animal-out scores.
-fig, axes = plt.subplots(1, len(FEATURE_NAMES), figsize=(10, 2.5))
+fig, axes = plt.subplots(1, len(FEATURE_NAMES), figsize=(14, 2.5))
 for a in sorted({g["animal_id"] for g in segs}):
     Xa = np.concatenate([g["X"] for g in segs if g["animal_id"] == a])
     for j, name in enumerate(FEATURE_NAMES):
@@ -135,7 +140,7 @@ plt.show()
 
 # %% SPLITS + SCALING: leakage guard on one fold, mirror check
 # Cross-validation folds: leave-one-session-out (LOSO) and leave-one-animal-out (LOAO). Features are robust-z-scored
-# (median / IQR) using training sessions only; mirroring (omega -> -omega) doubles the training data and makes left/right symmetric.
+# (median / IQR) using training sessions only; mirroring (omega, v_lat -> -omega, -v_lat) doubles the training data and makes left/right symmetric.
 folds_loso = leave_one_session_out(segs)
 folds_loao = leave_one_animal_out(segs)
 print(len(folds_loso), "LOSO folds,", len(folds_loao), "LOAO folds")
@@ -159,7 +164,8 @@ assert np.allclose(fit_scaler([g["X"] for g in segs if g["session_id"] in train_
 
 # mirror: omega flips, others unchanged; augmented training set = original + mirrored
 Xm = mirror(X_train[0])
-assert np.allclose(Xm[:, 0], -X_train[0][:, 0]) and np.allclose(Xm[:, 1:], X_train[0][:, 1:])
+unsigned = [j for j in range(len(FEATURE_NAMES)) if j not in SIGNED]
+assert np.allclose(Xm[:, SIGNED], -X_train[0][:, SIGNED]) and np.allclose(Xm[:, unsigned], X_train[0][:, unsigned])
 X_train_aug = X_train + [mirror(X) for X in X_train]
 
 # per-session drift of scaled features (median per session)
@@ -661,7 +667,9 @@ desc["mirror_partner"], desc["param_dist"], desc["merged"] = pair, dist, merged
 print(desc.round(3))
 print(f"{K_sel} per-direction states -> {len(np.unique(merged))} merged states")
 
-X_abs = [np.column_stack([np.abs(X[:, 0]), X[:, 1:]]) for X in X_all]
+X_abs = [X.copy() for X in X_all]
+for X in X_abs:
+    X[:, SIGNED] = np.abs(X[:, SIGNED])
 path = RESULTS_DIR / f"abs_omega_ar_K{len(np.unique(merged))}_L{L_sel}_kappa{kappa:g}.pkl"
 if path.exists():
     m_abs = pickle.load(open(path, "rb"))
@@ -677,7 +685,7 @@ print(f"ARI merged-mirror states vs |omega| model: {adjusted_rand_score(merged[z
 # (session, state, start/stop times) is for pulling video clips of each state.
 win = int(1 * f["fs_out"])   # ±1 s around each state onset
 lags = np.arange(-win, win) / f["fs_out"]
-fig, axes = plt.subplots(1, len(FEATURE_NAMES), figsize=(11, 3))
+fig, axes = plt.subplots(1, len(FEATURE_NAMES), figsize=(16, 3))
 for k in range(K_sel):
     snips = []
     for g, z in zip(segs, zs_all):

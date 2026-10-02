@@ -329,9 +329,9 @@ def run_xcorr(x, y, max_lag):
     return cc[mid - max_lag: mid + max_lag + 1]
 
 
-def eo_groups(Results, pool_by_eo, eo_bins):
+def eo_groups(Results, pool_by_eo, eo_bins, normal_ids=NORMAL_IDS):
     """Session groups and panel titles, pooled by EO bin or one per session."""
-    Results = [R for R in Results if R.id in NORMAL_IDS]
+    Results = [R for R in Results if R.id in normal_ids]
     if pool_by_eo:
         groups = [[R for R in Results if lo <= R.eo <= hi] for lo, hi in eo_bins]
         titles = [f"EO {lo}-{hi}" for lo, hi in eo_bins]
@@ -341,11 +341,11 @@ def eo_groups(Results, pool_by_eo, eo_bins):
     return groups, titles
 
 
-def delayed_groups(Results, eo_bin=(8, 20)):
+def delayed_groups(Results, eo_bin=(8, 20), normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS):
     """Mature normal ferrets in eo_bin vs. every delayed-experience session pooled."""
     lo, hi = eo_bin
-    normal = [R for R in Results if R.id in NORMAL_IDS and lo <= R.eo <= hi]
-    delayed = [R for R in Results if R.id in DELAYED_IDS]
+    normal = [R for R in Results if R.id in normal_ids and lo <= R.eo <= hi]
+    delayed = [R for R in Results if R.id in delayed_ids]
     return [normal, delayed], [f"Normal EO {lo}-{hi}", "Delayed (all)"]
 
 

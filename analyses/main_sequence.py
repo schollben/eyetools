@@ -16,8 +16,8 @@ from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, 
 set_style()
 
 # LOAD DATA
-# good = (402, 405, 407, 420)  # TO ADD (once fixed): 753, 757
-# delayed experience: 411, 416, 403
+NORMAL_IDS = (402, 405, 407, 420) 
+DELAYED_IDS = (411, 416, 403)
 Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # SAVE FIGURES
@@ -30,9 +30,9 @@ fit_by = "session"                    # "pooled": one fit per EO bin | "session"
 min_n = 5                             # minimum number of saccades a group must have before it gets fitted
 compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
 if compare_delayed:
-    groups, titles = delayed_groups(Results)
+    groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
 else:
-    groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
+    groups, titles = eo_groups(Results, pool_by_eo, eo_bins, NORMAL_IDS)
 
 for group, title in zip(groups, titles):
     n_pts = sum(len(R.df_LE) + len(R.df_RE) for R in group)

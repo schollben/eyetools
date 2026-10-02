@@ -70,9 +70,9 @@ disp_lim = 30          # deg, axis limit for displacement panels
 
 compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
 if compare_delayed:
-    groups, titles = delayed_groups(Results)
+    groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
 else:
-    groups, titles = eo_groups(Results, pool_by_eo, eo_bins)
+    groups, titles = eo_groups(Results, pool_by_eo, eo_bins, NORMAL_IDS)
 
 for R in Results:
     P = paired_saccades(R, pair_window, flip_eye, axis)

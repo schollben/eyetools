@@ -11,6 +11,9 @@ from utils.config import SAVELOC
 from utils.eye_velocity import eye_velocity
 
 #hardcoded IDS/parameters
+# notes: 
+# 411 missing eye quality 
+# 753 and 757 have some issues and being repreprocessed
 FS = 120.0
 EO_BINS = [(0, 3), (4, 7), (8, 20)]
 NORMAL_IDS = (402, 405, 407, 420, 753, 757)

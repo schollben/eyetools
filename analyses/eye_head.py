@@ -18,7 +18,9 @@ set_style()
 
 # LOAD DATA
 # good = (402, 405, 407, 420)  # TO ADD (once fixed): 753, 757
-# delayed experience: 411, 416, 403
+# delayed experience: 416, 403 # TO ADD (once fixed): 411
+NORMAL_IDS = (402, 405, 407, 420) 
+DELAYED_IDS = (416, 403)
 Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # SAVE DATA
@@ -51,7 +53,7 @@ loco = "stationary"
 speed_threshold = 20     # mm/s
 min_bout = 30            # frames
 
-compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+compare_delayed = True  # True: normal EO 8-20 vs. all delayed sessions
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
 else:
@@ -206,6 +208,8 @@ for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)
         fig.tight_layout()
         save_fig(fig, f"eye_head_B2_{sig}_by_head_amp " + loco) 
 
+
+# %%
 
 # %% D. timing: when do eye saccades start relative to head onset?
 # Lag = eye onset - head onset (ms): POSITIVE = the eye followed the head.

@@ -19,7 +19,9 @@ set_style()
 
 # LOAD DATA
 # good = (402, 405, 407, 420)  # TO ADD (once fixed): 753, 757
-# delayed experience: 411, 416, 403
+# delayed experience: 416, 403 # TO ADD (once fixed): 411
+NORMAL_IDS = (402, 405, 407, 420) 
+DELAYED_IDS = (416, 403)
 Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # SAVE FIGS
@@ -45,7 +47,7 @@ COND_COLORS = dict(zip(conditions, ["#444444", "#1B9E77"]))
 pre, post = 12, 48       # frames: -100 to +400 ms from onset (cell 4 only)
 bin_by = "amplitude"     # "amplitude" | "peak_velocity" (cell 4 only)
 
-compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+compare_delayed = True  # True: normal EO 8-20 vs. all delayed sessions
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
 else:

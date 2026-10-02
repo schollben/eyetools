@@ -17,7 +17,7 @@ print(len(ids), "eligible sessions")
 
 
 # %% load
-S = [load_session(s, max_speed=cfg["qc"]["max_speed_mm_s"]) for s in ids]
+S = [load_session(s, max_speed=cfg["qc"]["max_speed_mm_s"], max_abs_pitch=cfg["qc"]["max_abs_pitch_deg"]) for s in ids]
 
 
 # %% QC: one row per session + sanity asserts
@@ -28,10 +28,11 @@ for s in S:
     assert len(s.yaw_deg) == len(s.t) == len(s.pos_xy) == len(s.valid), s.session_id
 
     dyaw = (np.diff(s.yaw_deg) + 180) % 360 - 180   # wrapped per-frame change
+    dyaw = dyaw[s.valid[1:] & s.valid[:-1]]           # valid-to-valid frames only
     rows.append(dict(
         session_id=s.session_id, animal_id=s.animal_id, eo=s.eo,
         fs=s.fs, duration_s=s.t[-1] - s.t[0], frac_valid=s.valid.mean(),
-        max_abs_dyaw=np.abs(dyaw).max(),
+        max_abs_dyaw_valid=np.abs(dyaw).max(),
         x_range=np.ptp(s.pos_xy[:, 0]), y_range=np.ptp(s.pos_xy[:, 1]),
     ))
 

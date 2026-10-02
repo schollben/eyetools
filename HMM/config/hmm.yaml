@@ -5,3 +5,4 @@ sessions:
 
 qc:
   max_speed_mm_s: 800
+  max_abs_pitch_deg: 75

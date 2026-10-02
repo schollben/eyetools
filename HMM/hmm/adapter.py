@@ -32,7 +32,7 @@ class Session:
     neural:      object | None = None
 
 
-def load_session(session_id: str, max_speed: float = 800) -> Session:
+def load_session(session_id: str, max_speed: float = 800, max_abs_pitch: float = 75) -> Session:
     meta = load_skull_data(DATA_DIR / session_id)
     info = parse_session_name(session_id)
 
@@ -44,6 +44,8 @@ def load_session(session_id: str, max_speed: float = 800) -> Session:
     # same head-speed criterion as utils/process_session.py
     speed = np.linalg.norm(vel_global, axis=1)
     valid = np.isfinite(meta["yaw"]) & np.isfinite(pos_xy).all(axis=1) & (speed < max_speed)
+    # Euler yaw is ill-defined near |pitch| = 90 (gimbal lock)
+    valid &= np.abs(meta["pitch"]) < max_abs_pitch
 
     return Session(
         session_id=session_id,

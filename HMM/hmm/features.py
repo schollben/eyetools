@@ -12,22 +12,25 @@ def _valid_runs(valid: np.ndarray, min_len: int) -> list[tuple[int, int]]:
     return [(a, b) for a, b in zip(starts, stops) if b - a >= min_len]
 
 
-def session_features(s, fs_out=30, min_run_s=2, sg_win_s=0.1, lowpass_hz=12) -> list[dict]:
+def session_features(s, fs_out=30, min_run_s=2, sg_win_s=None, lowpass_hz=None) -> list[dict]:
     """Features for each valid run of a Session, resampled to a uniform fs_out grid.
+    sg_win_s / lowpass_hz = None uses the loaded (already smoothed upstream) data as is.
     Returns a list of segments: dict(session_id, animal_id, eo, t, X)."""
-    win = int(round(sg_win_s * s.fs)) | 1          # odd SG window, ~100 ms
-    sos = butter(4, lowpass_hz, fs=s.fs, output="sos")
     segs = []
     for a, b in _valid_runs(s.valid, int(min_run_s * s.fs)):
         t = s.t[a:b]
         yaw = np.unwrap(np.radians(s.yaw_deg[a:b]))
-        omega = savgol_filter(yaw, win, 2, deriv=1, delta=1 / s.fs)                 # rad/s
+        if sg_win_s is None:
+            omega = np.gradient(yaw, t)                                               # rad/s
+        else:
+            omega = savgol_filter(yaw, int(round(sg_win_s * s.fs)) | 1, 2, deriv=1, delta=1 / s.fs)
         log_speed = np.log(np.linalg.norm(s.vel_global[a:b], axis=1) + 1)           # log(mm/s + 1)
         pitch = np.radians(s.pitch_deg[a:b])                                          # rad
         raw = np.column_stack([omega, log_speed, pitch])
 
-        # anti-alias, then interpolate onto a common-rate grid
-        raw = sosfiltfilt(sos, raw, axis=0)
+        # optional anti-alias, then interpolate onto a common-rate grid
+        if lowpass_hz is not None:
+            raw = sosfiltfilt(butter(4, lowpass_hz, fs=s.fs, output="sos"), raw, axis=0)
         t_out = np.arange(t[0], t[-1], 1 / fs_out)
         X = np.column_stack([np.interp(t_out, t, raw[:, j]) for j in range(raw.shape[1])])
 

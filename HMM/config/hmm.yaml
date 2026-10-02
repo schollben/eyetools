@@ -14,8 +14,8 @@ qc:
 features:
   fs_out: 30          # Hz, common rate for all sessions
   min_run_s: 2        # drop valid runs shorter than this
-  sg_win_s: 0.1       # Savitzky–Golay derivative window for omega_yaw
-  lowpass_hz: 12      # anti-alias before resampling
+  sg_win_s: null      # null: omega_yaw = np.gradient of loaded yaw; else Savitzky–Golay window (s)
+  lowpass_hz: null    # null: no extra filter (loaded data is smoothed upstream, <1% power >15 Hz); else Butterworth cutoff
 
 seed: 0
 

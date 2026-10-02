@@ -521,6 +521,11 @@ plt.show()
 # §6 VALIDATION OF THE SELECTED MODEL
 # =============================================================================
 
+# %% SELECTED: K, L, kappa chosen from the DECIDE plots (2026-10-02); overrides the automatic M2 / KAPPA picks
+# K=4 is the largest K whose states reproduce (restarts and halves); kappa <= 1e3 is equivalent on held-out LL, 100 adds mild stickiness.
+K_sel, L_sel, kappa = 4, 3, 100.0
+
+
 # %% FINAL: selected AR-HMM on all sessions, n_restarts seeds; decode; save run  [cached]
 # Refit the chosen K / L / kappa on all sessions (mirrored) with several seeds; keep the restart with the best training LL.
 # States and posteriors are mapped back onto each session's original frames and saved to HMM/results/<timestamp>_<run_name>/.

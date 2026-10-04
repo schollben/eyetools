@@ -19,34 +19,51 @@ CHECK_SESSIONS = ('session_2025-10-22_ferret_420_EO13_analyzable_output',   # he
                   'session_2025-10-11_ferret_402_E02_analyzable_output')
 FS = 120                         # frame rate (Hz)
 
+# Two scales. Light smoothing keeps the edges of tight arcs; large arcs only rise above the head
+# wiggle after heavy smoothing. Coarse-scale arcs are added where no fine-scale arc of the same
+# direction is.
+# fine scale: tight arcs
 SIGMA_S = 0.08       # Gaussian smoothing sigma (s)
-MAX_GAP_S = 0.2      # interpolate tracking gaps up to this long; longer gaps stay NaN
-SPEED_MIN = 50.0     # mm/s; set above the speed noise floor when the animal is still
 KAPPA_HI = 0.015     # 1/mm; an arc must reach |curvature| above this (radius < 1/KAPPA_HI) ...
 KAPPA_LO = 0.01125   # 1/mm; ... and extends while |curvature| stays above this (0.75 x KAPPA_HI)
-MERGE_GAP_S = 0.0    # same-direction arcs closer than this are joined
+EDGE_FRAC = 0.0      # arc edges: where |curvature| falls below this fraction of the arc's own peak (0 = off)
+# coarse scale: large arcs
+SIGMA_S_COARSE = 0.24
+KAPPA_HI_COARSE = 0.003      # radius < 330 mm
+KAPPA_LO_COARSE = 0.00225
+EDGE_FRAC_COARSE = 0.33
+MERGE_GAP_S_COARSE = 0.2     # bridges the short slow dips (speed < SPEED_MIN) that split large arcs
+# both scales
+MAX_GAP_S = 0.2      # interpolate tracking gaps up to this long; longer gaps stay NaN
+SPEED_MIN = 50.0     # mm/s; set above the speed noise floor when the animal is still
+MERGE_GAP_S = 0.0    # same-direction arcs closer than this are joined (fine scale)
 MIN_DUR_S = 0.3      # shortest arc kept (s), applied after merging
+MIN_TURN_DEG = 45    # an arc must turn the heading at least this much in total (any radius)
 
 PLOT_WINDOW_S = (0, 60)          # time range drawn in the figures (s)
 
 # synthetic ground truth (cells 2, 3, 5)
 NOISE_SIGMA_S = 0.1              # real wiggle + jitter = raw - Gaussian(raw, this) is added to the synthetic path
-ARC_RATE_PER_MIN = 40            # planted arcs per minute of moving time (40 / 300 mm: closest to real |curvature| and turn rate)
-RADIUS_RANGE = (20, 300)         # mm, planted radius (log-uniform)
+ARC_RATE_PER_MIN = 40            # planted arcs per minute of moving time (with BG_RADIUS: close to real |curvature| and turn rate)
+RADIUS_RANGE = (20, 600)         # mm, planted radius (log-uniform)
 TURN_RANGE_DEG = (45, 180)       # planted turn angle (uniform)
 TRUTH_MIN_DUR_S = 0.3            # planted arcs are at least this long
-BG_RADIUS = 300                  # mm; background heading wander mostly has radius > this (= not an arc)
+BG_RADIUS = 600                  # mm; background heading wander mostly has radius > this (= not an arc)
 BG_SMOOTH_S = 1.0                # s; time scale of the background wander
 N_SYNTH = 5                      # synthetic realizations per score
+RADIUS_BINS = (20, 50, 100, 200, 400, 600)   # mm, recall is also reported per planted-radius bin
 
-# conservative selection (cell 5): among settings whose detections are this reliable, take the highest recall
-PREC_MIN = 0.95                  # fraction of detected arcs that are real
-FRAME_PREC_MIN = 0.85            # fraction of detected arc frames that lie inside a real arc
+# selection (cell 5): among coarse settings whose detections are this reliable, take the highest recall
+PREC_MIN = 0.93                  # fraction of detected arcs that are real
+FRAME_PREC_MIN = 0.83            # fraction of detected arc frames that lie inside a real arc
 # ======================================================================
 
 P = dict(sigma_s=SIGMA_S, max_gap_s=MAX_GAP_S, speed_min=SPEED_MIN, kappa_hi=KAPPA_HI,
-         kappa_lo=KAPPA_LO, merge_gap_s=MERGE_GAP_S, min_dur_s=MIN_DUR_S)
-LEFT_C, RIGHT_C = '#2a78d6', '#eb6834'
+         kappa_lo=KAPPA_LO, merge_gap_s=MERGE_GAP_S, min_dur_s=MIN_DUR_S, min_turn_deg=MIN_TURN_DEG,
+         edge_frac=EDGE_FRAC)
+PC = dict(P, sigma_s=SIGMA_S_COARSE, kappa_hi=KAPPA_HI_COARSE, kappa_lo=KAPPA_LO_COARSE, edge_frac=EDGE_FRAC_COARSE,
+          merge_gap_s=MERGE_GAP_S_COARSE)
+LEFT_C, RIGHT_C, COARSE_C = '#2a78d6', '#eb6834', '#8a8984'
 
 
 def fill_gaps(v, max_gap):
@@ -86,39 +103,70 @@ def runs(m):
     return np.where(d == 1)[0], np.where(d == -1)[0]
 
 
-def arc_segments(speed, kappa, fs, speed_min, kappa_hi, kappa_lo, merge_gap_s, min_dur_s):
+def arc_segments(speed, kappa, fs, speed_min, kappa_hi, kappa_lo, merge_gap_s, min_dur_s, min_turn_deg, edge_frac):
     """(start, end, sign) per arc. Left (+1) and right (-1) are found separately: runs above
-    kappa_lo that reach kappa_hi, joined across gaps <= merge_gap_s, then >= min_dur_s."""
+    kappa_lo that reach kappa_hi. Each run's edges are then pulled in to where curvature is above
+    edge_frac x the run's peak (which also splits neighbouring arcs at a dip between them).
+    Arcs are joined across gaps <= merge_gap_s, then kept if >= min_dur_s and turning
+    >= min_turn_deg in total (heading change = sum of kappa * speed * dt)."""
     moving = speed > speed_min                                    # NaN compares False
     segs = []
     for sign in (1, -1):
         k = sign * kappa
         hi = moving & (k > kappa_hi)
         kept = []
-        for s, e in zip(*runs(moving & (k > kappa_lo))):
-            if not hi[s:e].any():
+        for s0, e0 in zip(*runs(moving & (k > kappa_lo))):
+            if not hi[s0:e0].any():
                 continue
-            if kept and s - kept[-1][1] <= merge_gap_s * fs:
-                kept[-1] = (kept[-1][0], e)
-            else:
-                kept.append((s, e))
-        segs += [(s, e, sign) for s, e in kept if (e - s) / fs >= min_dur_s]
+            thr = max(kappa_lo, edge_frac * k[s0:e0].max())
+            for s, e in zip(*runs(k[s0:e0] > thr)):
+                s, e = s + s0, e + s0
+                if not hi[s:e].any():
+                    continue
+                if kept and s - kept[-1][1] <= merge_gap_s * fs:
+                    kept[-1] = (kept[-1][0], e)
+                else:
+                    kept.append((s, e))
+        segs += [(s, e, sign) for s, e in kept if (e - s) / fs >= min_dur_s
+                 and np.rad2deg(np.nansum(k[s:e] * speed[s:e]) / fs) >= min_turn_deg]
     return sorted(segs)
 
 
-def find_arcs(x_raw, y_raw, fs, sigma_s, max_gap_s, speed_min, kappa_hi, kappa_lo, merge_gap_s, min_dur_s):
-    """Raw 2D position -> arcs. Returns segs [(start, end, sign)], smoothed x, y, speed, kappa."""
+def find_arcs(x_raw, y_raw, fs, sigma_s, max_gap_s, speed_min, kappa_hi, kappa_lo, merge_gap_s, min_dur_s, min_turn_deg,
+              edge_frac):
+    """Raw 2D position -> arcs at one smoothing scale. Returns segs [(start, end, sign)], smoothed x, y, speed, kappa."""
     x = smooth(x_raw, fs, sigma_s, max_gap_s)
     y = smooth(y_raw, fs, sigma_s, max_gap_s)
     speed, kappa = kinematics(x, y, fs)
-    segs = arc_segments(speed, kappa, fs, speed_min, kappa_hi, kappa_lo, merge_gap_s, min_dur_s)
+    segs = arc_segments(speed, kappa, fs, speed_min, kappa_hi, kappa_lo, merge_gap_s, min_dur_s, min_turn_deg,
+                        edge_frac)
     return segs, x, y, speed, kappa
 
 
-def turn_deg(x, y, s, e):
-    """Heading change of the path over frames s:e (deg, + = left)."""
-    heading = np.unwrap(np.arctan2(np.gradient(y[s:e]), np.gradient(x[s:e])))
-    return np.rad2deg(heading[-1] - heading[0])
+def find_arcs_2scale(x_raw, y_raw, fs, fine, coarse=None):
+    """Fine-scale arcs, plus coarse-scale arcs where no fine arc of the same direction is
+    (coarse=None: fine only). Returns segs [(start, end, sign, scale)] and
+    K = {scale: (x, y, speed, kappa)}."""
+    segs_f, *k_fine = find_arcs(x_raw, y_raw, fs, **fine)
+    K = {'fine': tuple(k_fine)}
+    segs = [(s, e, sign, 'fine') for s, e, sign in segs_f]
+    if coarse is not None:
+        segs_c, *k_coarse = find_arcs(x_raw, y_raw, fs, **coarse)
+        K['coarse'] = tuple(k_coarse)
+        in_fine = {1: np.zeros(len(x_raw), bool), -1: np.zeros(len(x_raw), bool)}
+        for s, e, sign in segs_f:
+            in_fine[sign][s:e] = True
+        segs += [(s, e, sign, 'coarse') for s, e, sign in segs_c if not in_fine[sign][s:e].any()]
+    return sorted(segs), K
+
+
+def arc_stats(k, s, e, fs):
+    """Turn (deg, + = left; = sum of kappa * speed * dt), path length (mm) and mean radius
+    (path length / turn) over frames s:e of one scale k = (x, y, speed, kappa)."""
+    _, _, speed, kappa = k
+    turn = np.nansum(kappa[s:e] * speed[s:e]) / fs
+    length = np.nansum(speed[s:e]) / fs
+    return np.rad2deg(turn), length, length / max(abs(turn), 1e-9)
 
 
 def load(session):
@@ -132,19 +180,19 @@ def load(session):
     return R, x_raw, y_raw, np.where(bad, np.nan, vv), w_yaw
 
 
-def arc_table(segs, x, y, speed, kappa, w_yaw, fs):
-    """One row per arc. yaw_sign_ok / yaw_r compare path turn rate (speed * kappa) with head yaw rate."""
-    w_path = np.rad2deg(speed * kappa)
+def arc_table(segs, K, w_yaw, fs):
+    """One row per arc, measured on the arc's own scale. yaw_sign_ok / yaw_r compare path turn
+    rate (speed * kappa) with head yaw rate."""
     rows = []
-    for s, e, sign in segs:
+    for s, e, sign, scale in segs:
+        _, _, speed, kappa = K[scale]
+        turn, length, radius = arc_stats(K[scale], s, e, fs)
+        w_path = np.rad2deg(speed[s:e] * kappa[s:e])
         rows.append(dict(start_frame=s, end_frame=e, start_s=s / fs, end_s=e / fs, duration_s=(e - s) / fs,
-                         direction='left' if sign > 0 else 'right',
-                         median_radius=1 / np.median(np.abs(kappa[s:e])),
-                         turn_deg=turn_deg(x, y, s, e),
-                         mean_speed=speed[s:e].mean(),
-                         path_length=np.sum(np.hypot(np.diff(x[s:e]), np.diff(y[s:e]))),
+                         direction='left' if sign > 0 else 'right', scale=scale,
+                         radius=radius, turn_deg=turn, mean_speed=np.nanmean(speed[s:e]), path_length=length,
                          yaw_sign_ok=np.sign(np.nanmean(w_yaw[s:e])) == sign,
-                         yaw_r=pd.Series(w_path[s:e]).corr(pd.Series(w_yaw[s:e]))))
+                         yaw_r=pd.Series(w_path).corr(pd.Series(w_yaw[s:e]))))
     return pd.DataFrame(rows)
 
 
@@ -183,38 +231,45 @@ def make_synth(v, resid_x, resid_y, nan_mask, fs, rng, arc_rate_per_min):
     return x, y, sorted(truth)
 
 
-def score(segs, truth, x, y, kappa, fs):
+def score(segs, truth, K, fs):
     """Truth arc found = >= 50% of its frames inside same-direction detections.
     Detection correct = >= 50% of its frames inside same-direction truth.
     Errors are from the detection overlapping each found truth arc most."""
-    n = len(kappa)
+    n = len(K['fine'][0])
     det = {1: np.zeros(n, bool), -1: np.zeros(n, bool)}
     tru = {1: np.zeros(n, bool), -1: np.zeros(n, bool)}
-    for s, e, sign in segs:
+    for s, e, sign, _ in segs:
         det[sign][s:e] = True
     for s, e, sign, *_ in truth:
         tru[sign][s:e] = True
-    found, rad_err, turn_err, on_err, off_err = [], [], [], [], []
+    found, r_true, rad_err, turn_err, on_err, off_err = [], [], [], [], [], []
     for ts, te, tsign, tr, tturn in truth:
         found.append(det[tsign][ts:te].mean() >= 0.5)
+        r_true.append(tr)
         if not found[-1]:
             continue
-        s, e, _ = max((d for d in segs if d[2] == tsign), key=lambda d: min(d[1], te) - max(d[0], ts))
-        rad_err.append(abs(np.log(1 / np.median(np.abs(kappa[s:e])) / tr)))
-        turn_err.append(abs(turn_deg(x, y, s, e)) - tturn)
+        s, e, _, scale = max((d for d in segs if d[2] == tsign), key=lambda d: min(d[1], te) - max(d[0], ts))
+        turn, _, radius = arc_stats(K[scale], s, e, fs)
+        rad_err.append(abs(np.log(radius / tr)))
+        turn_err.append(abs(turn) - tturn)
         on_err.append((s - ts) / fs * 1000)
         off_err.append((e - te) / fs * 1000)
-    correct = [tru[sign][s:e].mean() >= 0.5 for s, e, sign in segs]
-    recall = np.mean(found) if found else np.nan
+    found, r_true = np.array(found, bool), np.array(r_true)
+    correct = [tru[sign][s:e].mean() >= 0.5 for s, e, sign, _ in segs]
+    recall = found.mean() if len(found) else np.nan
     precision = np.mean(correct) if correct else np.nan
     n_det_frames = det[1].sum() + det[-1].sum()
-    return dict(n_truth=len(truth), n_det=len(segs), recall=recall, precision=precision,
-                frame_prec=((det[1] & tru[1]).sum() + (det[-1] & tru[-1]).sum()) / n_det_frames if n_det_frames else np.nan,
-                f1=2 * recall * precision / (recall + precision) if recall + precision > 0 else 0.0,
-                rad_err=np.median(rad_err) if rad_err else np.nan,       # median |log(R_det / R_true)|
-                turn_err=np.median(turn_err) if turn_err else np.nan,    # median (|det turn| - true turn), deg
-                onset_ms=np.median(on_err) if on_err else np.nan,
-                offset_ms=np.median(off_err) if off_err else np.nan)
+    out = dict(n_truth=len(truth), n_det=len(segs), recall=recall, precision=precision,
+               frame_prec=((det[1] & tru[1]).sum() + (det[-1] & tru[-1]).sum()) / n_det_frames if n_det_frames else np.nan,
+               rec_large=found[r_true >= 100].mean() if (r_true >= 100).any() else np.nan,   # recall, radius >= 100 mm
+               rad_err=np.median(rad_err) if rad_err else np.nan,       # median |log(R_det / R_true)|
+               turn_err=np.median(turn_err) if turn_err else np.nan,    # median (|det turn| - true turn), deg
+               onset_ms=np.median(on_err) if on_err else np.nan,
+               offset_ms=np.median(off_err) if off_err else np.nan)
+    for lo, hi in zip(RADIUS_BINS[:-1], RADIUS_BINS[1:]):
+        m = (r_true >= lo) & (r_true < hi)
+        out[f'rec_R{lo}-{hi}'] = found[m].mean() if m.any() else np.nan
+    return out
 
 
 def synth_set(session_data, n_synth, arc_rate_per_min, seed=0):
@@ -227,68 +282,77 @@ def synth_set(session_data, n_synth, arc_rate_per_min, seed=0):
     return [make_synth(vv, resid_x, resid_y, nan_mask, FS, rng, arc_rate_per_min) for _ in range(n_synth)]
 
 
-def synth_score(synths, p):
-    """Mean score over synthetic realizations for parameter dict p."""
+def synth_score(synths, fine, coarse=None):
+    """Mean score over synthetic realizations."""
     out = []
     for xs, ys, truth in synths:
-        segs, x, y, _, kappa = find_arcs(xs, ys, FS, **p)
-        out.append(score(segs, truth, x, y, kappa, FS))
+        segs, K = find_arcs_2scale(xs, ys, FS, fine, coarse)
+        out.append(score(segs, truth, K, FS))
     return pd.DataFrame(out).mean()
 
 
-def real_summary(session_data, p):
-    """Real-data statistics for parameter dict p (no ground truth: counts, sizes, yaw agreement)."""
+def real_summary(session_data, fine, coarse=None):
+    """Real-data statistics (no ground truth: counts, sizes, yaw agreement)."""
     R, x_raw, y_raw, _, w_yaw = session_data
-    segs, x, y, speed, kappa = find_arcs(x_raw, y_raw, FS, **p)
-    arcs = arc_table(segs, x, y, speed, kappa, w_yaw, FS)
-    moving = speed > p['speed_min']
-    in_arc = np.zeros(len(speed), bool)
-    for s, e, _ in segs:
+    segs, K = find_arcs_2scale(x_raw, y_raw, FS, fine, coarse)
+    arcs = arc_table(segs, K, w_yaw, FS)
+    moving = K['fine'][2] > fine['speed_min']
+    in_arc = np.zeros(len(moving), bool)
+    for s, e, *_ in segs:
         in_arc[s:e] = True
     return dict(n_arcs=len(arcs),
+                n_coarse=int((arcs.scale == 'coarse').sum()) if len(arcs) else 0,
                 med_dur_s=arcs.duration_s.median() if len(arcs) else np.nan,
-                med_radius=arcs.median_radius.median() if len(arcs) else np.nan,
+                med_radius=arcs.radius.median() if len(arcs) else np.nan,
                 pct_moving_in_arcs=100 * (in_arc & moving).sum() / moving.sum(),
                 pct_yaw_sign_ok=100 * arcs.yaw_sign_ok.mean() if len(arcs) else np.nan,
                 med_yaw_r=arcs.yaw_r.median() if len(arcs) else np.nan)
 
 
-def plot_arcs(x_raw, y_raw, x, y, speed, kappa, segs, p, title, truth=None):
+def plot_arcs(x_raw, y_raw, segs, K, fine, coarse, title, truth=None):
     """Trajectory with arcs (left) and speed / |kappa| / kappa traces (right), PLOT_WINDOW_S only.
-    truth (synthetic): thin colored lines on the trajectory, hatched spans on the traces."""
+    Fine-scale arcs narrow, coarse-scale arcs wide and light; fine traces black, coarse grey.
+    truth (synthetic): thin colored lines on the trajectory, bars at the bottom of the traces."""
+    x, y, speed, kappa = K['fine']
     t = np.arange(len(x)) / FS
     w0, w1 = int(PLOT_WINDOW_S[0] * FS), int(PLOT_WINDOW_S[1] * FS)
     fig = plt.figure(figsize=(14, 8))
     gs = fig.add_gridspec(3, 2, width_ratios=[1, 1.6], hspace=0.3)
     ax = fig.add_subplot(gs[:, 0])
     ax.plot(x_raw[w0:w1], y_raw[w0:w1], '.', ms=1, color='#b9b8b2', label='raw')
-    ax.plot(x[w0:w1], y[w0:w1], color='#0b0b0b', lw=0.8, label='smoothed')
-    for s, e, sign in segs:
+    ax.plot(x[w0:w1], y[w0:w1], color='#0b0b0b', lw=0.8, label='smoothed (fine)')
+    for s, e, sign, scale in segs:
         if e > w0 and s < w1:
-            ax.plot(x[s:e], y[s:e], lw=4, alpha=0.6, color=LEFT_C if sign > 0 else RIGHT_C)
+            ax.plot(x[s:e], y[s:e], lw=4 if scale == 'fine' else 8, alpha=0.6 if scale == 'fine' else 0.3,
+                    color=LEFT_C if sign > 0 else RIGHT_C)
     for s, e, sign, *_ in truth or []:
         if e > w0 and s < w1:
             ax.plot(x[s:e], y[s:e], lw=1.2, color=LEFT_C if sign > 0 else RIGHT_C)
     ax.plot([], [], lw=4, color=LEFT_C, label='left arc'); ax.plot([], [], lw=4, color=RIGHT_C, label='right arc')
+    ax.plot([], [], lw=8, alpha=0.3, color='0.4', label='coarse-scale arc')
     if truth is not None:
         ax.plot([], [], lw=1.2, color='0.3', label='truth (thin)')
-    ax.set_aspect('equal'); ax.set_xlabel('x (mm)'); ax.set_ylabel('y (mm)'); ax.legend(loc='best', fontsize=8)
+    ax.set_aspect('equal'); ax.set_xlabel('x (mm)'); ax.set_ylabel('y (mm)'); ax.legend(loc='best', fontsize=7)
     ax.set_title(title)
 
     a1 = fig.add_subplot(gs[0, 1])
     a2 = fig.add_subplot(gs[1, 1], sharex=a1)
     a3 = fig.add_subplot(gs[2, 1], sharex=a1)
-    a1.plot(t, speed, color='#0b0b0b', lw=1); a1.axhline(p['speed_min'], color='#e34948', ls='--', lw=1)
+    a1.plot(t, speed, color='#0b0b0b', lw=1); a1.axhline(fine['speed_min'], color='#e34948', ls='--', lw=1)
     a1.set_ylabel('speed (mm/s)')
-    k_plot = np.where(speed > p['speed_min'], np.abs(kappa), np.nan)
-    a2.semilogy(t, k_plot, color='#0b0b0b', lw=1)
-    a2.axhline(p['kappa_hi'], color='#e34948', ls='--', lw=1); a2.axhline(p['kappa_lo'], color='#e34948', ls=':', lw=1)
+    scales = [(K['fine'], fine, '#0b0b0b', '#e34948')]
+    if coarse is not None:
+        scales.append((K['coarse'], coarse, COARSE_C, COARSE_C))
+    for (_, _, sp, k), p, c, c_thr in scales:
+        a2.semilogy(t, np.where(sp > p['speed_min'], np.abs(k), np.nan), color=c, lw=1)
+        a2.axhline(p['kappa_hi'], color=c_thr, ls='--', lw=1); a2.axhline(p['kappa_lo'], color=c_thr, ls=':', lw=1)
+        a3.plot(t, np.where(sp > p['speed_min'], k, np.nan), color=c, lw=1)
     a2.set_ylabel('|curvature| (1/mm)')
-    a3.plot(t, np.where(speed > p['speed_min'], kappa, np.nan), color='#0b0b0b', lw=1); a3.axhline(0, color='#8a8984', lw=0.6)
+    a3.axhline(0, color='#8a8984', lw=0.6)
     a3.set_ylabel('curvature (+ left)'); a3.set_xlabel('time (s)')
     for a in (a1, a2, a3):
-        for s, e, sign in segs:
-            a.axvspan(s / FS, e / FS, color=LEFT_C if sign > 0 else RIGHT_C, alpha=0.15, lw=0)
+        for s, e, sign, scale in segs:
+            a.axvspan(s / FS, e / FS, color=LEFT_C if sign > 0 else RIGHT_C, alpha=0.15 if scale == 'fine' else 0.07, lw=0)
         for s, e, sign, *_ in truth or []:
             a.axvspan(s / FS, e / FS, ymax=0.06, color=LEFT_C if sign > 0 else RIGHT_C, lw=0)
         a.spines[['top', 'right']].set_visible(False)
@@ -302,13 +366,13 @@ R, x_raw, y_raw, vv, w_yaw = D1
 OUT_CSV = f'arcs_{R.id}_EO{R.eo}.csv'
 OUT_PNG = f'arcs_{R.id}_EO{R.eo}.png'
 
-segs, x, y, speed, kappa = find_arcs(x_raw, y_raw, FS, **P)
-arcs = arc_table(segs, x, y, speed, kappa, w_yaw, FS)
+segs, K = find_arcs_2scale(x_raw, y_raw, FS, P, PC)
+arcs = arc_table(segs, K, w_yaw, FS)
 arcs.to_csv(OUT_CSV, index=False)
-print(f'{len(arcs)} arcs found -> {OUT_CSV}')
+print(f'{len(arcs)} arcs found ({(arcs.scale == "fine").sum()} fine, {(arcs.scale == "coarse").sum()} coarse) -> {OUT_CSV}')
 print(arcs.round(2).to_string(index=False))
 
-fig = plot_arcs(x_raw, y_raw, x, y, speed, kappa, segs, P, f'{R.id} EO{R.eo}: trajectory and detected arcs')
+fig = plot_arcs(x_raw, y_raw, segs, K, P, PC, f'{R.id} EO{R.eo}: trajectory and detected arcs')
 fig.savefig(OUT_PNG, dpi=140, bbox_inches='tight')
 print(f'plot -> {OUT_PNG}')
 
@@ -316,36 +380,34 @@ print(f'plot -> {OUT_PNG}')
 # %% 2. noise floors
 # SPEED_MIN: the speed histogram has no separate stationary peak, so read off how much of
 # the slow tail SPEED_MIN cuts.
-# KAPPA_LO / KAPPA_HI: |curvature| of a synthetic path with NO planted arcs (real speed, real
-# wiggle, background wander only) is the floor that any threshold has to clear.
+# KAPPA thresholds: |curvature| of a synthetic path with NO planted arcs (real speed, real
+# wiggle, background wander only) is the floor that any threshold has to clear, per scale.
 log_v = np.log10(vv[vv > 1])
 print(f'{100 * np.mean(vv[np.isfinite(vv)] < SPEED_MIN):.0f}% of frames below SPEED_MIN = {SPEED_MIN} mm/s; '
       'speed p10/p25/p50 = ' + ' / '.join(f'{v:.0f}' for v in np.nanpercentile(vv, [10, 25, 50])))
 
 straight = synth_set(D1, N_SYNTH, arc_rate_per_min=0)
-k_floor = {}
-for sig in (0.04, 0.08, 0.12, 0.16):
+for sig in (0.08, 0.16, 0.24, 0.32):
     ks = []
     for xs, ys, _ in straight:
         _, _, _, sp, k = find_arcs(xs, ys, FS, **{**P, 'sigma_s': sig})
         ks.append(np.abs(k[sp > SPEED_MIN]))
-    k_floor[sig] = np.percentile(np.concatenate(ks), [50, 90, 95, 99])
     print(f'sigma {sig:.2f} s: |kappa| on arc-free synthetic, p50/p90/p95/p99 = '
-          + ' / '.join(f'{v:.4f}' for v in k_floor[sig]) + '  1/mm')
+          + ' / '.join(f'{v:.4f}' for v in np.percentile(np.concatenate(ks), [50, 90, 95, 99])) + '  1/mm')
 
-fig, axes = plt.subplots(1, 2, figsize=(9, 3))
+fig, axes = plt.subplots(1, 3, figsize=(13, 3))
 axes[0].hist(log_v, 60, color='0.4')
 axes[0].axvline(np.log10(SPEED_MIN), color='#e34948', ls='--', lw=1, label='SPEED_MIN')
 axes[0].set_xlabel('log10 speed (mm/s)'); axes[0].legend(fontsize=7)
-_, _, _, sp, k = find_arcs(x_raw, y_raw, FS, **P)
-axes[1].hist(np.log10(np.abs(k[sp > SPEED_MIN])), 80, histtype='step', density=True, color='k', label='real')
-axes[1].hist(np.log10(np.concatenate(ks)), 80, histtype='step', density=True, color='0.6', label='arc-free synthetic (sigma 0.16)')
-_, _, _, sp, k = find_arcs(*straight[0][:2], FS, **P)
-axes[1].hist(np.log10(np.abs(k[sp > SPEED_MIN])), 80, histtype='step', density=True, color='#2a78d6',
-             label=f'arc-free synthetic (sigma {SIGMA_S})')
-for v, ls in ((KAPPA_HI, '--'), (KAPPA_LO, ':')):
-    axes[1].axvline(np.log10(v), color='#e34948', ls=ls, lw=1)
-axes[1].set_xlabel('log10 |curvature| (1/mm), moving'); axes[1].legend(fontsize=6)
+for a, p, name in ((axes[1], P, 'fine'), (axes[2], PC, 'coarse')):
+    _, _, _, sp, k = find_arcs(x_raw, y_raw, FS, **p)
+    a.hist(np.log10(np.abs(k[sp > SPEED_MIN])), 80, histtype='step', density=True, color='k', label='real')
+    _, _, _, sp, k = find_arcs(*straight[0][:2], FS, **p)
+    a.hist(np.log10(np.abs(k[sp > SPEED_MIN])), 80, histtype='step', density=True, color='#2a78d6', label='arc-free synthetic')
+    a.axvline(np.log10(p['kappa_hi']), color='#e34948', ls='--', lw=1)
+    a.axvline(np.log10(p['kappa_lo']), color='#e34948', ls=':', lw=1)
+    a.set_xlabel('log10 |curvature| (1/mm), moving')
+    a.set_title(f'{name} scale (sigma {p["sigma_s"]} s)', fontsize=8); a.legend(fontsize=6)
 for a in axes:
     a.spines[['top', 'right']].set_visible(False)
 fig.tight_layout()
@@ -379,24 +441,27 @@ for a in axes[2:]:
 fig.tight_layout()
 
 # one realization with truth vs detections
-segs_q, xq, yq, spq, kq = find_arcs(xs, ys, FS, **P)
-plot_arcs(xs, ys, xq, yq, spq, kq, segs_q, P, 'synthetic: detected (thick) vs truth (thin)', truth)
+segs_q, K_q = find_arcs_2scale(xs, ys, FS, P, PC)
+plot_arcs(xs, ys, segs_q, K_q, P, PC, 'synthetic: detected (thick) vs truth (thin)', truth)
 
-print('current settings, mean over realizations:')
-print(synth_score(synths, P).round(3).to_string())
+print('mean over realizations:')
+print(pd.DataFrame({'fine only': synth_score(synths, P), 'two-scale': synth_score(synths, P, PC)}).round(3).to_string())
 
 
 # %% 4. yaw-rate check on real data
 # Path turn rate (speed * curvature) should follow head yaw rate while the animal turns.
 # Per arc: does mean yaw rate have the arc's sign, and how well do the two rates correlate?
+_, _, speed, kappa = K['fine']
 w_path = np.rad2deg(speed * kappa)
 moving = speed > SPEED_MIN
 in_arc = np.zeros(len(speed), bool)
-for s, e, _ in segs:
+for s, e, *_ in segs:
     in_arc[s:e] = True
 ok = np.isfinite(w_path) & np.isfinite(w_yaw)
-print(f'yaw sign agrees in {100 * arcs.yaw_sign_ok.mean():.0f}% of {len(arcs)} arcs; '
-      f'median within-arc r = {arcs.yaw_r.median():+.2f}')
+for scale in ('fine', 'coarse'):
+    a_s = arcs[arcs.scale == scale]
+    print(f'{scale}: yaw sign agrees in {100 * a_s.yaw_sign_ok.mean():.0f}% of {len(a_s)} arcs; '
+          f'median within-arc r = {a_s.yaw_r.median():+.2f}')
 print(f'r(path turn rate, yaw rate): in arcs {np.corrcoef(w_path[ok & in_arc], w_yaw[ok & in_arc])[0, 1]:+.2f}, '
       f'all moving frames {np.corrcoef(w_path[ok & moving], w_yaw[ok & moving])[0, 1]:+.2f}')
 
@@ -413,68 +478,75 @@ for a in axes:
 fig.tight_layout()
 
 
-# %% 5. parameter sweep: synthetic score + real-data statistics per setting
-grid = [dict(P, sigma_s=sig, kappa_hi=khi, kappa_lo=khi * ratio, merge_gap_s=mg)
-        for sig in (0.08, 0.12, 0.16)
-        for khi in (0.005, 0.0075, 0.01, 0.015, 0.02, 0.03)
-        for ratio in (0.5, 0.75, 1.0)
-        for mg in (0.0, 0.1)]
+# %% 5. parameter sweep of the coarse scale (fine scale fixed): synthetic score + real-data statistics
+grid = [dict(PC, sigma_s=sig, kappa_hi=khi, kappa_lo=khi * ratio, merge_gap_s=mg, min_turn_deg=mt)
+        for sig in (0.16, 0.24, 0.32)
+        for khi in (0.002, 0.003, 0.004, 0.005)
+        for ratio in (0.5, 0.75)
+        for mg in (0.0, 0.2, 0.4)
+        for mt in (45, 60)]
 rows = []
 for p in grid:
-    rows.append({**{k: p[k] for k in ('sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s')},
-                 **synth_score(synths, p), **real_summary(D1, p)})
+    rows.append({**{k: p[k] for k in ('sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s', 'min_turn_deg')},
+                 **synth_score(synths, P, p), **real_summary(D1, P, p)})
 SWEEP = pd.DataFrame(rows)
 SWEEP['ratio'] = (SWEEP.kappa_lo / SWEEP.kappa_hi).round(2)
-cols = ['sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s', 'precision', 'frame_prec', 'recall', 'rad_err', 'turn_err',
-        'onset_ms', 'offset_ms', 'n_arcs', 'med_dur_s', 'med_radius', 'pct_moving_in_arcs', 'pct_yaw_sign_ok']
+cols = ['sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s', 'min_turn_deg', 'precision', 'frame_prec', 'recall', 'rec_large',
+        'rad_err', 'onset_ms', 'offset_ms', 'n_arcs', 'n_coarse', 'med_dur_s', 'med_radius', 'pct_moving_in_arcs',
+        'pct_yaw_sign_ok']
 reliable = SWEEP[(SWEEP.precision >= PREC_MIN) & (SWEEP.frame_prec >= FRAME_PREC_MIN)]
 print(f'{len(reliable)} of {len(SWEEP)} settings with precision >= {PREC_MIN} and frame precision >= {FRAME_PREC_MIN}; '
       'top 15 by recall:')
 print(reliable.sort_values('recall', ascending=False)[cols].head(15).round(3).to_string(index=False))
-cur = SWEEP[np.isclose(SWEEP.sigma_s, SIGMA_S) & np.isclose(SWEEP.kappa_hi, KAPPA_HI)
-            & np.isclose(SWEEP.kappa_lo, KAPPA_LO) & np.isclose(SWEEP.merge_gap_s, MERGE_GAP_S)]
+cur = SWEEP[np.isclose(SWEEP.sigma_s, SIGMA_S_COARSE) & np.isclose(SWEEP.kappa_hi, KAPPA_HI_COARSE)
+            & np.isclose(SWEEP.kappa_lo, KAPPA_LO_COARSE) & np.isclose(SWEEP.merge_gap_s, MERGE_GAP_S_COARSE)
+            & np.isclose(SWEEP.min_turn_deg, MIN_TURN_DEG)]
 print('current settings:')
 print(cur[cols].round(3).to_string(index=False))
 
-# heatmaps over sigma x kappa_hi at the chosen setting's ratio / merge gap
+# heatmaps over sigma x kappa_hi at the chosen setting's ratio / merge gap / turn
 best = reliable.loc[reliable.recall.idxmax()]
-sub = SWEEP[(SWEEP.ratio == best.ratio) & (SWEEP.merge_gap_s == best.merge_gap_s)]
+sub = SWEEP[(SWEEP.ratio == best.ratio) & (SWEEP.merge_gap_s == best.merge_gap_s) & (SWEEP.min_turn_deg == best.min_turn_deg)]
 fig, axes = plt.subplots(1, 4, figsize=(17, 3.2))
-for a, col, lbl in zip(axes, ('precision', 'frame_prec', 'recall', 'pct_yaw_sign_ok'),
+for a, col, lbl in zip(axes, ('precision', 'frame_prec', 'recall', 'rec_large'),
                        ('synthetic precision (arcs)', 'synthetic frame precision', 'synthetic recall',
-                        'real: % arcs with yaw sign agreeing')):
+                        'synthetic recall, radius >= 100 mm')):
     tab = sub.pivot(index='sigma_s', columns='kappa_hi', values=col)
     im = a.imshow(tab.to_numpy(), aspect='auto', origin='lower', cmap='viridis')
     a.set_xticks(range(tab.shape[1]), tab.columns); a.set_yticks(range(tab.shape[0]), tab.index)
     for i in range(tab.shape[0]):
         for j in range(tab.shape[1]):
             a.text(j, i, f'{tab.to_numpy()[i, j]:.2f}', ha='center', va='center', fontsize=6, color='w')
-    a.set_xlabel('KAPPA_HI (1/mm)'); a.set_ylabel('SIGMA_S (s)')
-    a.set_title(f'{lbl}\nKAPPA_LO = {best.ratio} x HI, merge {best.merge_gap_s} s', fontsize=8)
+    a.set_xlabel('KAPPA_HI_COARSE (1/mm)'); a.set_ylabel('SIGMA_S_COARSE (s)')
+    a.set_title(f'{lbl}\nKAPPA_LO = {best.ratio} x HI, merge {best.merge_gap_s} s, turn >= {best.min_turn_deg:.0f} deg', fontsize=8)
     fig.colorbar(im, ax=a)
 fig.tight_layout()
 
 
-# %% 6. held-out sessions (incl. young / slow animals): current settings vs sweep choice
+# %% 6. held-out sessions (incl. young / slow animals): fine only vs two-scale
 # Each session gets its own synthetic data (its own speed trace and wiggle). Arcs are only
 # found while speed > SPEED_MIN, so arcs_per_moving_min is the rate to compare across ages.
-BEST = dict(P, sigma_s=best.sigma_s, kappa_hi=best.kappa_hi, kappa_lo=best.kappa_lo, merge_gap_s=best.merge_gap_s)
-print('sweep choice:', {k: BEST[k] for k in ('sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s')})
+BEST = dict(PC, sigma_s=best.sigma_s, kappa_hi=best.kappa_hi, kappa_lo=best.kappa_lo, merge_gap_s=best.merge_gap_s,
+            min_turn_deg=best.min_turn_deg)
+print('sweep choice (coarse):', {k: BEST[k] for k in ('sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s', 'min_turn_deg')})
+settings = [('fine only', None), ('two-scale', PC)]
+if any(not np.isclose(BEST[k], PC[k]) for k in BEST):
+    settings.append(('two-scale, sweep choice', BEST))
 rows = []
 for i, session in enumerate((SESSION,) + CHECK_SESSIONS):
     d = D1 if session == SESSION else load(session)
     sy = synths if session == SESSION else synth_set(d, N_SYNTH, ARC_RATE_PER_MIN, seed=i)
     moving_min = np.sum(d[3] > SPEED_MIN) / FS / 60
-    for label, p in (('current', P), ('sweep choice', BEST)):
-        rs = real_summary(d, p)
+    for label, pc in settings:
+        rs = real_summary(d, P, pc)
         rows.append(dict(session=f'{d[0].id} EO{d[0].eo}', setting=label, pct_frames_moving=100 * np.nanmean(d[3] > SPEED_MIN),
-                         **synth_score(sy, p), **rs, arcs_per_moving_min=rs['n_arcs'] / moving_min))
+                         **synth_score(sy, P, pc), **rs, arcs_per_moving_min=rs['n_arcs'] / moving_min))
     if session == CHECK_SESSIONS[1]:
         R2, x2_raw, y2_raw, _, _ = d
-        segs2, x2, y2, sp2, k2 = find_arcs(x2_raw, y2_raw, FS, **P)
-        plot_arcs(x2_raw, y2_raw, x2, y2, sp2, k2, segs2, P, f'{R2.id} EO{R2.eo}: current settings')
-print(pd.DataFrame(rows)[['session', 'setting', 'pct_frames_moving', 'precision', 'frame_prec', 'recall', 'onset_ms',
-                          'offset_ms', 'n_arcs', 'arcs_per_moving_min', 'med_dur_s', 'med_radius',
+        segs2, K2 = find_arcs_2scale(x2_raw, y2_raw, FS, P, PC)
+        plot_arcs(x2_raw, y2_raw, segs2, K2, P, PC, f'{R2.id} EO{R2.eo}: current settings')
+print(pd.DataFrame(rows)[['session', 'setting', 'pct_frames_moving', 'precision', 'frame_prec', 'recall', 'rec_large',
+                          'onset_ms', 'offset_ms', 'n_arcs', 'n_coarse', 'arcs_per_moving_min', 'med_dur_s', 'med_radius',
                           'pct_yaw_sign_ok']].round(3).to_string(index=False))
 
 plt.show()

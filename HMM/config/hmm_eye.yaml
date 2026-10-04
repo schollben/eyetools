@@ -14,8 +14,10 @@ qc:
 
 eye:
   max_eye_deg: 5        # pupil trusted only where |eye x| and |eye y| < this (per eye)
+  outlier_sd: 5         # eye position / pupil beyond this many robust SDs (1.4826 * MAD) of the session median -> NaN
   pupil_max_gap_s: 2    # interpolate untrusted gaps up to this long; longer gaps -> invalid
-  pupil_smooth_s: 1     # centred moving average after interpolation
+  pupil_median_s: 0.25  # centred running median after interpolation (removes residual spikes)
+  pupil_smooth_s: 1     # then centred moving average
 
 features:
   fs_out: 30

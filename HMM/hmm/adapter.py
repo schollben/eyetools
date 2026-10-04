@@ -49,9 +49,16 @@ def _mean2(a, b):
     return np.where(np.isnan(a), b, np.where(np.isnan(b), a, (a + b) / 2))
 
 
+def _outliers(v, n_sd):
+    """True where v is more than n_sd robust SDs (1.4826 * MAD) from its median."""
+    med = np.nanmedian(v)
+    return np.abs(v - med) > n_sd * 1.4826 * np.nanmedian(np.abs(v - med))
+
+
 def load_session(session_id: str, max_speed: float = 800, max_abs_pitch: float = 75,
                  max_ang_speed: float = 1500, pad: int = 6, eye: dict | None = None) -> Session:
-    """eye: None loads head only; else dict(max_eye_deg, pupil_max_gap_s, pupil_smooth_s) also loads eye + pupil."""
+    """eye: None loads head only; else dict(max_eye_deg, outlier_sd, pupil_max_gap_s, pupil_median_s, pupil_smooth_s)
+    also loads eye + pupil."""
     if eye is None:
         meta = load_skull_data(DATA_DIR / session_id)
     else:
@@ -78,24 +85,31 @@ def load_session(session_id: str, max_speed: float = 800, max_abs_pitch: float =
     ek = {}
     if eye is not None:
         fs = 1 / np.median(np.diff(t))
+        # eye-position outliers (per eye, per session) -> NaN in that eye's position, velocity and pupil
+        for e in ("LE", "RE"):
+            bad = _outliers(getattr(R, f"{e}_x"), eye["outlier_sd"]) | _outliers(getattr(R, f"{e}_y"), eye["outlier_sd"])
+            for k in ("x", "y", "vx", "vy", "pupil"):
+                getattr(R, f"{e}_{k}")[bad] = np.nan
         ek["eye_x"] = _mean2(-R.LE_x, R.RE_x)
         ek["eye_y"] = _mean2(R.LE_y, R.RE_y)
         ek["eye_vx"] = _mean2(eye_velocity(R, "LE", "vx", head_frame=True), eye_velocity(R, "RE", "vx", head_frame=True))
         ek["eye_vy"] = _mean2(eye_velocity(R, "LE", "vy"), eye_velocity(R, "RE", "vy"))
 
-        # pupil is trusted only with the eye near centre; % change from each eye's session median
+        # pupil is trusted only with the eye near centre; outliers removed; % change from each eye's session median
         pe = []
         for e in ("LE", "RE"):
             x, y, p = getattr(R, f"{e}_x"), getattr(R, f"{e}_y"), getattr(R, f"{e}_pupil")
             p = np.where((np.abs(x) < eye["max_eye_deg"]) & (np.abs(y) < eye["max_eye_deg"]), p, np.nan)
+            p[_outliers(p, eye["outlier_sd"])] = np.nan
             pe.append(100 * (p / np.nanmedian(p) - 1))
         ek["pupil_eyes"] = np.column_stack(pe)
 
-        # interpolate gaps up to pupil_max_gap_s, then centred moving average
+        # interpolate gaps up to pupil_max_gap_s, then centred running median (residual spikes) and moving average
         p = pd.Series(_mean2(*pe))
         gap = p.isna().groupby(p.notna().cumsum()).transform("sum")   # length of the NaN run each frame is in
         filled = p.interpolate(limit_area="inside").mask(p.isna() & (gap > eye["pupil_max_gap_s"] * fs))
-        smooth = filled.rolling(int(round(eye["pupil_smooth_s"] * fs)), center=True, min_periods=1).mean()
+        smooth = filled.rolling(int(round(eye["pupil_median_s"] * fs)), center=True, min_periods=1).median()
+        smooth = smooth.rolling(int(round(eye["pupil_smooth_s"] * fs)), center=True, min_periods=1).mean()
         ek["pupil"] = smooth.mask(filled.isna()).to_numpy()
 
         valid &= np.isfinite(np.column_stack([ek["eye_x"], ek["eye_y"], ek["eye_vx"], ek["eye_vy"], ek["pupil"]])).all(axis=1)

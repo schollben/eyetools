@@ -413,3 +413,13 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
   - eye_vx and eye_vy average about 0 per state; saccades are too brief to define 100 ms states.
   - Pupil is nearly constant within ±1 s, so it acts as a slow context variable.
   - The raw pupil contains glitch spikes (up to +1600%) that leak into the smoothed trace as steps (see `01_pupil_processing.png`). They need an outlier cap before any of the pupil results can be trusted.
+- **Rerun with outlier removal (same day):**
+  - Per eye, eye position and pupil values more than 5 robust SDs (1.4826 × MAD) from the session median → NaN (≤ 3% of trusted pupil frames).
+  - Pupil smoothing: 0.25 s running median, then 1 s mean. The pupil steps are gone.
+  - The first run is archived in `results_eye_v1_spikes/`.
+  - **K=8 is now fully reproducible across restarts** (ARI 1.0, all Jaccard 1.0; halves ARI 0.47). K=4: 0.34 / 0.62; K=6: 0.59 / 0.48.
+  - **K=8 states:**
+    - left/right turn pair (3 ↔ 4), with the eyes deviating toward the turn;
+    - two fast-forward states (pupil +2%);
+    - **three slow states that differ mainly in pupil:** still with a small pupil (−2.7%), slow with a mid pupil (+1.3%), and slow with the head down and a large pupil (+5%). These are candidate pupil-only "arousal" splits.
+  - **Next:** arousal states need a slow model (1 s bins, Gaussian sticky HMM), since the 30 Hz AR-HMM's states last about 0.1 s.

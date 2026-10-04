@@ -201,7 +201,9 @@ def score(segs, truth, x, y, kappa, fs):
     correct = [tru[sign][s:e].mean() >= 0.5 for s, e, sign in segs]
     recall = np.mean(found) if found else np.nan
     precision = np.mean(correct) if correct else np.nan
+    n_det_frames = det[1].sum() + det[-1].sum()
     return dict(n_truth=len(truth), n_det=len(segs), recall=recall, precision=precision,
+                frame_prec=((det[1] & tru[1]).sum() + (det[-1] & tru[-1]).sum()) / n_det_frames if n_det_frames else np.nan,
                 f1=2 * recall * precision / (recall + precision) if recall + precision > 0 else 0.0,
                 rad_err=np.median(rad_err) if rad_err else np.nan,       # median |log(R_det / R_true)|
                 turn_err=np.median(turn_err) if turn_err else np.nan,    # median (|det turn| - true turn), deg

@@ -3,6 +3,8 @@ from scipy.signal import savgol_filter, butter, sosfiltfilt
 
 FEATURE_NAMES = ["omega_yaw", "log_speed", "pitch", "v_fwd", "v_lat"]
 SIGNED = [0, 4]   # columns that flip sign under left/right mirroring
+EYE_FEATURE_NAMES = FEATURE_NAMES + ["eye_x", "eye_y", "eye_vx", "eye_vy", "pupil"]
+EYE_SIGNED = SIGNED + [5, 7]   # + horizontal eye position and velocity
 
 
 def _valid_runs(valid: np.ndarray, min_len: int) -> list[tuple[int, int]]:
@@ -31,6 +33,8 @@ def session_features(s, fs_out=30, min_run_s=2, sg_win_s=None, lowpass_hz=None) 
         v_lat = -vx * np.sin(yaw) + vy * np.cos(yaw)
         slog = lambda v: np.sign(v) * np.log(np.abs(v) + 1)                          # signed log(mm/s + 1)
         raw = np.column_stack([omega, log_speed, pitch, slog(v_fwd), slog(v_lat)])
+        if s.eye_vx is not None:   # deg, signed log(deg/s + 1), % change
+            raw = np.column_stack([raw, s.eye_x[a:b], s.eye_y[a:b], slog(s.eye_vx[a:b]), slog(s.eye_vy[a:b]), s.pupil[a:b]])
 
         # optional anti-alias, then interpolate onto a common-rate grid
         if lowpass_hz is not None:

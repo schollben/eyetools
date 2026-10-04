@@ -1,0 +1,36 @@
+# Exploratory head + eye + pupil model (run_hmm_eye.py)
+sessions:
+  ferrets: [402, 405, 407, 420]
+  eo_min: 8
+  eo_max: 20
+  exclude:
+    - session_2026-03-11_ferret_407_E11_analyzable_output   # 68% valid, tracking glitches
+
+qc:
+  max_speed_mm_s: 800
+  max_abs_pitch_deg: 75
+  max_ang_speed_deg_s: 1500
+  pad_frames: 6
+
+eye:
+  max_eye_deg: 5        # pupil trusted only where |eye x| and |eye y| < this (per eye)
+  pupil_max_gap_s: 2    # interpolate untrusted gaps up to this long; longer gaps -> invalid
+  pupil_smooth_s: 1     # centred moving average after interpolation
+
+features:
+  fs_out: 30
+  min_run_s: 2
+  sg_win_s: null
+  lowpass_hz: null
+
+seed: 0
+
+selection:
+  num_iters: 100
+  n_jobs: 8
+
+explore:
+  Ks: [4, 6, 8]
+  L: 3
+  kappa: 100
+  n_restarts: 3

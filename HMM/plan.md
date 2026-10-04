@@ -378,3 +378,13 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
 - **Takeaway:** the head-frame velocity gives turn-direction states, which the 3-feature model lacked.
 - **Caveat:** states are short (median about 0.1 s), and a turn bout may span several visits.
 - **Next:** compare turn states 1 and 2 with `extract_saccades` head events (`df_head`), and check them against video with `events_ar_K4_L3.csv`.
+
+## K × κ sweep (2026-10-03; `HMM/results/sweep_K_kappa/`, script saved there)
+- **Grid:** K ∈ {4, 5, 6} × κ ∈ {1e2, 1e3, 1e4}, L=3, 5 features.
+- **κ:**
+  - κ=1e2 and 1e3 give identical models.
+  - **κ=1e4 breaks the turn pair** at K=4 and K=6, and gives only one turn direction at K=5. It also lowers restart and halves ARI, and lengthens states only from 0.10 to 0.13 s (median).
+- **K, at κ ≤ 1e3:** every K keeps the left/right turn pair.
+  - **K=5** adds a slow/still state (log speed 2.9) and a head-down state (pitch 0.25).
+  - **K=6** also splits locomotion into moderate (3.5) and slow (2.2), plus head-down (0.18).
+  - **Cost:** restart ARI falls from 1.0 (K=4) to 0.65 (K=5) and 0.62 (K=6); halves ARI falls from 0.49 to 0.38 and 0.33.

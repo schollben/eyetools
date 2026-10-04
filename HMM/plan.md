@@ -412,7 +412,7 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
 - **Caveats:**
   - eye_vx and eye_vy average about 0 per state; saccades are too brief to define 100 ms states.
   - Pupil is nearly constant within ±1 s, so it acts as a slow context variable.
-  - The raw pupil contains glitch spikes (up to +1600%) that leak into the smoothed trace as steps (see `01_pupil_processing.png`). They need an outlier cap before any of the pupil results can be trusted.
+  - The raw pupil contains glitch spikes (up to +1600%) that leak into the smoothed trace as steps (see `01_pupil_processing.png`). They need an outlier cap before any of the pupil results can be trusted. *Fixed in the rerun below; the K=4/6/8 numbers above are superseded.*
 - **Rerun with outlier removal (same day):**
   - Per eye, eye position and pupil values more than 5 robust SDs (1.4826 × MAD) from the session median → NaN (≤ 3% of trusted pupil frames).
   - Pupil smoothing: 0.25 s running median, then 1 s mean. The pupil steps are gone.
@@ -435,6 +435,7 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
 - **Choosing K:**
   - Held-out LL rises to K=4 and is flat after that.
   - Restart ARI: K=3 1.0, K=4 0.63. Halves ARI is about 0.3–0.39 for every K.
+- **K=3 states (stable across restarts):** still with a small pupil (−2.9%); active with a mid pupil (+0.5%); moderate speed with a large pupil (+9%).
 - **K=4 states, two levels of each movement mode:**
   - active, small pupil (−2%);
   - **active, large pupil (+5%)**, with more turning and eye movement (pupil × running);
@@ -443,3 +444,34 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
 - **Within states:** pupil–speed correlation is small (r = 0.1–0.2), so the dependence is between states, not within them.
 - **Dwell times:** median 2–4 s, mean 4–6 s. These are capped by segment length (median 9 s); in the time course, pupil epochs last about 20–60 s.
 - **Next:** bin whole sessions rather than valid runs, so states can last longer than a segment.
+- **Movement make-up:** the large-pupil active state contains more fast forward locomotion (fast state 5); the still state is mostly fast state 0.
+- **Figures:**
+  - `20_pupil_vs_speed`: model-free.
+  - `21_K`: held-out LL and ARI vs K.
+  - `K{K}_states`: state means, a scatter of bins by state, and movement make-up.
+  - `K{K}_timecourse`: the longest session, with bins coloured by state.
+  - Tables: `K{K}_states.csv`, `reproducibility.csv`.
+
+## Code for the eye / arousal work
+- `hmm/adapter.py`:
+  - `load_session(..., eye=cfg["eye"])` loads eye data through `load_session_data` + `removeBadData`, averaging both eyes in the head frame.
+  - Robust outlier removal on eye position and pupil.
+  - Pupil processing: ±5° gate → % change from the session median → interpolate gaps ≤ 2 s → 0.25 s median → 1 s mean.
+  - Frames without eye or pupil data are invalid.
+- `hmm/features.py`: `EYE_FEATURE_NAMES` (10 features) and `EYE_SIGNED` (ω, v_lat, eye_x, eye_vx).
+- `config/hmm_eye.yaml`: cohort (EO 8–20), `eye`, `explore` (fast AR-HMM) and `slow` (arousal model) settings.
+- `run_hmm_eye.py`:
+  - Fast cells: QC, pupil check, features, AR-HMM K=4/6/8, describe, compare with head-only.
+  - SLOW cells.
+  - Runs headless in about 6 min; fast fits are cached in `results_eye/fits_K*.pkl`.
+
+## Next steps (eye / pupil / arousal), not yet started
+1. **Longer arousal states:** bin whole sessions, not valid runs; keep bins with at least 50% valid frames. Segments currently cap state durations at about 9 s, while pupil epochs last 20–60 s.
+2. **Bin size and κ:** try 2–5 s bins and a larger κ, then check whether the K=3/K=4 states hold and their dwell times grow.
+3. **Pupil lag:** pupil lags arousal and locomotion by about 1 s. Cross-correlate pupil with speed, and try lagged pupil in the bins.
+4. **Choice of slow features:** add saccade rate (`extract_saccades` on eye data) and head-event rate (`df_head`) in place of mean eye speed; drop pitch if it only drives the head-down state.
+5. **Robustness:** check animal effects in the halves split (407 vs 420), and the share of each state per session.
+6. **Video check:** pull clips of the large-pupil states (active and head-down) using the bin times.
+7. **Development:** if the states hold up, apply the fixed EO 8–20 model to early-EO sessions (decode only) and compare state occupancy and dwell times by EO. Alternatively, fit early EO separately and match states.
+8. **More animals:** 753/757 have EO 9–15 sessions with eye data (7 sessions). Add them for more animals once the method settles.
+9. **Fast model (head + eye):** check whether the K=8 turn states line up with `df_head` events and eye saccades (`df_LE` / `df_RE`).

@@ -14,15 +14,17 @@ from analyses.helper_functions import unwrap_deg
 
 # ============================== SETTINGS ==============================
 SESSION = 'session_2026-03-14_ferret_407_P47_E14_analyzable_output'   # head position_x / position_y (mm)
-SESSION_2 = 'session_2025-10-22_ferret_420_EO13_analyzable_output'    # held-out check (cell 6)
+CHECK_SESSIONS = ('session_2025-10-22_ferret_420_EO13_analyzable_output',   # held-out checks (cell 6),
+                  'session_2026-02-28_ferret_405_EO0_analyzable_output',    # incl. young / slow animals
+                  'session_2025-10-11_ferret_402_E02_analyzable_output')
 FS = 120                         # frame rate (Hz)
 
 SIGMA_S = 0.08       # Gaussian smoothing sigma (s)
 MAX_GAP_S = 0.2      # interpolate tracking gaps up to this long; longer gaps stay NaN
 SPEED_MIN = 50.0     # mm/s; set above the speed noise floor when the animal is still
-KAPPA_HI = 0.01      # 1/mm; an arc must reach |curvature| above this (radius < 1/KAPPA_HI) ...
-KAPPA_LO = 0.005     # 1/mm; ... and extends while |curvature| stays above this
-MERGE_GAP_S = 0.1    # same-direction arcs closer than this are joined
+KAPPA_HI = 0.015     # 1/mm; an arc must reach |curvature| above this (radius < 1/KAPPA_HI) ...
+KAPPA_LO = 0.01125   # 1/mm; ... and extends while |curvature| stays above this (0.75 x KAPPA_HI)
+MERGE_GAP_S = 0.0    # same-direction arcs closer than this are joined
 MIN_DUR_S = 0.3      # shortest arc kept (s), applied after merging
 
 PLOT_WINDOW_S = (0, 60)          # time range drawn in the figures (s)
@@ -36,6 +38,10 @@ TRUTH_MIN_DUR_S = 0.3            # planted arcs are at least this long
 BG_RADIUS = 300                  # mm; background heading wander mostly has radius > this (= not an arc)
 BG_SMOOTH_S = 1.0                # s; time scale of the background wander
 N_SYNTH = 5                      # synthetic realizations per score
+
+# conservative selection (cell 5): among settings whose detections are this reliable, take the highest recall
+PREC_MIN = 0.95                  # fraction of detected arcs that are real
+FRAME_PREC_MIN = 0.85            # fraction of detected arc frames that lie inside a real arc
 # ======================================================================
 
 P = dict(sigma_s=SIGMA_S, max_gap_s=MAX_GAP_S, speed_min=SPEED_MIN, kappa_hi=KAPPA_HI,
@@ -409,31 +415,34 @@ fig.tight_layout()
 
 # %% 5. parameter sweep: synthetic score + real-data statistics per setting
 grid = [dict(P, sigma_s=sig, kappa_hi=khi, kappa_lo=khi * ratio, merge_gap_s=mg)
-        for sig in (0.08, 0.12, 0.16, 0.24, 0.32)
-        for khi in (0.002, 0.003, 0.005, 0.0075, 0.01, 0.015)
-        for ratio in (0.5, 0.75)
-        for mg in (0.0, 0.1, 0.2)]
+        for sig in (0.08, 0.12, 0.16)
+        for khi in (0.005, 0.0075, 0.01, 0.015, 0.02, 0.03)
+        for ratio in (0.5, 0.75, 1.0)
+        for mg in (0.0, 0.1)]
 rows = []
 for p in grid:
     rows.append({**{k: p[k] for k in ('sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s')},
                  **synth_score(synths, p), **real_summary(D1, p)})
 SWEEP = pd.DataFrame(rows)
 SWEEP['ratio'] = (SWEEP.kappa_lo / SWEEP.kappa_hi).round(2)
-cols = ['sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s', 'f1', 'recall', 'precision', 'rad_err', 'turn_err',
+cols = ['sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s', 'precision', 'frame_prec', 'recall', 'rad_err', 'turn_err',
         'onset_ms', 'offset_ms', 'n_arcs', 'med_dur_s', 'med_radius', 'pct_moving_in_arcs', 'pct_yaw_sign_ok']
-print('top 15 by synthetic F1:')
-print(SWEEP.sort_values('f1', ascending=False)[cols].head(15).round(3).to_string(index=False))
-cur = SWEEP[(SWEEP.sigma_s == SIGMA_S) & (SWEEP.kappa_hi == KAPPA_HI) & (SWEEP.kappa_lo == KAPPA_LO)
-            & (SWEEP.merge_gap_s == MERGE_GAP_S)]
+reliable = SWEEP[(SWEEP.precision >= PREC_MIN) & (SWEEP.frame_prec >= FRAME_PREC_MIN)]
+print(f'{len(reliable)} of {len(SWEEP)} settings with precision >= {PREC_MIN} and frame precision >= {FRAME_PREC_MIN}; '
+      'top 15 by recall:')
+print(reliable.sort_values('recall', ascending=False)[cols].head(15).round(3).to_string(index=False))
+cur = SWEEP[np.isclose(SWEEP.sigma_s, SIGMA_S) & np.isclose(SWEEP.kappa_hi, KAPPA_HI)
+            & np.isclose(SWEEP.kappa_lo, KAPPA_LO) & np.isclose(SWEEP.merge_gap_s, MERGE_GAP_S)]
 print('current settings:')
 print(cur[cols].round(3).to_string(index=False))
 
-# heatmaps over sigma x kappa_hi at the best ratio / merge gap
-best = SWEEP.loc[SWEEP.f1.idxmax()]
+# heatmaps over sigma x kappa_hi at the chosen setting's ratio / merge gap
+best = reliable.loc[reliable.recall.idxmax()]
 sub = SWEEP[(SWEEP.ratio == best.ratio) & (SWEEP.merge_gap_s == best.merge_gap_s)]
-fig, axes = plt.subplots(1, 3, figsize=(13, 3.2))
-for a, col, lbl in zip(axes, ('f1', 'rad_err', 'pct_yaw_sign_ok'),
-                       ('synthetic F1', 'synthetic median |log(R_det/R_true)|', 'real: % arcs with yaw sign agreeing')):
+fig, axes = plt.subplots(1, 4, figsize=(17, 3.2))
+for a, col, lbl in zip(axes, ('precision', 'frame_prec', 'recall', 'pct_yaw_sign_ok'),
+                       ('synthetic precision (arcs)', 'synthetic frame precision', 'synthetic recall',
+                        'real: % arcs with yaw sign agreeing')):
     tab = sub.pivot(index='sigma_s', columns='kappa_hi', values=col)
     im = a.imshow(tab.to_numpy(), aspect='auto', origin='lower', cmap='viridis')
     a.set_xticks(range(tab.shape[1]), tab.columns); a.set_yticks(range(tab.shape[0]), tab.index)
@@ -446,20 +455,26 @@ for a, col, lbl in zip(axes, ('f1', 'rad_err', 'pct_yaw_sign_ok'),
 fig.tight_layout()
 
 
-# %% 6. held-out session: best sweep setting vs current settings
+# %% 6. held-out sessions (incl. young / slow animals): current settings vs sweep choice
+# Each session gets its own synthetic data (its own speed trace and wiggle). Arcs are only
+# found while speed > SPEED_MIN, so arcs_per_moving_min is the rate to compare across ages.
 BEST = dict(P, sigma_s=best.sigma_s, kappa_hi=best.kappa_hi, kappa_lo=best.kappa_lo, merge_gap_s=best.merge_gap_s)
-D2 = load(SESSION_2)
-synths_2 = synth_set(D2, N_SYNTH, ARC_RATE_PER_MIN, seed=1)
+print('sweep choice:', {k: BEST[k] for k in ('sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s')})
 rows = []
-for name, d, sy in ((f'{D1[0].id} EO{D1[0].eo}', D1, synths), (f'{D2[0].id} EO{D2[0].eo}', D2, synths_2)):
-    for label, p in (('current', P), ('best', BEST)):
-        rows.append(dict(session=name, setting=label, **synth_score(sy, p), **real_summary(d, p)))
-print({k: BEST[k] for k in ('sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s')})
-print(pd.DataFrame(rows)[['session', 'setting', 'f1', 'recall', 'precision', 'rad_err', 'n_arcs', 'med_dur_s',
-                          'med_radius', 'pct_moving_in_arcs', 'pct_yaw_sign_ok']].round(3).to_string(index=False))
-
-R2, x2_raw, y2_raw, _, _ = D2
-segs2, x2, y2, sp2, k2 = find_arcs(x2_raw, y2_raw, FS, **BEST)
-plot_arcs(x2_raw, y2_raw, x2, y2, sp2, k2, segs2, BEST, f'{R2.id} EO{R2.eo}: best sweep setting')
+for i, session in enumerate((SESSION,) + CHECK_SESSIONS):
+    d = D1 if session == SESSION else load(session)
+    sy = synths if session == SESSION else synth_set(d, N_SYNTH, ARC_RATE_PER_MIN, seed=i)
+    moving_min = np.sum(d[3] > SPEED_MIN) / FS / 60
+    for label, p in (('current', P), ('sweep choice', BEST)):
+        rs = real_summary(d, p)
+        rows.append(dict(session=f'{d[0].id} EO{d[0].eo}', setting=label, pct_frames_moving=100 * np.nanmean(d[3] > SPEED_MIN),
+                         **synth_score(sy, p), **rs, arcs_per_moving_min=rs['n_arcs'] / moving_min))
+    if session == CHECK_SESSIONS[1]:
+        R2, x2_raw, y2_raw, _, _ = d
+        segs2, x2, y2, sp2, k2 = find_arcs(x2_raw, y2_raw, FS, **P)
+        plot_arcs(x2_raw, y2_raw, x2, y2, sp2, k2, segs2, P, f'{R2.id} EO{R2.eo}: current settings')
+print(pd.DataFrame(rows)[['session', 'setting', 'pct_frames_moving', 'precision', 'frame_prec', 'recall', 'onset_ms',
+                          'offset_ms', 'n_arcs', 'arcs_per_moving_min', 'med_dur_s', 'med_radius',
+                          'pct_yaw_sign_ok']].round(3).to_string(index=False))
 
 plt.show()

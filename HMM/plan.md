@@ -388,3 +388,5 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
   - **K=5** adds a slow/still state (log speed 2.9) and a head-down state (pitch 0.25).
   - **K=6** also splits locomotion into moderate (3.5) and slow (2.2), plus head-down (0.18).
   - **Cost:** restart ARI falls from 1.0 (K=4) to 0.65 (K=5) and 0.62 (K=6); halves ARI falls from 0.49 to 0.38 and 0.33.
+- **Recommendation:** keep κ=100. Use K=4 for reproducibility, or K=5 if the still and head-down states matter. Turns look the same at K=4–6.
+- **Files:** montages `15_onset_averages_K*.png` and `16_states_60s_K*.png`; `summary.csv`; per-combo folders with figs 12–16 plus `states.csv`, `dwell_fit.csv`, `events.csv`.

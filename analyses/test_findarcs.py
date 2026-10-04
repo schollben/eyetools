@@ -29,32 +29,33 @@ KAPPA_LO = 0.01125   # 1/mm; ... and extends while |curvature| stays above this 
 EDGE_FRAC = 0.0      # arc edges: where |curvature| falls below this fraction of the arc's own peak (0 = off)
 # coarse scale: large arcs
 SIGMA_S_COARSE = 0.24
-KAPPA_HI_COARSE = 0.003      # radius < 330 mm
-KAPPA_LO_COARSE = 0.00225
+KAPPA_HI_COARSE = 0.001      # radius < 1000 mm; liberal - MIN_TURN_DEG does most of the selecting
+KAPPA_LO_COARSE = 0.00075
 EDGE_FRAC_COARSE = 0.33
-MERGE_GAP_S_COARSE = 0.2     # bridges the short slow dips (speed < SPEED_MIN) that split large arcs
+MERGE_GAP_S_COARSE = 0.4     # bridges the short slow dips (speed < SPEED_MIN) that split large arcs
 # both scales
 MAX_GAP_S = 0.2      # interpolate tracking gaps up to this long; longer gaps stay NaN
 SPEED_MIN = 50.0     # mm/s; set above the speed noise floor when the animal is still
 MERGE_GAP_S = 0.0    # same-direction arcs closer than this are joined (fine scale)
 MIN_DUR_S = 0.3      # shortest arc kept (s), applied after merging
-MIN_TURN_DEG = 45    # an arc must turn the heading at least this much in total (any radius)
+MIN_TURN_DEG = 30    # an arc must turn the heading at least this much in total (any radius); liberal,
+                     # stricter cutoffs can be applied later to the table (cell 3, reliability)
 
 PLOT_WINDOW_S = (0, 60)          # time range drawn in the figures (s)
 
 # synthetic ground truth (cells 2, 3, 5)
 NOISE_SIGMA_S = 0.1              # real wiggle + jitter = raw - Gaussian(raw, this) is added to the synthetic path
-ARC_RATE_PER_MIN = 40            # planted arcs per minute of moving time (with BG_RADIUS: close to real |curvature| and turn rate)
-RADIUS_RANGE = (20, 600)         # mm, planted radius (log-uniform)
+ARC_RATE_PER_MIN = 100           # planted arcs per minute of moving time (target; placement saturates)
+RADIUS_RANGE = (20, 1000)        # mm, planted radius (log-uniform within RADIUS_BINS, bins in turn)
 TURN_RANGE_DEG = (45, 180)       # planted turn angle (uniform)
 TRUTH_MIN_DUR_S = 0.3            # planted arcs are at least this long
-BG_RADIUS = 600                  # mm; background heading wander mostly has radius > this (= not an arc)
+BG_RADIUS = 1500                 # mm; background heading wander mostly has radius > this (= not an arc)
 BG_SMOOTH_S = 1.0                # s; time scale of the background wander
 N_SYNTH = 5                      # synthetic realizations per score
-RADIUS_BINS = (20, 50, 100, 200, 400, 600)   # mm, recall is also reported per planted-radius bin
+RADIUS_BINS = (20, 50, 100, 200, 400, 700, 1000)   # mm, planting cycles through these; recall reported per bin
 
 # selection (cell 5): among coarse settings whose detections are this reliable, take the highest recall
-PREC_MIN = 0.93                  # fraction of detected arcs that are real
+PREC_MIN = 0.90                  # fraction of detected arcs that are real
 FRAME_PREC_MIN = 0.83            # fraction of detected arc frames that lie inside a real arc
 # ======================================================================
 
@@ -210,20 +211,23 @@ def make_synth(v, resid_x, resid_y, nan_mask, fs, rng, arc_rate_per_min):
     gap = int(0.5 * fs)                                          # planted arcs stay >= 0.5 s apart
     taken = np.zeros(n, bool)
     truth = []
-    for _ in range(200 * n_arcs):
-        if len(truth) == n_arcs:
+    # radius bins in turn, largest first, so large arcs (which need long moving stretches) get placed
+    bins = [(max(lo, RADIUS_RANGE[0]), min(hi, RADIUS_RANGE[1])) for lo, hi in zip(RADIUS_BINS[:-1], RADIUS_BINS[1:])
+            if lo < RADIUS_RANGE[1]][::-1]
+    for i in range(n_arcs):
+        for _ in range(500):
+            s = rng.integers(n)
+            r = np.exp(rng.uniform(*np.log(bins[i % len(bins)])))
+            turn = rng.uniform(*TURN_RANGE_DEG)
+            e = np.searchsorted(dist, dist[s] + r * np.deg2rad(turn))
+            if (e >= n or (e - s) / fs < TRUTH_MIN_DUR_S or not (moving[s] and moving[e - 1])
+                    or moving[s:e].mean() < 0.8 or taken[max(0, s - gap):e + gap].any()):
+                continue
+            sign = rng.choice([1, -1])
+            kappa[s:e] = sign / r
+            taken[s:e] = True
+            truth.append((s, e, sign, r, turn))
             break
-        s = rng.integers(n)
-        r = np.exp(rng.uniform(*np.log(RADIUS_RANGE)))
-        turn = rng.uniform(*TURN_RANGE_DEG)
-        e = np.searchsorted(dist, dist[s] + r * np.deg2rad(turn))
-        if (e >= n or (e - s) / fs < TRUTH_MIN_DUR_S or not (moving[s] and moving[e - 1])
-                or moving[s:e].mean() < 0.8 or taken[max(0, s - gap):e + gap].any()):
-            continue
-        sign = rng.choice([1, -1])
-        kappa[s:e] = sign / r
-        taken[s:e] = True
-        truth.append((s, e, sign, r, turn))
     heading = np.cumsum(v * kappa) / fs
     x = np.cumsum(v * np.cos(heading)) / fs + np.nan_to_num(resid_x)
     y = np.cumsum(v * np.sin(heading)) / fs + np.nan_to_num(resid_y)
@@ -447,6 +451,32 @@ plot_arcs(xs, ys, segs_q, K_q, P, PC, 'synthetic: detected (thick) vs truth (thi
 print('mean over realizations:')
 print(pd.DataFrame({'fine only': synth_score(synths, P), 'two-scale': synth_score(synths, P, PC)}).round(3).to_string())
 
+# reliability for later cutoffs: detection is liberal, so how precise are the arcs that pass a
+# stricter cutoff on measured |turn| and duration? (correct = >= 50% of its frames inside a
+# same-direction planted arc, as in score)
+det = []
+for xs, ys, truth in synths:
+    segs_s, K_s = find_arcs_2scale(xs, ys, FS, P, PC)
+    tbl = arc_table(segs_s, K_s, np.full(len(xs), np.nan), FS)
+    tru = {1: np.zeros(len(xs), bool), -1: np.zeros(len(xs), bool)}
+    for s, e, sign, *_ in truth:
+        tru[sign][s:e] = True
+    tbl['correct'] = [tru[sign][s:e].mean() >= 0.5 for s, e, sign, _ in segs_s]
+    det.append(tbl)
+det = pd.concat(det, ignore_index=True)
+rows = []
+for min_turn in (30, 45, 60, 90):
+    for min_dur in (0.3, 0.5, 1.0):
+        sel = (det.turn_deg.abs() >= min_turn) & (det.duration_s >= min_dur)
+        real_sel = (arcs.turn_deg.abs() >= min_turn) & (arcs.duration_s >= min_dur)
+        rows.append(dict(min_turn_deg=min_turn, min_dur_s=min_dur,
+                         synth_precision=det.correct[sel].mean(), synth_pct_kept=100 * sel.mean(),
+                         fine_precision=det.correct[sel & (det.scale == 'fine')].mean(),
+                         coarse_precision=det.correct[sel & (det.scale == 'coarse')].mean(),
+                         real_arcs_kept=int(real_sel.sum())))
+print(f'reliability after a later cutoff (synthetic: {len(det)} detections; real {R.id} EO{R.eo}: {len(arcs)} arcs):')
+print(pd.DataFrame(rows).round(3).to_string(index=False))
+
 
 # %% 4. yaw-rate check on real data
 # Path turn rate (speed * curvature) should follow head yaw rate while the animal turns.
@@ -481,10 +511,10 @@ fig.tight_layout()
 # %% 5. parameter sweep of the coarse scale (fine scale fixed): synthetic score + real-data statistics
 grid = [dict(PC, sigma_s=sig, kappa_hi=khi, kappa_lo=khi * ratio, merge_gap_s=mg, min_turn_deg=mt)
         for sig in (0.16, 0.24, 0.32)
-        for khi in (0.002, 0.003, 0.004, 0.005)
-        for ratio in (0.5, 0.75)
-        for mg in (0.0, 0.2, 0.4)
-        for mt in (45, 60)]
+        for khi in (0.001, 0.0015, 0.002, 0.003)
+        for ratio in (0.75,)
+        for mg in (0.2, 0.4)
+        for mt in (30, 45)]
 rows = []
 for p in grid:
     rows.append({**{k: p[k] for k in ('sigma_s', 'kappa_hi', 'kappa_lo', 'merge_gap_s', 'min_turn_deg')},

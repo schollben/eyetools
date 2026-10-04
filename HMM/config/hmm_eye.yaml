@@ -36,3 +36,9 @@ explore:
   L: 3
   kappa: 100
   n_restarts: 3
+
+slow:                   # arousal-scale model: 1 s bins, sticky Gaussian HMM (full covariance)
+  bin_s: 1
+  Ks: [2, 3, 4, 5, 6]
+  kappa: 10
+  n_restarts: 5

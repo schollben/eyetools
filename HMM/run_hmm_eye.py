@@ -253,3 +253,151 @@ for ax, K in zip(axes, ex["Ks"]):
     ax.set_title(f"ARI {adjusted_rand_score(z_head, np.concatenate(zs_by_K[K])):.2f}")
 plt.tight_layout()
 save("17_head_vs_eye_states")
+
+
+# =============================================================================
+# SLOW (arousal) MODEL — 1 s bins, sticky Gaussian HMM. States are clusters of second-scale averages
+# (pupil, speed, turning, eye movement, pitch); the full covariance gives the pupil x speed dependence within each state.
+# =============================================================================
+
+# %% SLOW: 1 s bins per valid segment -> pupil, log_speed, |omega_yaw|, log eye speed, pitch
+sl = cfg["slow"]
+nb = int(sl["bin_s"] * f["fs_out"])
+c = {n: j for j, n in enumerate(NAMES)}
+inv = lambda v: np.sign(v) * (np.exp(np.abs(v)) - 1)   # undo the signed log
+SLOW_NAMES = ["pupil", "log_speed", "abs_omega", "log_eye_speed", "pitch"]
+bins = []
+for i, g in enumerate(segs):
+    n = len(g["t"]) // nb
+    if n < 2:
+        continue
+    X = g["X"][:n * nb].reshape(n, nb, -1)
+    eye_speed = np.hypot(inv(X[..., c["eye_vx"]]), inv(X[..., c["eye_vy"]])).mean(1)   # deg/s
+    B = np.column_stack([X[..., c["pupil"]].mean(1), X[..., c["log_speed"]].mean(1), np.abs(X[..., c["omega_yaw"]]).mean(1),
+                         np.log(eye_speed + 1), X[..., c["pitch"]].mean(1)])
+    bins.append(dict(seg=i, session_id=g["session_id"], animal_id=g["animal_id"], eo=g["eo"],
+                     t=g["t"][:n * nb:nb] + sl["bin_s"] / 2, X=B))
+Bc = np.concatenate([b["X"] for b in bins])
+print(f"{len(Bc)} bins in {len(bins)} segments (median {np.median([len(b['X']) for b in bins]):.0f} bins per segment)")
+print("correlations across bins:")
+print(pd.DataFrame(np.corrcoef(Bc.T), index=SLOW_NAMES, columns=SLOW_NAMES).round(2))
+
+# model-free look: pupil vs speed
+fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+axes[0].hist2d(Bc[:, 1], Bc[:, 0], bins=50, cmap="Greys")
+axes[0].set_xlabel("log_speed (1 s mean)")
+axes[0].set_ylabel("pupil (% change)")
+for a in sorted({b["animal_id"] for b in bins}):
+    Ba = np.concatenate([b["X"] for b in bins if b["animal_id"] == a])
+    axes[1].hist(Ba[:, 0], bins=60, histtype="step", density=True, label=str(a))
+axes[1].set_xlabel("pupil (% change)")
+axes[1].legend()
+plt.tight_layout()
+save("slow/20_pupil_vs_speed")
+
+
+# %% SLOW: fit K = 2..6 (restarts on all bins + one fit per half); held-out LL across halves
+sc_slow = fit_scaler([b["X"] for b in bins])
+Xb = apply_scaler([b["X"] for b in bins], sc_slow)
+Xbh = [[X for b, X in zip(bins, Xb) if b["session_id"] in h] for h in halves]
+seeds_s = list(range(cfg["seed"], cfg["seed"] + sl["n_restarts"]))
+jobs = [(K, "all", sd) for K in sl["Ks"] for sd in seeds_s] + [(K, h, cfg["seed"]) for K in sl["Ks"] for h in (0, 1)]
+out = Parallel(n_jobs=sel["n_jobs"], verbose=0)(
+    delayed(fit_model)("gaussian", Xb if h == "all" else Xbh[h], K, kappa=sl["kappa"], seed=sd, num_iters=sel["num_iters"])
+    for K, h, sd in jobs)
+slow = {K: dict(models=[m for (k, h, _), (m, _) in zip(jobs, out) if k == K and h == "all"],
+                halves=[m for (k, h, _), (m, _) in zip(jobs, out) if k == K and h != "all"]) for K in sl["Ks"]}
+pickle.dump(slow, open(OUT / "slow_fits.pkl", "wb"))
+
+rows = []
+for K in sl["Ks"]:
+    ms, mh = slow[K]["models"], slow[K]["halves"]
+    zc = [np.concatenate([m.most_likely_states(X) for X in Xb]) for m in ms]
+    zh = [np.concatenate([m.most_likely_states(X) for X in Xb]) for m in mh]
+    rows.append(dict(K=K, heldout_ll=(ll_per_frame(mh[0], Xbh[1]) + ll_per_frame(mh[1], Xbh[0])) / 2,
+                     ari_restarts=np.mean([adjusted_rand_score(zc[i], zc[j]) for i in range(len(ms)) for j in range(i + 1, len(ms))]),
+                     ari_halves=adjusted_rand_score(*zh)))
+slow_rep = pd.DataFrame(rows)
+slow_rep.to_csv(OUT / "slow" / "reproducibility.csv", index=False)
+print(slow_rep.round(3))
+fig, axes = plt.subplots(1, 2, figsize=(9, 3))
+axes[0].plot(slow_rep.K, slow_rep.heldout_ll, "o-")
+axes[0].set_ylabel("held-out LL / bin (halves)")
+axes[1].plot(slow_rep.K, slow_rep.ari_restarts, "o-", label="restarts")
+axes[1].plot(slow_rep.K, slow_rep.ari_halves, "o-", label="halves")
+axes[1].set_ylabel("ARI")
+axes[1].legend()
+for ax in axes:
+    ax.set_xlabel("K")
+plt.tight_layout()
+save("slow/21_K")
+
+
+# %% SLOW: describe each K — state means, within-state pupil x speed correlation, dwell, movement make-up, time course
+z_fast = zs_by_K[max(ex["Ks"])]   # fast AR-HMM states (largest K) for the movement make-up of each slow state
+K_fast = max(ex["Ks"])
+for K in sl["Ks"]:
+    ms = slow[K]["models"]
+    best_s = ms[int(np.argmax([ll_per_frame(m, Xb) for m in ms]))]
+    zb = [best_s.most_likely_states(X) for X in Xb]
+    zb_flat = np.concatenate(zb)
+    S_ = best_s.observations.Sigmas
+    dw = [[] for _ in range(K)]
+    for z in zb:
+        st, a, e = run_lengths(z)
+        for k, d in zip(st, e - a):
+            dw[k].append(d * sl["bin_s"])
+    desc_s = pd.DataFrame({n: [Bc[zb_flat == k, j].mean() for k in range(K)] for j, n in enumerate(SLOW_NAMES)})
+    desc_s["occupancy"] = np.bincount(zb_flat, minlength=K) / len(zb_flat)
+    desc_s["r_pupil_speed"] = S_[:, 0, 1] / np.sqrt(S_[:, 0, 0] * S_[:, 1, 1])   # within-state correlation (model covariance)
+    desc_s["median_dwell_s"] = [np.median(d) for d in dw]
+    desc_s["mean_dwell_s"] = [np.mean(d) for d in dw]
+    desc_s.to_csv(OUT / "slow" / f"K{K}_states.csv")
+    print(f"\n=== slow K={K}")
+    print(desc_s.round(2).to_string())
+
+    # movement make-up: fraction of each slow state's 30 Hz frames in each fast state
+    C = np.zeros((K, K_fast))
+    for b, z in zip(bins, zb):
+        np.add.at(C, (np.repeat(z, nb), z_fast[b["seg"]][:len(z) * nb]), 1)
+    C /= C.sum(axis=1, keepdims=True)
+
+    Zm = np.array([np.concatenate(Xb)[zb_flat == k].mean(axis=0) for k in range(K)])
+    fig, axes = plt.subplots(1, 3, figsize=(17, 0.6 * K + 2.5), gridspec_kw=dict(width_ratios=[1, 1, 1.3]))
+    axes[0].imshow(Zm, cmap="RdBu_r", vmin=-1.5, vmax=1.5, aspect="auto")
+    for k in range(K):
+        for j in range(len(SLOW_NAMES)):
+            axes[0].text(j, k, f"{Zm[k, j]:.1f}", ha="center", va="center", fontsize=7)
+    axes[0].set_xticks(range(len(SLOW_NAMES)), SLOW_NAMES, rotation=45, ha="right")
+    axes[0].set_yticks(range(K), [f"{k} ({desc_s.occupancy[k]:.0%}, {desc_s.median_dwell_s[k]:.0f} s)" for k in range(K)])
+    axes[0].set_title("state means (robust z)")
+    for k in range(K):
+        axes[1].scatter(Bc[zb_flat == k, 1], Bc[zb_flat == k, 0], s=3, color=plt.cm.tab10(k), label=str(k))
+    axes[1].set_xlabel("log_speed (1 s mean)")
+    axes[1].set_ylabel("pupil (% change)")
+    axes[1].legend(markerscale=4, fontsize=7)
+    axes[1].set_title("bins by state")
+    axes[2].imshow(C, vmin=0, vmax=C.max(), cmap="viridis", aspect="auto")
+    for k in range(K):
+        for j in range(K_fast):
+            axes[2].text(j, k, f"{C[k, j]:.2f}", ha="center", va="center", fontsize=6, color="w")
+    axes[2].set_xlabel(f"fast state (AR-HMM K={K_fast})")
+    axes[2].set_ylabel("slow state")
+    axes[2].set_title("movement make-up")
+    fig.suptitle(f"slow model K={K} (1 s bins, Gaussian, kappa={sl['kappa']})")
+    plt.tight_layout()
+    save(f"slow/K{K}_states")
+
+    # time course: the session with the most bins, every bin coloured by state
+    sid = max({b["session_id"] for b in bins}, key=lambda s: sum(len(b["X"]) for b in bins if b["session_id"] == s))
+    fig, axes = plt.subplots(len(SLOW_NAMES), 1, figsize=(14, 8), sharex=True)
+    for b, z in zip(bins, zb):
+        if b["session_id"] == sid:
+            for j, n in enumerate(SLOW_NAMES):
+                axes[j].plot(b["t"], b["X"][:, j], color="0.8", lw=0.8)
+                axes[j].scatter(b["t"], b["X"][:, j], c=[plt.cm.tab10(k) for k in z], s=8)
+    for j, n in enumerate(SLOW_NAMES):
+        axes[j].set_ylabel(n, fontsize=8)
+    axes[-1].set_xlabel("time (s)")
+    axes[0].set_title(f"slow K={K}: {sid.split('ferret_')[1].replace('_analyzable_output', '')}")
+    save(f"slow/K{K}_timecourse")

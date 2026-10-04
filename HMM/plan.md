@@ -423,3 +423,23 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
     - two fast-forward states (pupil +2%);
     - **three slow states that differ mainly in pupil:** still with a small pupil (−2.7%), slow with a mid pupil (+1.3%), and slow with the head down and a large pupil (+5%). These are candidate pupil-only "arousal" splits.
   - **Next:** arousal states need a slow model (1 s bins, Gaussian sticky HMM), since the 30 Hz AR-HMM's states last about 0.1 s.
+
+## Slow (arousal) model (2026-10-03; `run_hmm_eye.py` SLOW cells, outputs `HMM/results_eye/slow/`)
+- **Setup:**
+  - 1 s bins within valid segments. Features per bin: mean pupil, mean log_speed, mean |ω_yaw|, log mean eye speed, mean pitch.
+  - Sticky Gaussian HMM, full covariance, κ=10, K=2–6, 5 restarts plus halves.
+  - Data: 2256 bins in 125 segments, median 9 bins per segment.
+- **Model-free:**
+  - Pupil vs speed is a continuum, not clusters: r = 0.20 across bins.
+  - Pupil is unimodal with a right tail (large-pupil episodes of +20–50%). Both animals look alike.
+- **Choosing K:**
+  - Held-out LL rises to K=4 and is flat after that.
+  - Restart ARI: K=3 1.0, K=4 0.63. Halves ARI is about 0.3–0.39 for every K.
+- **K=4 states, two levels of each movement mode:**
+  - active, small pupil (−2%);
+  - **active, large pupil (+5%)**, with more turning and eye movement (pupil × running);
+  - still, small pupil (−3%);
+  - **large pupil (+7%), slower, head down** (pupil without running).
+- **Within states:** pupil–speed correlation is small (r = 0.1–0.2), so the dependence is between states, not within them.
+- **Dwell times:** median 2–4 s, mean 4–6 s. These are capped by segment length (median 9 s); in the time course, pupil epochs last about 20–60 s.
+- **Next:** bin whole sessions rather than valid runs, so states can last longer than a segment.

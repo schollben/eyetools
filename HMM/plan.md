@@ -390,3 +390,26 @@ The HMM gives turn *states*, not turn *events*. Ways to get from states to turns
   - **Cost:** restart ARI falls from 1.0 (K=4) to 0.65 (K=5) and 0.62 (K=6); halves ARI falls from 0.49 to 0.38 and 0.33.
 - **Recommendation:** keep κ=100. Use K=4 for reproducibility, or K=5 if the still and head-down states matter. Turns look the same at K=4–6.
 - **Files:** montages `15_onset_averages_K*.png` and `16_states_60s_K*.png`; `summary.csv`; per-combo folders with figs 12–16 plus `states.csv`, `dwell_fit.csv`, `events.csv`.
+
+## Exploratory: head + eye + pupil (2026-10-03; `run_hmm_eye.py`, `config/hmm_eye.yaml`, outputs `HMM/results_eye/`)
+- **Setup:**
+  - Features: the 5 head features plus `eye_x`, `eye_y`, `eye_vx`, `eye_vy` (both eyes averaged, head frame) and `pupil`.
+  - Pupil processing: per eye, NaN where |x| or |y| ≥ 5°; % change from the session median; eyes averaged; gaps ≤ 2 s interpolated; 1 s moving average.
+  - Cohort: the same 9 sessions (407/420, EO 8–14); 38.6 min valid.
+  - Model: AR-HMM, L=3, κ=100, K ∈ {4, 6, 8}.
+- **K=4 and K=6 lose the turn states.**
+  - States split by speed and by slow pupil and eye_y levels instead.
+  - Restart ARI 0.71 / 0.62; halves ARI 0.40 / 0.23.
+- **K=8 recovers the left/right turn pair (1 ↔ 7).**
+  - In the turn states the eyes deviate in the turn direction (eye_x ±1.2–1.5°), with a fast eye_vx transient at onset.
+  - The other states:
+    - still / slow (pupil −2%);
+    - fast forward with the eyes up (eye_y +0.7°);
+    - head-down with a large pupil (3%, short-lived);
+    - two moderate-locomotion states.
+  - Restart ARI 0.80, halves ARI 0.34.
+  - Against the head-only K=4: the turns map one-to-one (0.53 / 0.52), and locomotion and transitional states are split further.
+- **Caveats:**
+  - eye_vx and eye_vy average about 0 per state; saccades are too brief to define 100 ms states.
+  - Pupil is nearly constant within ±1 s, so it acts as a slow context variable.
+  - The raw pupil contains glitch spikes (up to +1600%) that leak into the smoothed trace as steps (see `01_pupil_processing.png`). They need an outlier cap before any of the pupil results can be trusted.

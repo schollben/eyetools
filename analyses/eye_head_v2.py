@@ -53,9 +53,11 @@ else:
     groups, titles = eo_groups(Results, pool_by_eo=True, eo_bins=EO_BINS, normal_ids=NORMAL_IDS)
     GROUP_COLORS = AGE_COLORS
 
+ARCS = {id(R): find_arcs(R) for R in Results}   # turns (see event tables cell)
 for group, title in zip(groups, titles):
     print(f"{title}: {len(group)} sessions, {len(set(R.id for R in group))} animals, "
-          f"{sum(len(R.df_LE) + len(R.df_RE) for R in group)} eye / {sum(len(R.df_head) for R in group)} head saccades")
+          f"{sum(len(R.df_LE) + len(R.df_RE) for R in group)} eye / {sum(len(R.df_head) for R in group)} head saccades, "
+          f"{sum(len(ARCS[id(R)]) for R in group)} turns")
 
 
 # %% event tables: head saccades, turns, eye saccades with their head / turn context
@@ -67,7 +69,7 @@ for group, title in zip(groups, titles):
 # > 50 mm/s, >= 0.3 s long, turning the heading >= 30 deg. A frame is in a turn from arc onset to end.
 # METHODS: stationary = body speed tracked and not in a running bout (running_mask: speed >
 # speed_threshold for >= min_bout frames).
-HEAD, ARCS, STATE, E, W = {}, {}, {}, {}, {}
+HEAD, STATE, E, W = {}, {}, {}, {}
 for R in Results:
     df = R.df_head.copy()
     yaw, pitch = unwrap_deg(R.yaw), np.asarray(R.pitch, float)
@@ -77,7 +79,6 @@ for R in Results:
     df["peak_velocity_deg_s"] = np.rad2deg(df["peak_velocity_deg_s"].astype(float))
     HEAD[id(R)] = df
 
-    ARCS[id(R)] = find_arcs(R)
     turn = np.zeros(len(R.yaw), bool)
     for s, e in zip(ARCS[id(R)]["onset"], ARCS[id(R)]["end"]):
         turn[s:e] = True

@@ -17,13 +17,6 @@ from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, 
                                        load_results, set_style, session_trend)
 set_style()
 
-# LOAD DATA
-# good = (402, 405, 407, 420)  # TO ADD (once fixed): 753, 757
-# delayed experience: 416, 403 # TO ADD (once fixed): 411
-NORMAL_IDS = (402, 405, 407, 420) 
-DELAYED_IDS = (416, 403)
-Results = load_results(NORMAL_IDS + DELAYED_IDS)
-
 # SAVE FIGS
 SAVE_FIGS = False
 

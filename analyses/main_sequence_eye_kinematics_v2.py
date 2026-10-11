@@ -28,17 +28,18 @@ with open("./analyses/results.pkl", "rb") as f:
 SAVE_FIGS = False
 compare_delayed = False               # True: normal EO 8-20 vs. all delayed sessions
 
+# OTHER SETTINGS 
+min_n = 5                             # minimum number of saccades a session must have before it gets fitted
+q_band = (5, 15)                      # amplitude band (deg) for the q_ratio shape index -- q_ratio: peak velocity × duration / amplitude
+pre, post = 12, 48                    # frames: -100 to +400 ms from onset (saccade-onset traces)
+amp_bins = [0, 4, 8, 12, 20, 45]      # amplitude bins (deg) for the saccade-onset traces
+
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
     GROUP_COLORS = ["#222222", "#d62728"]
 else:
     groups, titles = eo_groups(Results, pool_by_eo=True, eo_bins=EO_BINS, normal_ids=NORMAL_IDS)
     GROUP_COLORS = AGE_COLORS
-
-min_n = 5                             # minimum number of saccades a session must have before it gets fitted
-q_band = (5, 15)                      # amplitude band (deg) for the q_ratio shape index
-pre, post = 12, 48                    # frames: -100 to +400 ms from onset (saccade-onset traces)
-amp_bins = [0, 4, 8, 12, 20, 45]      # amplitude bins (deg) for the saccade-onset traces
 
 for group, title in zip(groups, titles):
     n_pts = sum(len(R.df_LE) + len(R.df_RE) for R in group)

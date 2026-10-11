@@ -129,6 +129,8 @@ for fam, cols in families.items():
         group_stat[col] = f"group trend β={b:+.2g}/group, LMM p={p:.2g} (Holm)"
         desc = "  ".join(f"{t}: {S[col][S.group == t].mean():.3g} ± {S[col][S.group == t].std():.2g}" for t in titles)
         print(f"{col:10s} {desc}  (mean ± SD over sessions)  {group_stat[col]}")
+    if compare_delayed:   # per-ferret means (delayed ferrets have one session each)
+        print(S.groupby(["group", "id"])[cols].mean().join(S.groupby(["group", "id"]).size().rename("n")).round(3).to_string())
 
 
 # %% scatter plots

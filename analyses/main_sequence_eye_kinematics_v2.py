@@ -35,7 +35,6 @@ else:
     GROUP_COLORS = AGE_COLORS
 
 min_n = 5                             # minimum number of saccades a session must have before it gets fitted
-n_boot = 1000                         # hierarchical bootstrap iterations (distribution cell)
 
 for group, title in zip(groups, titles):
     n_pts = sum(len(R.df_LE) + len(R.df_RE) for R in group)
@@ -59,27 +58,32 @@ for group, title in zip(groups, titles):
 S = pd.DataFrame(rows)
 cols = ["slope", "med_amp", "med_pkv", "pkv10"]
 
-# METHODS: EO trend: linear mixed model, measure ~ EO (days), random intercept per ferret
-# (statsmodels mixedlm, REML). p-values Holm-corrected across the 4 measures. Consistency across
-# animals is reported descriptively as the sign of each ferret's Spearman rho (ferrets with
-# >= 4 sessions); no per-ferret tests.
-trend_fits = [session_trend(S, col) for col in cols]
-p_holm = multipletests([f.pvalues["eo"] for f in trend_fits], method="holm")[1]
+# EO trend vs days is only meaningful for the normal cohort; in compare_delayed mode the only
+# comparison is delayed vs oldest normal sessions (group model below).
+if not compare_delayed:
+    # METHODS: EO trend: linear mixed model, measure ~ EO (days), random intercept per ferret
+    # (statsmodels mixedlm, REML). p-values Holm-corrected across the 4 measures. Consistency across
+    # animals is reported descriptively as the sign of each ferret's Spearman rho (ferrets with
+    # >= 4 sessions); no per-ferret tests.
+    trend_fits = [session_trend(S, col) for col in cols]
+    p_holm = multipletests([f.pvalues["eo"] for f in trend_fits], method="holm")[1]
 
-fig, axes = plt.subplots(1, len(cols), figsize=(2.2 * len(cols), 2.4))
-for ax, col, fit, p in zip(axes, cols, trend_fits, p_holm):
-    plot_vs_eo(ax, S, col, color=None)
-    rhos = [spearmanr(g.eo, g[col])[0] for _, g in S.groupby("id") if len(g) >= 4]
-    ax.set_title(f"{col}\nβ={fit.params['eo']:+.3g}/EO day, p={p:.2g} (Holm)\n"
-                 f"{sum(r > 0 for r in rhos)}/{len(rhos)} ferrets ↑", fontsize=6)
-axes[0].legend(fontsize=4)
-sns.despine(fig)
-fig.tight_layout()
+    fig, axes = plt.subplots(1, len(cols), figsize=(2.2 * len(cols), 2.4))
+    for ax, col, fit, p in zip(axes, cols, trend_fits, p_holm):
+        plot_vs_eo(ax, S, col, color=None)
+        rhos = [spearmanr(g.eo, g[col])[0] for _, g in S.groupby("id") if len(g) >= 4]
+        ax.set_title(f"{col}\nβ={fit.params['eo']:+.3g}/EO day, p={p:.2g} (Holm)\n"
+                     f"{sum(r > 0 for r in rhos)}/{len(rhos)} ferrets ↑", fontsize=6)
+    axes[0].legend(fontsize=4)
+    sns.despine(fig)
+    fig.tight_layout()
 
-if SAVE_FIGS:
-    save_fig(fig, "per-session measures vs EO")
+    if SAVE_FIGS:
+        save_fig(fig, "per-session measures vs EO")
+    for col, p in zip(cols, p_holm):
+        print(f"{col:8s} EO trend Holm p={p:.3g}")
 
-# METHODS: group comparison: same mixed model with group (EO bin, or normal vs delayed) as a
+# METHODS: group comparison: mixed model with group (EO bin, or delayed vs oldest normal) as a
 # categorical fixed effect, reference = first group. Omnibus test = likelihood-ratio test against
 # the intercept-only model (both fit by ML), chi2 with (n_groups - 1) df.
 group_p = {}
@@ -92,8 +96,6 @@ for col in cols:
     contrasts = "  ".join(f"{k.split('T.')[-1].rstrip(']')}: {full.params[k]:+.3g} (p={full.pvalues[k]:.2g})"
                           for k in full.params.index if k.startswith("C("))
     print(f"{col:8s} group LR p={group_p[col]:.3g}  |  vs {titles[0]}: {contrasts}")
-for col, p in zip(cols, p_holm):
-    print(f"{col:8s} EO trend Holm p={p:.3g}")
 
 
 # %% scatter plots
@@ -225,6 +227,8 @@ for i, (group, title) in enumerate(zip(groups, titles)):
 
 axes[0].set_xlabel("log10 amplitude (deg)")
 axes[1].set_xlabel("log10 peak velocity (deg/s)")
+axes[0].set_title(f"session medians, group LR p={group_p['med_amp']:.2g}", fontsize=6)
+axes[1].set_title(f"session medians, group LR p={group_p['med_pkv']:.2g}", fontsize=6)
 axes[0].legend()
 sns.despine(fig)
 
@@ -232,43 +236,13 @@ if SAVE_FIGS:
     fig.tight_layout()
     save_fig(fig, "distributions__amplitude and velocity")
 
-# METHODS: hierarchical bootstrap (n_boot iterations): within each group, resample ferrets, then
-# sessions within each resampled ferret, then saccades within each resampled session (all with
-# replacement). Statistic = difference in median log10 amplitude / peak velocity between groups
-# (later minus earlier); 95% percentile CI and two-sided bootstrap p. Respects the nesting of
-# saccades in sessions in ferrets; pooled-saccade tests (e.g. Mann-Whitney) are not used because
-# saccades are not independent. Rank-biserial r on pooled saccades is given as an effect size only.
-nested = []   # per group: {ferret id: [(log amp, log pkv) per session]}
-for group in groups:
-    if not group:
-        continue
-    d = {}
-    for R in group:
-        x, y = logamp_logvel([R])
-        if len(x):
-            d.setdefault(R.id, []).append((x, y))
-    nested.append(d)
-
-rng = np.random.default_rng(0)
-boot = np.zeros((n_boot, len(nested), 2))   # bootstrap medians: iteration x group x (amp, vel)
-for b in range(n_boot):
-    for gi, d in enumerate(nested):
-        xs, ys = [], []
-        for fid in rng.choice(list(d), len(d)):
-            sess = d[fid]
-            for k in rng.integers(len(sess), size=len(sess)):
-                x, y = sess[k]
-                idx = rng.integers(len(x), size=len(x))
-                xs.append(x[idx])
-                ys.append(y[idx])
-        boot[b, gi] = np.median(np.concatenate(xs)), np.median(np.concatenate(ys))
-
-for k, (name, vals) in enumerate([("amp", group_amp), ("vel", group_vel)]):
+# METHODS: amplitude / peak velocity differences between groups are tested on session medians
+# (med_amp, med_pkv) with the group mixed model in the per-session cell (ferret random intercept,
+# LR test). Pooled-saccade tests are not used because saccades are not independent; rank-biserial
+# r on pooled saccades is given as an effect size only (positive = later group larger).
+for name, vals in [("amp", group_amp), ("vel", group_vel)]:
     for i in range(len(vals)):
         for j in range(i + 1, len(vals)):
-            diff = boot[:, j, k] - boot[:, i, k]
-            lo, hi = np.percentile(diff, [2.5, 97.5])
-            p = min(1, 2 * min(np.mean(diff <= 0), np.mean(diff >= 0)))
             r = 1 - 2 * mwu(vals[i], vals[j]).statistic / (len(vals[i]) * len(vals[j]))
-            print(f"{name}  {names[i]} vs {names[j]}  Δmedian={np.median(vals[j]) - np.median(vals[i]):+.3f} log10 "
-                  f"[95% CI {lo:+.3f}, {hi:+.3f}]  boot p={p:.3g}  r={r:+.3f}")
+            print(f"{name}  {names[i]} vs {names[j]}  "
+                  f"median {np.median(vals[i]):.3f} vs {np.median(vals[j]):.3f} log10  r={r:+.3f}")

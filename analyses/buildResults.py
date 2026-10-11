@@ -22,3 +22,4 @@ Results = load_results(NORMAL_IDS + DELAYED_IDS)
 fileSaveName = os.path.join(local_config.EYETOOLS_ROOT, "analyses", "results.pkl")
 with open(fileSaveName, "wb") as f:
     pickle.dump(Results, f)    
+# %%

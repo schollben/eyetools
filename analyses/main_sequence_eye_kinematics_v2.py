@@ -385,3 +385,4 @@ fig.tight_layout()
 if SAVE_FIGS:
     save_fig(fig, "saccade direction")
 
+# %%

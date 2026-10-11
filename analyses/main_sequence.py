@@ -16,8 +16,8 @@ from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, 
 set_style()
 
 # LOAD DATA
-NORMAL_IDS = (402, 405, 407, 420) 
-DELAYED_IDS = (416, 403)
+NORMAL_IDS = (402, 405, 407, 420, 753, 757) 
+DELAYED_IDS = (416, 403, 411)
 Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # SAVE FIGURES
@@ -25,7 +25,7 @@ SAVE_FIGS = False
 
 # PLOT SETTINGS
 pool_by_eo = True                     # False: one panel per session | True: one panel per EO range
-compare_delayed = True               # True: normal EO 8-20 vs. all delayed sessions
+compare_delayed = False               # True: normal EO 8-20 vs. all delayed sessions
 eo_bins = EO_BINS
 fit_by = "session"                    # "pooled": one fit per EO bin | "session": one fit per session
 min_n = 5                             # minimum number of saccades a group must have before it gets fitted

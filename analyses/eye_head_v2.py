@@ -18,13 +18,14 @@ set_style()
 
 # LOAD DATA
 # good = (402, 405, 407, 420)  # TO ADD (once fixed): 753, 757
-# delayed experience: 416, 403 # TO ADD (once fixed): 411
+# delayed experience: 416, 403, 411
 NORMAL_IDS = (402, 405, 407, 420) 
-DELAYED_IDS = (416, 403)
+DELAYED_IDS = (416, 403, 411)
 Results = load_results(NORMAL_IDS + DELAYED_IDS)
 
 # SAVE DATA
 save_figs = False
+
 
 # %% SETTING AND DATA EXTRACTED FOR PLOTS
 # Eye-head dynamics, replicating Wallace, Voit, Martin Machado et al., Kerr lab,
@@ -208,9 +209,6 @@ for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)
         fig.tight_layout()
         save_fig(fig, f"eye_head_B2_{sig}_by_head_amp " + loco) 
 
-
-# %%
-
 # %% D. timing: when do eye saccades start relative to head onset?
 # Lag = eye onset - head onset (ms): POSITIVE = the eye followed the head.
 # Everything is computed per HEAD saccade, split by locomotor state at head onset
@@ -348,7 +346,6 @@ fig.tight_layout()
 
 # if save_figs:
 #     save_fig(fig, "eye_head_D_timing " + loco)
-
 
 
 # %% Wallace Fig 4A — eye and head rotation, averaged by eye saccade amplitude
@@ -633,3 +630,5 @@ for ax, group, title in zip(axes[0], groups, titles):
 
 sns.despine(fig)
 fig.tight_layout()
+
+#

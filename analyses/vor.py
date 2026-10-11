@@ -31,7 +31,7 @@ flip_eye = "RE"  # head frame: eye + = head yaw +, so VOR gain is negative (None
 speed_threshold = 50      # mm/s, stationary vs running
 min_bout = 60              # frames, shortest run of frames counted as running
 
-compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+compare_delayed = True  # True: normal EO 8-20 vs. all delayed sessions
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
 else:

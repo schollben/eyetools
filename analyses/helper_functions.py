@@ -151,8 +151,9 @@ def pooled_intervals(group, signal, condition="all", speed_threshold=100,
     4.5% of gaps span a tracking dropout and would otherwise dominate the tail (median
     1425 ms vs 275 ms for clean gaps, max 119.8 s).
 
-    Note: extraction enforces min_inter_event frames between events, so this distribution
-    is truncated at min_inter_event / FS seconds (67 ms at min_inter_event=8).
+    Note: with drop_close=True extraction enforces min_inter_event frames between events, so
+    this distribution is truncated at min_inter_event / FS seconds (67 ms at min_inter_event=8).
+    Eye and gaze are extracted with drop_close=False (no truncation).
     """
     out = []
     for R in group:

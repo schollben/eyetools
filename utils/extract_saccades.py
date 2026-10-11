@@ -123,6 +123,7 @@ def extract_saccades(
     max_duration: int = 60,
     min_inter_event: int = 12,
     nan_margin: int = 12,
+    drop_close: bool = True,
 ) -> pd.DataFrame:
     """Detect saccades (eye/gaze) or shifts (skull) from a SessionData object.
 
@@ -137,6 +138,8 @@ def extract_saccades(
             onset of the next. Removes rapid return/corrective movements.
         nan_margin: Number of frames around onset/peak to check for NaNs. Events
             with NaNs in this window are discarded.
+        drop_close: If True, drop events whose onset is < min_inter_event frames after
+            the previous kept event's peak. False keeps every event.
 
     Returns:
         DataFrame with columns: onset, peak (frame indices of movement start and
@@ -152,4 +155,4 @@ def extract_saccades(
     if not events:
         return pd.DataFrame(columns=_COLS)
     df = pd.DataFrame(events, columns=_COLS)
-    return _filter_inter_event(df, min_inter_event)
+    return _filter_inter_event(df, min_inter_event) if drop_close else df

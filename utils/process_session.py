@@ -10,20 +10,20 @@ def process_session(R, window_in_sec=5,
     speed / angVelocities / pupilSizes to R. Returns dfs + rate arrays."""
     
     df_LE = extract_saccades(R, 'eye', eye='LE', velocity_threshold=velocity_threshold_eye,
-                             min_duration=min_duration, min_inter_event=min_inter_event)
+                             min_duration=min_duration, min_inter_event=min_inter_event, drop_close=False)
     
     df_RE = extract_saccades(R, 'eye', eye='RE', velocity_threshold=velocity_threshold_eye,
-                             min_duration=min_duration, min_inter_event=min_inter_event)
+                             min_duration=min_duration, min_inter_event=min_inter_event, drop_close=False)
     
     df_head = extract_saccades(R, 'skull', velocity_threshold=velocity_threshold_head,
                                min_duration=60, max_duration=600,
                                min_inter_event=60)
     
     df_LEgaze = extract_saccades(R, 'gaze', eye='LE', velocity_threshold=velocity_threshold_gaze,
-                                 min_duration=min_duration, min_inter_event=min_inter_event)
+                                 min_duration=min_duration, min_inter_event=min_inter_event, drop_close=False)
     
     df_REgaze = extract_saccades(R, 'gaze', eye='RE', velocity_threshold=velocity_threshold_gaze,
-                                 min_duration=min_duration, min_inter_event=min_inter_event)
+                                 min_duration=min_duration, min_inter_event=min_inter_event, drop_close=False)
 
     n_frames = len(R.EQframes)
 

@@ -55,8 +55,8 @@ for group, title in zip(groups, titles):
 # velocity-profile shape index; session median over 5-15 deg saccades only, to match amplitude
 # across EO (duration is quantized at 1/FS and its relative error depends on saccade size).
 # METHODS: rate = saccades / tracked-eye time (Hz), averaged over eyes (session_rate). med_isi =
-# median gap from one saccade's position peak to the next onset (ms), NaN-free gaps only; gaps
-# < min_inter_event (8 frames, 67 ms) cannot occur by extraction.
+# median gap from one saccade's position peak to the next onset (ms), NaN-free gaps only. All
+# detected events are kept (extraction drop_close=False); velocity peaks < 8 frames apart merge.
 # METHODS: frac_horiz = fraction of saccades within 45 deg of horizontal (|cos| > |sin| of direction).
 
 rows = []

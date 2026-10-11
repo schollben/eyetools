@@ -14,6 +14,7 @@ from scipy.stats import mannwhitneyu as mwu, pearsonr, chi2
 import statsmodels.formula.api as smf
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 import seaborn as sns
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, EYE_COLOR, AGE_COLORS, FERRET_COLORS, EO_BINS, FS,
                                        eo_groups, logamp_logvel, pooled_intervals, session_rate, event_traces, eye_signal,
@@ -30,7 +31,6 @@ compare_delayed = False               # True: normal EO 8-20 vs. all delayed ses
 
 # OTHER SETTINGS 
 min_n = 5                             # minimum number of saccades a session must have before it gets fitted
-q_band = (5, 20)                      # amplitude band (deg) for the q_ratio shape index -- q_ratio: peak velocity × duration / amplitude
 pre, post = 12, 48                    # frames: -100 to +400 ms from onset (saccade-onset traces)
 amp_bins = [0, 4, 8, 12, 20, 45]      # amplitude bins (deg) for the saccade-onset traces
 iso_thresh, iso_win = 40, 12          # deg/s, frames: "isolated" saccade = speed < iso_thresh for iso_win before onset and after peak
@@ -51,16 +51,13 @@ for group, title in zip(groups, titles):
 # METHODS: per session, OLS fit of log10 peak velocity on log10 amplitude (both eyes pooled;
 # sessions with >= min_n saccades). pkv10 = fitted peak velocity at 10 deg, an amplitude-matched
 # velocity measure. med_amp / med_pkv = session medians.
-# METHODS: q_ratio = peak velocity x duration / amplitude (duration = peak - onset frames / FS), a
-# velocity-profile shape index; session median over q_band saccades only, to match amplitude
-# across EO (duration is quantized at 1/FS and its relative error depends on saccade size).
 # METHODS: rate = saccades / tracked-eye time (Hz), averaged over eyes (session_rate). med_isi =
 # median gap from one saccade's position peak to the next onset (ms), NaN-free gaps only. All
 # detected events are kept (extraction drop_close=False); velocity peaks < 8 frames apart merge.
 # METHODS: frac_horiz = fraction of saccades within 45 deg of horizontal (|cos| > |sin| of direction).
 
 rows = []
-for group, title in zip(groups, titles):
+for gi, (group, title) in enumerate(zip(groups, titles)):
     for R in group:
         x, y = logamp_logvel([R])
         if len(x) < min_n:
@@ -68,21 +65,16 @@ for group, title in zip(groups, titles):
         s_, b_ = np.polyfit(x, y, 1)
 
         df = pd.concat([d for d in (R.df_LE, R.df_RE) if len(d)])
-        amp = df["amplitude_deg"].to_numpy(float)
-        pkv = df["peak_velocity_deg_s"].to_numpy(float)
-        dur = (df["peak"] - df["onset"]).to_numpy(float) / FS
-        band = (amp >= q_band[0]) & (amp <= q_band[1]) & (dur > 0)
-        q = np.median(pkv[band] * dur[band] / amp[band]) if band.sum() >= min_n else np.nan
         th = np.deg2rad(df["direction_deg"].to_numpy(float))
         isi = pooled_intervals([R], "eye")
 
-        rows.append(dict(id=R.id, eo=R.eo, group=title, n=len(x), slope=s_,
+        rows.append(dict(id=R.id, eo=R.eo, group=title, gi=gi, n=len(x), slope=s_,
                          med_amp=np.median(10 ** x), med_pkv=np.median(10 ** y), pkv10=10 ** (s_ + b_),
-                         q_ratio=q, rate=session_rate(R, "eye"),
+                         rate=session_rate(R, "eye"),
                          med_isi=np.median(isi) if len(isi) else np.nan,
                          frac_horiz=np.mean(np.abs(np.cos(th)) > np.abs(np.sin(th)))))
 S = pd.DataFrame(rows)
-families = dict(kinematics=["slope", "med_amp", "med_pkv", "pkv10", "q_ratio"],
+families = dict(kinematics=["slope", "med_amp", "med_pkv", "pkv10"],
                 timing=["rate", "med_isi"],
                 direction=["frac_horiz"])
 
@@ -90,19 +82,27 @@ families = dict(kinematics=["slope", "med_amp", "med_pkv", "pkv10", "q_ratio"],
 # (ferrets with >= 3 sessions). Reported as the number of ferrets whose r has the sign of the global
 # trend (r over all sessions pooled), and how many of those reach p < 0.05. Normal cohort only; in
 # compare_delayed mode the only comparison is delayed vs oldest normal sessions (group model below).
-# METHODS: group comparison: linear mixed model (LMM), measure ~ group (EO bin, or delayed vs oldest
-# normal) as a categorical fixed effect, random intercept per ferret. p = likelihood-ratio test
-# against the intercept-only model (both fit by ML), chi2 with (n_groups - 1) df, Holm-corrected
-# within each family of measures (kinematics, timing, direction).
-group_p = {}
+# METHODS: global trend across EO groups: linear mixed model (LMM), measure ~ group index (EO bin
+# 0, 1, 2; or oldest normal = 0, delayed = 1) as a linear fixed effect, random intercept per ferret.
+# β = change per group step. p = likelihood-ratio test against the intercept-only model (both fit
+# by ML), chi2 with 1 df, Holm-corrected within each family of measures (kinematics, timing, direction).
+group_stat = {}
+ncol = max(len(c) for c in families.values())   # same panel size in every family figure
 for fam, cols in families.items():
     print(f"--- {fam}")
 
     if not compare_delayed:
-        fig, axes = plt.subplots(1, len(cols), figsize=(2.2 * len(cols), 2.4), squeeze=False)
+        fig, axes = plt.subplots(1, ncol, figsize=(2.2 * ncol, 2.4), squeeze=False)
+        for ax in axes[0, len(cols):]:
+            ax.axis("off")
         for ax, col in zip(axes[0], cols):
             plot_vs_eo(ax, S, col, color=None)
             d = S.dropna(subset=[col])
+            lo = 0 if col in ("rate", "med_isi") else d[col].min()   # y limits on whole tick steps
+            step = np.diff(MaxNLocator(5, steps=[1, 2, 5, 10]).tick_values(lo, d[col].max())[:2])[0]
+            lo, hi = np.floor(lo / step) * step, np.ceil(d[col].max() / step) * step
+            ax.set_yticks(np.linspace(lo, hi, round((hi - lo) / step) + 1))
+            ax.set_ylim(lo, hi)
             up = pearsonr(d.eo, d[col])[0] > 0
             fr = {fid: pearsonr(g.eo, g[col]) for fid, g in d.groupby("id") if len(g) >= 3}
             same = [fid for fid, (r, p) in fr.items() if (r > 0) == up]
@@ -111,30 +111,31 @@ for fam, cols in families.items():
             print(f"{col:10s} " + "  ".join(f"F{fid} r={r:+.2f} p={p:.2g}" for fid, (r, p) in fr.items()))
         axes[0, 0].legend(fontsize=4)
         sns.despine(fig)
-        fig.tight_layout()
+        fig.subplots_adjust(left=0.07, right=0.98, bottom=0.2, top=0.8, wspace=0.5)
 
         if SAVE_FIGS:
             save_fig(fig, f"per-session {fam} vs EO")
 
-    p_raw = []
+    p_raw, beta = [], []
     for col in cols:
         d = S.dropna(subset=[col])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")   # few ferrets: convergence warnings are routine
-            full = smf.mixedlm(f"{col} ~ C(group, Treatment('{titles[0]}'))", d, groups=d["id"]).fit(reml=False)
+            full = smf.mixedlm(f"{col} ~ gi", d, groups=d["id"]).fit(reml=False)
             null = smf.mixedlm(f"{col} ~ 1", d, groups=d["id"]).fit(reml=False)
-        p_raw.append(chi2.sf(2 * (full.llf - null.llf), d.group.nunique() - 1))
-    for col, p in zip(cols, multipletests(p_raw, method="holm")[1]):
-        group_p[col] = p
+        p_raw.append(chi2.sf(2 * (full.llf - null.llf), 1))
+        beta.append(full.params["gi"])
+    for col, b, p in zip(cols, beta, multipletests(p_raw, method="holm")[1]):
+        group_stat[col] = f"group trend β={b:+.2g}/group, LMM p={p:.2g} (Holm)"
         desc = "  ".join(f"{t}: {S[col][S.group == t].mean():.3g} ± {S[col][S.group == t].std():.2g}" for t in titles)
-        print(f"{col:10s} {desc}  (mean ± SD over sessions)  LMM p={p:.2g} (Holm)")
+        print(f"{col:10s} {desc}  (mean ± SD over sessions)  {group_stat[col]}")
 
 
 # %% scatter plots
 # amplitude vs peak velocity (log-log), eyes combined
 
 fig, axes = create_subplot_grid(len(groups))
-for ax, group, title in zip(axes, groups, titles):
+for i, (ax, group, title) in enumerate(zip(axes, groups, titles)):
 
     if not group:
         ax.set_title(title)
@@ -142,7 +143,7 @@ for ax, group, title in zip(axes, groups, titles):
 
     x, y = logamp_logvel(group)
 
-    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3)
+    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3, color=GROUP_COLORS[i])
     
     ax.set_title(title)
     ax.axis([0.25, 1.75, 1, 3])  # [xmin, xmax, ymin, ymax]
@@ -156,7 +157,7 @@ if SAVE_FIGS:
 
 # amplitude vs duration (ms), eyes combined
 fig, axes = create_subplot_grid(len(groups))
-for ax, group, title in zip(axes, groups, titles):
+for i, (ax, group, title) in enumerate(zip(axes, groups, titles)):
 
     if not group:
         ax.set_title(title)
@@ -172,7 +173,7 @@ for ax, group, title in zip(axes, groups, titles):
     x = abs(amp[inds])
     y = dur_ms[inds]
 
-    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3)
+    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3, color=GROUP_COLORS[i])
     
     ax.set_title(title)
     ax.axis([0, 40, 0, 500])  # [xmin, xmax, ymin, ymax]
@@ -224,7 +225,7 @@ for i, title in enumerate(titles):
 ax.set_xticks(range(len(titles)), titles)
 ax.set_xlim(-0.5, len(titles) - 0.5)
 ax.set_ylabel("main sequence slope")
-ax.set_title(f"group difference: LMM p={group_p['slope']:.2g} (Holm)", fontsize=6)
+ax.set_title(group_stat["slope"], fontsize=6)
 ax.set(ylim=[0.5, 1])
 sns.despine(fig)
 
@@ -259,8 +260,8 @@ for i, (group, title) in enumerate(zip(groups, titles)):
 
 axes[0].set_xlabel("log10 amplitude (deg)")
 axes[1].set_xlabel("log10 peak velocity (deg/s)")
-axes[0].set_title(f"group difference in session medians\nLMM p={group_p['med_amp']:.2g} (Holm)", fontsize=6)
-axes[1].set_title(f"group difference in session medians\nLMM p={group_p['med_pkv']:.2g} (Holm)", fontsize=6)
+axes[0].set_title(f"session medians\n{group_stat['med_amp']}", fontsize=6)
+axes[1].set_title(f"session medians\n{group_stat['med_pkv']}", fontsize=6)
 axes[0].legend()
 sns.despine(fig)
 
@@ -282,7 +283,7 @@ for name, vals in [("amp", group_amp), ("vel", group_vel)]:
 
 # %% saccade rate and inter-saccade interval (ISI) distributions per group
 # ISI = position peak of one saccade -> onset of the next, NaN-free gaps only (pooled_intervals).
-# Test: session rate and session medians (med_isi) in the group LMM, per-session cell.
+# Test: session rate and session medians (med_isi) in the group-trend LMM, per-session cell.
 
 isi_bins = np.logspace(np.log10(10), np.log10(10000), 30)
 
@@ -304,12 +305,12 @@ for i, (group, title) in enumerate(zip(groups, titles)):
 
 ax.set_xscale("log")
 ax.set_xlabel("inter-saccade interval (ms)")
-ax.set_title(f"group difference in session medians\nLMM p={group_p['med_isi']:.2g} (Holm)", fontsize=6)
+ax.set_title(f"session medians\n{group_stat['med_isi']}", fontsize=6)
 ax.legend(fontsize=6)
 ax_r.set_xticks(range(len(titles)), titles)
 ax_r.set_xlim(-0.5, len(titles) - 0.5)
 ax_r.set_ylabel("saccade rate (Hz)")
-ax_r.set_title(f"group difference: LMM p={group_p['rate']:.2g} (Holm)", fontsize=6)
+ax_r.set_title(group_stat["rate"], fontsize=6)
 sns.despine(fig)
 
 if SAVE_FIGS:
@@ -376,7 +377,7 @@ for i, (ax, group, title) in enumerate(zip(axes, groups, titles)):
     fh = S.frac_horiz[S.group == title]
     ax.set_title(f"{title}\nfrac horizontal {fh.mean():.2f} ± {fh.std():.2f}", fontsize=6)
 
-fig.suptitle(f"frac_horiz group difference: LMM p={group_p['frac_horiz']:.2g}", fontsize=6)
+fig.suptitle(f"frac_horiz {group_stat['frac_horiz']}", fontsize=6)
 fig.tight_layout()
 
 if SAVE_FIGS:

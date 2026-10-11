@@ -6,49 +6,59 @@ sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
 import pickle
+import warnings
 import numpy as np
 import pandas as pd
+from scipy.stats import pearsonr, chi2
+import statsmodels.formula.api as smf
+from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 import seaborn as sns
-from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR, LE_COLOR,
-                                       RE_COLOR, eo_groups, unwrap_deg, load_results, set_style, save_fig,
-                                       head_eye_windows, head_triggered_windows, eye_head_coupling, 
-                                       in_head_saccade, running_mask, eye_signal, onset_correlogram, plot_mean_se,
-                                       session_trend)
+from utils.find_arcs import find_arcs
+from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR,
+                                       LE_COLOR, RE_COLOR, eo_groups, unwrap_deg, set_style, save_fig, head_eye_windows,
+                                       head_triggered_windows, eye_head_coupling, onset_correlogram, running_mask,
+                                       plot_mean_se, plot_vs_eo)
 set_style()
-
-# Frame: flip_eye = "LE" is the HEAD frame — eye + = head yaw +, and world gaze = yaw + eye
-# (checked against the pipeline's gaze). With "RE" the eye axis points the other way and a
-# counter-rotation would read as positive.
 
 # LOAD SAVED DATA
 with open("./analyses/results.pkl", "rb") as f:
     Results = pickle.load(f)
 
-# SAVE DATA
-save_figs = False
-compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
+# SETTINGS
+SAVE_FIGS = False
+compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
 
+# OTHER SETTINGS
+# Frame: flip_eye = "LE" is the HEAD frame — eye + = head yaw +, and world gaze = yaw + eye
+# (checked against the pipeline's gaze). With "RE" the eye axis points the other way and a
+# counter-rotation would read as positive.
 flip_eye = "LE"
 pair_window = 30         # frames (250 ms) an eye saccade may lead its head saccade
 pre, post = 24, 72       # frames: -200 to +600 ms from eye-saccade onset
 pscr_win = 24            # frames (200 ms) after the eye saccade ends: counter-rotation window
 head_pre, head_post = 24, 144   # frames: -200 to +1200 ms from head onset (panel B)
-
 amp_classes = [(5, 10), (10, 15), (15, np.inf)]   # Wallace Fig 4A/4C classes, horizontal deg
 head_vel_bins = np.arange(50, 551, 100)            # Wallace Fig 4D bins, deg/s
-
-# locomotion flag for the Wallace 4A / 4C / 4D cells: "all" | "stationary" | "running",
-# judged at eye saccade onset (running_mask, same thresholds as movement_stats.py)
-loco = "stationary"
-speed_threshold = 20     # mm/s
+speed_threshold = 20     # mm/s, running_mask: stationary = not in a running bout
 min_bout = 30            # frames
+min_n = 5                # minimum saccades for a session's per-session PSCR measures
+min_ev = 10              # minimum events for a session to contribute a trace (mean +- SEM across sessions)
 
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
+    GROUP_COLORS = ["#222222", "#d62728"]
 else:
-    groups, titles = eo_groups(Results, pool_by_eo=True, eo_bins=EO_BINS, NORMAL_IDS)
+    groups, titles = eo_groups(Results, pool_by_eo=True, eo_bins=EO_BINS, normal_ids=NORMAL_IDS)
+    GROUP_COLORS = AGE_COLORS
 
+for group, title in zip(groups, titles):
+    print(f"{title}: {len(group)} sessions, {len(set(R.id for R in group))} animals, "
+          f"{sum(len(R.df_LE) + len(R.df_RE) for R in group)} eye / {sum(len(R.df_head) for R in group)} head saccades")
+
+
+# %% event tables: head saccades, turns, eye saccades with their head / turn context
 # Head saccades are R.df_head as extracted by process_session. Two columns are recomputed:
 # peak velocity (stored in rad/s) and amplitude, taken from UNWRAPPED yaw at the same
 # onset/peak frames — raw yaw jumps by 360 deg at the +-180 seam.
@@ -106,7 +116,7 @@ for ax, col, lbl in zip(axes, ("head_rate", "head_amp", "head_pkv"),
     ax.set_ylabel(lbl)
     session_trend(SESS, col)
 
-if save_figs:
+if SAVE_FIGS:
     sns.despine(fig)
     fig.tight_layout()
     save_fig(fig, "eye_head_A_head_saccades")
@@ -152,7 +162,7 @@ for ax, group, title in zip(axes[0], groups, titles):
     ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4)
     fig.tight_layout()
 
-if save_figs:
+if SAVE_FIGS:
     fig.tight_layout()
     save_fig(fig, "eye_head_B_head_triggered " + loco)
 
@@ -194,7 +204,7 @@ for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)
     sns.despine(fig)
     fig.tight_layout()
 
-    if save_figs:
+    if SAVE_FIGS:
         fig.tight_layout()
         save_fig(fig, f"eye_head_B2_{sig}_by_head_amp " + loco) 
 
@@ -299,7 +309,7 @@ for ax, state in zip(axes[0], states):
     ax.set_ylabel(f"P(eye saccade onset) per {bin_ms} ms")
     ax.legend(fontsize=4)
 
-if save_figs:
+if SAVE_FIGS:
     sns.despine(fig)
     fig.tight_layout()
     save_fig(fig, "eye_head_D_correlogram " + loco)
@@ -333,7 +343,7 @@ for row, state in enumerate(states):
 sns.despine(fig)
 fig.tight_layout()
 
-# if save_figs:
+# if SAVE_FIGS:
 #     save_fig(fig, "eye_head_D_timing " + loco)
 
 
@@ -380,7 +390,7 @@ for row, (group, title) in enumerate(zip(groups, titles)):
         ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4)
         
 fig.tight_layout()
-if save_figs:
+if SAVE_FIGS:
     fig.tight_layout()
     save_fig(fig, "eye_head_4A_position " + loco)
 
@@ -424,7 +434,7 @@ for row, (group, title) in enumerate(zip(groups, titles)):
         lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
         ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4)
 
-if save_figs:
+if SAVE_FIGS:
     sns.despine(fig)
     fig.tight_layout()
     save_fig(fig, "eye_head_4C_velocity " + loco)
@@ -472,7 +482,7 @@ for ax, group, title, c in zip(axes[0], groups, titles, AGE_COLORS):
     ax.set_xlim([0, 1000])
     ax.set_ylim([-300, 0])
 
-if save_figs:
+if SAVE_FIGS:
     sns.despine(fig)
     fig.tight_layout()
     save_fig(fig, "eye_head_4D_counter_rotation")
@@ -621,3 +631,4 @@ sns.despine(fig)
 fig.tight_layout()
 
 #
+# %%

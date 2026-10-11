@@ -7,13 +7,16 @@ import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
 from utils import create_subplot_grid
 import pickle
+import warnings
 import numpy as np
 import pandas as pd
-from scipy.stats import mannwhitneyu as mwu
+from scipy.stats import mannwhitneyu as mwu, spearmanr, chi2
+import statsmodels.formula.api as smf
+from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, EYE_COLOR, AGE_COLORS, EO_BINS, eo_groups, logamp_logvel,
-                                       set_style, session_trend, plot_vs_eo, save_fig)
+from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, EYE_COLOR, AGE_COLORS, FERRET_COLORS, EO_BINS,
+                                       eo_groups, logamp_logvel, set_style, session_trend, plot_vs_eo, save_fig)
 set_style()
 
 # LOAD SAVED DATA
@@ -22,21 +25,75 @@ with open("./analyses/results.pkl", "rb") as f:
 
 # SETTINGS
 SAVE_FIGS = False
-pool_by_eo = True                     # False: one panel per session | True: one panel per EO range
 compare_delayed = False               # True: normal EO 8-20 vs. all delayed sessions
-
-eo_bins = EO_BINS
-fit_by = "session"                    # "pooled": one fit per EO bin | "session": one fit per session
-min_n = 5                             # minimum number of saccades a group must have before it gets fitted
 
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
+    GROUP_COLORS = ["#222222", "#d62728"]
 else:
-    groups, titles = eo_groups(Results, pool_by_eo, eo_bins, NORMAL_IDS)
+    groups, titles = eo_groups(Results, pool_by_eo=True, eo_bins=EO_BINS, normal_ids=NORMAL_IDS)
+    GROUP_COLORS = AGE_COLORS
+
+min_n = 5                             # minimum number of saccades a session must have before it gets fitted
+n_boot = 1000                         # hierarchical bootstrap iterations (distribution cell)
 
 for group, title in zip(groups, titles):
     n_pts = sum(len(R.df_LE) + len(R.df_RE) for R in group)
     print(f"{title}: {len(group)} sessions, {len(set(R.id for R in group))} animals, {n_pts} saccades")
+
+
+# %% per-session main sequence table + trends vs EO (sessions are the unit; one line per ferret)
+# METHODS: per session, OLS fit of log10 peak velocity on log10 amplitude (both eyes pooled;
+# sessions with >= min_n saccades). pkv10 = fitted peak velocity at 10 deg, an amplitude-matched
+# velocity measure. med_amp / med_pkv = session medians.
+
+rows = []
+for group, title in zip(groups, titles):
+    for R in group:
+        x, y = logamp_logvel([R])
+        if len(x) < min_n:
+            continue
+        s_, b_ = np.polyfit(x, y, 1)
+        rows.append(dict(id=R.id, eo=R.eo, group=title, n=len(x), slope=s_,
+                         med_amp=np.median(10 ** x), med_pkv=np.median(10 ** y), pkv10=10 ** (s_ + b_)))
+S = pd.DataFrame(rows)
+cols = ["slope", "med_amp", "med_pkv", "pkv10"]
+
+# METHODS: EO trend: linear mixed model, measure ~ EO (days), random intercept per ferret
+# (statsmodels mixedlm, REML). p-values Holm-corrected across the 4 measures. Consistency across
+# animals is reported descriptively as the sign of each ferret's Spearman rho (ferrets with
+# >= 4 sessions); no per-ferret tests.
+trend_fits = [session_trend(S, col) for col in cols]
+p_holm = multipletests([f.pvalues["eo"] for f in trend_fits], method="holm")[1]
+
+fig, axes = plt.subplots(1, len(cols), figsize=(2.2 * len(cols), 2.4))
+for ax, col, fit, p in zip(axes, cols, trend_fits, p_holm):
+    plot_vs_eo(ax, S, col, color=None)
+    rhos = [spearmanr(g.eo, g[col])[0] for _, g in S.groupby("id") if len(g) >= 4]
+    ax.set_title(f"{col}\nβ={fit.params['eo']:+.3g}/EO day, p={p:.2g} (Holm)\n"
+                 f"{sum(r > 0 for r in rhos)}/{len(rhos)} ferrets ↑", fontsize=6)
+axes[0].legend(fontsize=4)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, "per-session measures vs EO")
+
+# METHODS: group comparison: same mixed model with group (EO bin, or normal vs delayed) as a
+# categorical fixed effect, reference = first group. Omnibus test = likelihood-ratio test against
+# the intercept-only model (both fit by ML), chi2 with (n_groups - 1) df.
+group_p = {}
+for col in cols:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")   # few ferrets: convergence warnings are routine
+        full = smf.mixedlm(f"{col} ~ C(group, Treatment('{titles[0]}'))", S, groups=S["id"]).fit(reml=False)
+        null = smf.mixedlm(f"{col} ~ 1", S, groups=S["id"]).fit(reml=False)
+    group_p[col] = chi2.sf(2 * (full.llf - null.llf), S.group.nunique() - 1)
+    contrasts = "  ".join(f"{k.split('T.')[-1].rstrip(']')}: {full.params[k]:+.3g} (p={full.pvalues[k]:.2g})"
+                          for k in full.params.index if k.startswith("C("))
+    print(f"{col:8s} group LR p={group_p[col]:.3g}  |  vs {titles[0]}: {contrasts}")
+for col, p in zip(cols, p_holm):
+    print(f"{col:8s} EO trend Holm p={p:.3g}")
 
 
 # %% scatter plots
@@ -94,69 +151,52 @@ if SAVE_FIGS:
     save_fig(fig, "amplitude vs duration")
 
 
-# %% main sequence fit per EO bin
+# %% main sequence fits per EO bin (one line per session, coloured by ferret)
 
 fig, axes = create_subplot_grid(len(groups))
-fits = []  # (title, id, slope, intercept, n)
 for ax, group, title in zip(axes, groups, titles):
 
-    if not group:
-        ax.set_title(title)
-        continue
-
-    x, y = logamp_logvel(group)
-    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3, color=EYE_COLOR)
-
-    if fit_by == "pooled":
-        units = [(None, group)]
-    else:
-        units = [(R.id, [R]) for R in group]
-
-    for uid, unit in units:
-
-        ux, uy = logamp_logvel(unit)
-        if len(ux) < min_n:
+    for R in group:
+        x, y = logamp_logvel([R])
+        if len(x) < min_n:
             continue
-
-        slope, intercept = np.polyfit(ux, uy, 1)
-        fits.append((title, uid, slope, intercept, len(ux)))
-
-        xl = np.array([ux.min(), ux.max()])
-        ax.plot(xl, slope * xl + intercept, lw=1)
+        slope, intercept = np.polyfit(x, y, 1)
+        xl = np.array([x.min(), x.max()])
+        ax.plot(xl, slope * xl + intercept, lw=0.6, alpha=0.6, color=FERRET_COLORS[R.id])
 
     ax.set_title(title)
     ax.axis([0.25, 1.75, 1, 3])
     ax.set_xlabel("log10 amplitude (deg)")
     ax.set_ylabel("log10 peak velocity (deg/s)")
-    sns.despine(fig)
+
+axes[0].legend(handles=[plt.Line2D([], [], color=FERRET_COLORS[i], label=f"F{i}") for i in sorted(S.id.unique())],
+               fontsize=4)
+sns.despine(fig)
 
 if SAVE_FIGS:
-    # fig.set_size_inches(8, 3)
     fig.tight_layout()
     save_fig(fig, "amplitude vs velocity with fits")
 
+# slope summary: mean ± SD over sessions (descriptive); inference = mixed model in the per-session cell
 fig, ax = plt.subplots(figsize=(3, 2))
-
 for i, title in enumerate(titles):
-    slopes = [f[2] for f in fits if f[0] == title]
-    if not slopes:
+    sl = S.slope[S.group == title]
+    if not len(sl):
         continue
-    c = AGE_COLORS[i] if pool_by_eo else "k"
-    ax.plot(np.full(len(slopes), i - 0.1), slopes, "o", ms=3, color=c)
-    ax.plot(i + 0.1, np.median(slopes), "o", ms=7, mfc="white", mew=1.5, color=c)
+    ax.errorbar(i, sl.mean(), yerr=sl.std(), fmt="o", ms=5, capsize=3, color=GROUP_COLORS[i])
+    print(f"{title:16s} slope {sl.mean():.3f} ± {sl.std():.3f} (mean ± SD)  "
+          f"n={len(sl)} sessions, {S.id[S.group == title].nunique()} ferrets")
 
 ax.set_xticks(range(len(titles)), titles)
+ax.set_xlim(-0.5, len(titles) - 0.5)
 ax.set_ylabel("main sequence slope")
+ax.set_title(f"group LR p={group_p['slope']:.2g}", fontsize=6)
 ax.set(ylim=[0.5, 1])
 sns.despine(fig)
 
 if SAVE_FIGS:
-    # fig.set_size_inches(8, 3)
     fig.tight_layout()
     save_fig(fig, "main sequence slopes")
-
-for f in fits:
-    print(f"{f[0]}  id={f[1]}  slope={f[2]:.3f}  intercept={f[3]:.3f}  n={f[4]}")
 
 
 # %% marginal amplitude / velocity distributions per EO bin
@@ -174,15 +214,14 @@ for i, (group, title) in enumerate(zip(groups, titles)):
     group_amp.append(v1)
     group_vel.append(v2)
     names.append(title)
-    c = AGE_COLORS[i] if pool_by_eo else None
 
-    sns.histplot(ax=axes[0], x=v1, bins=80, element="step", fill=False, stat="density", 
-                 label=title, 
-                 color=c)
+    sns.histplot(ax=axes[0], x=v1, bins=80, element="step", fill=False, stat="density",
+                 label=title,
+                 color=GROUP_COLORS[i])
 
     sns.histplot(ax=axes[1], x=v2, bins=80, element="step", fill=False, stat="density",
-                 label=title, 
-                 color=c)
+                 label=title,
+                 color=GROUP_COLORS[i])
 
 axes[0].set_xlabel("log10 amplitude (deg)")
 axes[1].set_xlabel("log10 peak velocity (deg/s)")
@@ -190,86 +229,46 @@ axes[0].legend()
 sns.despine(fig)
 
 if SAVE_FIGS:
-    # fig.set_size_inches(8, 3)
     fig.tight_layout()
     save_fig(fig, "distributions__amplitude and velocity")
 
-# effect size only: rank-biserial r between EO bins on pooled saccades (positive = the later
-# bin is larger). No p-values here — saccades are not independent; the tests are per
-# session, in the next cell.
-for name, vals in [("amp", group_amp), ("vel", group_vel)]:
-    for i in range(len(vals)):
-        for j in range(i + 1, len(vals)):
-            u = mwu(vals[i], vals[j]).statistic
-            r = 1 - 2 * u / (len(vals[i]) * len(vals[j]))
-            print(f"{name}  {names[i]} vs {names[j]}  "
-                  f"median {np.median(vals[i]):.3f} vs {np.median(vals[j]):.3f}  r={r:+.3f}")
-
-
-# %% per-session measures vs EO (sessions are the unit; one line per ferret)
-
-rows = []
-for R in Results:
-    x, y = logamp_logvel([R])
-    if len(x) < min_n:
-        continue
-    s_, b_ = np.polyfit(x, y, 1)
-    rows.append(dict(id=R.id, eo=R.eo, slope=s_, intercept=b_,
-                     resid_sd=np.std(y - (s_ * x + b_)),
-                     med_amp=np.median(10 ** x), med_pkv=np.median(10 ** y), n=len(x)))
-S = pd.DataFrame(rows)
-
-cols = ["slope", "intercept", "resid_sd", "med_amp", "med_pkv"]
-fig, axes = plt.subplots(1, len(cols), figsize=(2.2 * len(cols), 2))
-for ax, col in zip(axes, cols):
-    plot_vs_eo(ax, S, col, color=EYE_COLOR)
-    session_trend(S, col)
-axes[0].legend(fontsize=4)
-sns.despine(fig)
-fig.tight_layout()
-
-
-# %% residual tightness per EO bin
-# scatter around each unit's OWN fit, so slope differences do not count as scatter
-
-gx, gy = logamp_logvel(Results)
-slope, intercept = np.polyfit(gx, gy, 1)
-print(f"global fit  slope={slope:.3f}  intercept={intercept:.3f}  n={len(gx)}")
-
-spreads = []  # (title, id, std, n)
-
-for group, title in zip(groups, titles):
-
+# METHODS: hierarchical bootstrap (n_boot iterations): within each group, resample ferrets, then
+# sessions within each resampled ferret, then saccades within each resampled session (all with
+# replacement). Statistic = difference in median log10 amplitude / peak velocity between groups
+# (later minus earlier); 95% percentile CI and two-sided bootstrap p. Respects the nesting of
+# saccades in sessions in ferrets; pooled-saccade tests (e.g. Mann-Whitney) are not used because
+# saccades are not independent. Rank-biserial r on pooled saccades is given as an effect size only.
+nested = []   # per group: {ferret id: [(log amp, log pkv) per session]}
+for group in groups:
     if not group:
         continue
+    d = {}
+    for R in group:
+        x, y = logamp_logvel([R])
+        if len(x):
+            d.setdefault(R.id, []).append((x, y))
+    nested.append(d)
 
-    if fit_by == "pooled":
-        units = [(None, group)]
-    else:
-        units = [(R.id, [R]) for R in group]
+rng = np.random.default_rng(0)
+boot = np.zeros((n_boot, len(nested), 2))   # bootstrap medians: iteration x group x (amp, vel)
+for b in range(n_boot):
+    for gi, d in enumerate(nested):
+        xs, ys = [], []
+        for fid in rng.choice(list(d), len(d)):
+            sess = d[fid]
+            for k in rng.integers(len(sess), size=len(sess)):
+                x, y = sess[k]
+                idx = rng.integers(len(x), size=len(x))
+                xs.append(x[idx])
+                ys.append(y[idx])
+        boot[b, gi] = np.median(np.concatenate(xs)), np.median(np.concatenate(ys))
 
-    for uid, unit in units:
-
-        ux, uy = logamp_logvel(unit)
-        if len(ux) < min_n:
-            continue
-
-        us, ub = np.polyfit(ux, uy, 1)
-        res = uy - (us * ux + ub)
-        spreads.append((title, uid, np.std(res), len(ux)))
-
-fig, ax = plt.subplots(figsize=(3, 2))
-bins = [s[0] for s in spreads]
-stds = [s[2] for s in spreads]
-
-if fit_by == "pooled":
-    sns.barplot(ax=ax, x=bins, y=stds)
-else:
-    sns.barplot(ax=ax, x=bins, y=stds, errorbar="sd", color="0.8")
-    sns.stripplot(ax=ax, x=bins, y=stds, size=3, color="k")
-
-ax.set_ylabel("residual SD (log10 deg/s)")
-sns.despine(fig)
-
-for s in spreads:
-    print(f"{s[0]}  id={s[1]}  residual SD={s[2]:.3f}  n={s[3]}")
+for k, (name, vals) in enumerate([("amp", group_amp), ("vel", group_vel)]):
+    for i in range(len(vals)):
+        for j in range(i + 1, len(vals)):
+            diff = boot[:, j, k] - boot[:, i, k]
+            lo, hi = np.percentile(diff, [2.5, 97.5])
+            p = min(1, 2 * min(np.mean(diff <= 0), np.mean(diff >= 0)))
+            r = 1 - 2 * mwu(vals[i], vals[j]).statistic / (len(vals[i]) * len(vals[j]))
+            print(f"{name}  {names[i]} vs {names[j]}  Δmedian={np.median(vals[j]) - np.median(vals[i]):+.3f} log10 "
+                  f"[95% CI {lo:+.3f}, {hi:+.3f}]  boot p={p:.3g}  r={r:+.3f}")

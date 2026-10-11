@@ -10,14 +10,14 @@ import pickle
 import warnings
 import numpy as np
 import pandas as pd
-from scipy.stats import mannwhitneyu as mwu, spearmanr, chi2
+from scipy.stats import mannwhitneyu as mwu, pearsonr, chi2
 import statsmodels.formula.api as smf
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 import seaborn as sns
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, EYE_COLOR, AGE_COLORS, FERRET_COLORS, EO_BINS, FS,
                                        eo_groups, logamp_logvel, pooled_intervals, session_rate, event_traces, eye_signal,
-                                       set_style, session_trend, plot_vs_eo, save_fig)
+                                       set_style, plot_vs_eo, save_fig)
 set_style()
 
 # LOAD SAVED DATA
@@ -30,7 +30,7 @@ compare_delayed = False               # True: normal EO 8-20 vs. all delayed ses
 
 # OTHER SETTINGS 
 min_n = 5                             # minimum number of saccades a session must have before it gets fitted
-q_band = (5, 15)                      # amplitude band (deg) for the q_ratio shape index -- q_ratio: peak velocity × duration / amplitude
+q_band = (5, 20)                      # amplitude band (deg) for the q_ratio shape index -- q_ratio: peak velocity × duration / amplitude
 pre, post = 12, 48                    # frames: -100 to +400 ms from onset (saccade-onset traces)
 amp_bins = [0, 4, 8, 12, 20, 45]      # amplitude bins (deg) for the saccade-onset traces
 iso_thresh, iso_win = 40, 12          # deg/s, frames: "isolated" saccade = speed < iso_thresh for iso_win before onset and after peak
@@ -52,7 +52,7 @@ for group, title in zip(groups, titles):
 # sessions with >= min_n saccades). pkv10 = fitted peak velocity at 10 deg, an amplitude-matched
 # velocity measure. med_amp / med_pkv = session medians.
 # METHODS: q_ratio = peak velocity x duration / amplitude (duration = peak - onset frames / FS), a
-# velocity-profile shape index; session median over 5-15 deg saccades only, to match amplitude
+# velocity-profile shape index; session median over q_band saccades only, to match amplitude
 # across EO (duration is quantized at 1/FS and its relative error depends on saccade size).
 # METHODS: rate = saccades / tracked-eye time (Hz), averaged over eyes (session_rate). med_isi =
 # median gap from one saccade's position peak to the next onset (ms), NaN-free gaps only. All
@@ -86,32 +86,29 @@ families = dict(kinematics=["slope", "med_amp", "med_pkv", "pkv10", "q_ratio"],
                 timing=["rate", "med_isi"],
                 direction=["frac_horiz"])
 
-# METHODS: EO trend: linear mixed model, measure ~ EO (days), random intercept per ferret
-# (statsmodels mixedlm, REML). p-values Holm-corrected within each family of measures
-# (kinematics, timing, direction). Consistency across animals is reported descriptively as the
-# number of ferrets whose Spearman rho has the same sign as β (ferrets with >= 4 sessions); no
-# per-ferret tests.
-# Only for the normal cohort; in compare_delayed mode the only comparison is delayed vs oldest
-# normal sessions (group model below).
-# METHODS: group comparison: mixed model with group (EO bin, or delayed vs oldest normal) as a
-# categorical fixed effect, reference = first group. Omnibus test = likelihood-ratio test against
-# the intercept-only model (both fit by ML), chi2 with (n_groups - 1) df.
+# METHODS: EO trend per ferret: Pearson r of session value vs EO, sessions treated as independent
+# (ferrets with >= 3 sessions). Reported as the number of ferrets whose r has the sign of the global
+# trend (r over all sessions pooled), and how many of those reach p < 0.05. Normal cohort only; in
+# compare_delayed mode the only comparison is delayed vs oldest normal sessions (group model below).
+# METHODS: group comparison: linear mixed model (LMM), measure ~ group (EO bin, or delayed vs oldest
+# normal) as a categorical fixed effect, random intercept per ferret. p = likelihood-ratio test
+# against the intercept-only model (both fit by ML), chi2 with (n_groups - 1) df, Holm-corrected
+# within each family of measures (kinematics, timing, direction).
 group_p = {}
 for fam, cols in families.items():
     print(f"--- {fam}")
 
     if not compare_delayed:
-        trend_fits = [session_trend(S, col) for col in cols]
-        p_holm = multipletests([f.pvalues["eo"] for f in trend_fits], method="holm")[1]
-
         fig, axes = plt.subplots(1, len(cols), figsize=(2.2 * len(cols), 2.4), squeeze=False)
-        for ax, col, fit, p in zip(axes[0], cols, trend_fits, p_holm):
+        for ax, col in zip(axes[0], cols):
             plot_vs_eo(ax, S, col, color=None)
-            rhos = [spearmanr(g.eo, g[col], nan_policy="omit")[0] for _, g in S.groupby("id") if len(g) >= 4]
-            up = fit.params["eo"] > 0   # count ferrets whose own trend has the same sign as β
-            ax.set_title(f"{col}\nβ={fit.params['eo']:+.3g}/EO day, p={p:.2g} (Holm)\n"
-                         f"{sum((r > 0) == up for r in rhos)}/{len(rhos)} ferrets {'↑' if up else '↓'}", fontsize=6)
-            print(f"{col:10s} EO trend Holm p={p:.3g}")
+            d = S.dropna(subset=[col])
+            up = pearsonr(d.eo, d[col])[0] > 0
+            fr = {fid: pearsonr(g.eo, g[col]) for fid, g in d.groupby("id") if len(g) >= 3}
+            same = [fid for fid, (r, p) in fr.items() if (r > 0) == up]
+            ax.set_title(f"{col}\n{len(same)}/{len(fr)} ferrets {'↑' if up else '↓'} "
+                         f"({sum(fr[fid][1] < 0.05 for fid in same)} with p<0.05)", fontsize=6)
+            print(f"{col:10s} " + "  ".join(f"F{fid} r={r:+.2f} p={p:.2g}" for fid, (r, p) in fr.items()))
         axes[0, 0].legend(fontsize=4)
         sns.despine(fig)
         fig.tight_layout()
@@ -119,16 +116,18 @@ for fam, cols in families.items():
         if SAVE_FIGS:
             save_fig(fig, f"per-session {fam} vs EO")
 
+    p_raw = []
     for col in cols:
         d = S.dropna(subset=[col])
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")   # few ferrets: convergence warnings are routine
             full = smf.mixedlm(f"{col} ~ C(group, Treatment('{titles[0]}'))", d, groups=d["id"]).fit(reml=False)
             null = smf.mixedlm(f"{col} ~ 1", d, groups=d["id"]).fit(reml=False)
-        group_p[col] = chi2.sf(2 * (full.llf - null.llf), d.group.nunique() - 1)
-        contrasts = "  ".join(f"{k.split('T.')[-1].rstrip(']')}: {full.params[k]:+.3g} (p={full.pvalues[k]:.2g})"
-                              for k in full.params.index if k.startswith("C("))
-        print(f"{col:10s} group LR p={group_p[col]:.3g}  |  vs {titles[0]}: {contrasts}")
+        p_raw.append(chi2.sf(2 * (full.llf - null.llf), d.group.nunique() - 1))
+    for col, p in zip(cols, multipletests(p_raw, method="holm")[1]):
+        group_p[col] = p
+        desc = "  ".join(f"{t}: {S[col][S.group == t].mean():.3g} ± {S[col][S.group == t].std():.2g}" for t in titles)
+        print(f"{col:10s} {desc}  (mean ± SD over sessions)  LMM p={p:.2g} (Holm)")
 
 
 # %% scatter plots
@@ -225,7 +224,7 @@ for i, title in enumerate(titles):
 ax.set_xticks(range(len(titles)), titles)
 ax.set_xlim(-0.5, len(titles) - 0.5)
 ax.set_ylabel("main sequence slope")
-ax.set_title(f"group LR p={group_p['slope']:.2g}", fontsize=6)
+ax.set_title(f"group difference: LMM p={group_p['slope']:.2g} (Holm)", fontsize=6)
 ax.set(ylim=[0.5, 1])
 sns.despine(fig)
 
@@ -234,7 +233,7 @@ if SAVE_FIGS:
     save_fig(fig, "main sequence slopes")
 
 
-# %% marginal amplitude / velocity distributions per EO bin
+# %% marginal amplitude & velocity distributions per EO bin
 
 fig, axes = plt.subplots(1, 2, figsize=(6, 2))
 group_amp = []
@@ -260,8 +259,8 @@ for i, (group, title) in enumerate(zip(groups, titles)):
 
 axes[0].set_xlabel("log10 amplitude (deg)")
 axes[1].set_xlabel("log10 peak velocity (deg/s)")
-axes[0].set_title(f"session medians, group LR p={group_p['med_amp']:.2g}", fontsize=6)
-axes[1].set_title(f"session medians, group LR p={group_p['med_pkv']:.2g}", fontsize=6)
+axes[0].set_title(f"group difference in session medians\nLMM p={group_p['med_amp']:.2g} (Holm)", fontsize=6)
+axes[1].set_title(f"group difference in session medians\nLMM p={group_p['med_pkv']:.2g} (Holm)", fontsize=6)
 axes[0].legend()
 sns.despine(fig)
 
@@ -281,13 +280,13 @@ for name, vals in [("amp", group_amp), ("vel", group_vel)]:
                   f"median {np.median(vals[i]):.3f} vs {np.median(vals[j]):.3f} log10  r={r:+.3f}")
 
 
-# %% inter-saccade interval (ISI) distributions per group
+# %% saccade rate and inter-saccade interval (ISI) distributions per group
 # ISI = position peak of one saccade -> onset of the next, NaN-free gaps only (pooled_intervals).
-# Test: session medians (med_isi) in the group mixed model, per-session cell.
+# Test: session rate and session medians (med_isi) in the group LMM, per-session cell.
 
 isi_bins = np.logspace(np.log10(10), np.log10(10000), 30)
 
-fig, ax = plt.subplots(figsize=(3, 2))
+fig, (ax, ax_r) = plt.subplots(1, 2, figsize=(6, 2))
 for i, (group, title) in enumerate(zip(groups, titles)):
 
     if not group:
@@ -298,12 +297,19 @@ for i, (group, title) in enumerate(zip(groups, titles)):
                  color=GROUP_COLORS[i], label=title)
 
     m = S.med_isi[S.group == title]
-    print(f"{title:16s} med_isi {m.mean():.0f} ± {m.std():.0f} ms (mean ± SD of session medians)  n={m.notna().sum()} sessions")
+    rt = S.rate[S.group == title]
+    ax_r.errorbar(i, rt.mean(), yerr=rt.std(), fmt="o", ms=5, capsize=3, color=GROUP_COLORS[i])
+    print(f"{title:16s} med_isi {m.mean():.0f} ± {m.std():.0f} ms (mean ± SD of session medians)  "
+          f"rate {rt.mean():.2f} ± {rt.std():.2f} Hz (mean ± SD)  n={m.notna().sum()} sessions")
 
 ax.set_xscale("log")
 ax.set_xlabel("inter-saccade interval (ms)")
-ax.set_title(f"session medians, group LR p={group_p['med_isi']:.2g}", fontsize=6)
+ax.set_title(f"group difference in session medians\nLMM p={group_p['med_isi']:.2g} (Holm)", fontsize=6)
 ax.legend(fontsize=6)
+ax_r.set_xticks(range(len(titles)), titles)
+ax_r.set_xlim(-0.5, len(titles) - 0.5)
+ax_r.set_ylabel("saccade rate (Hz)")
+ax_r.set_title(f"group difference: LMM p={group_p['rate']:.2g} (Holm)", fontsize=6)
 sns.despine(fig)
 
 if SAVE_FIGS:
@@ -370,67 +376,9 @@ for i, (ax, group, title) in enumerate(zip(axes, groups, titles)):
     fh = S.frac_horiz[S.group == title]
     ax.set_title(f"{title}\nfrac horizontal {fh.mean():.2f} ± {fh.std():.2f}", fontsize=6)
 
-fig.suptitle(f"frac_horiz group LR p={group_p['frac_horiz']:.2g}", fontsize=6)
+fig.suptitle(f"frac_horiz group difference: LMM p={group_p['frac_horiz']:.2g}", fontsize=6)
 fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "saccade direction")
 
-
-# %% sensitivity check: main sequence on isolated saccades only
-# ~55% of saccades are preceded within 100 ms by a fast (> 40 deg/s), mostly opposite-direction
-# eye movement that is not in the event list (below find_peaks prominence, or removed by the
-# order-dependent inter-event filter). Do the kinematics results hold without these sequences?
-# METHODS: a saccade is "isolated" if eye speed stays < iso_thresh (40 deg/s) and finite for
-# iso_win frames (100 ms) before onset and after the position peak. Per-session measures are
-# recomputed on isolated saccades and tested with the same mixed models as the main table.
-
-rows = []
-for group, title in zip(groups, titles):
-    for R in group:
-        amp, pkv, n_all = [], [], 0
-        for eye, df in (("LE", R.df_LE), ("RE", R.df_RE)):
-            if not len(df):
-                continue
-            sp = eye_signal(R, eye, "speed")
-            n_all += len(df)
-            for o, p, a, v in zip(df["onset"].to_numpy(int), df["peak"].to_numpy(int),
-                                  df["amplitude_deg"].to_numpy(float), df["peak_velocity_deg_s"].to_numpy(float)):
-                before, after = sp[max(0, o - iso_win):o], sp[p + 1:p + 1 + iso_win]
-                if (len(before) == iso_win and len(after) == iso_win
-                        and np.all(before < iso_thresh) and np.all(after < iso_thresh)):   # NaN compares False
-                    amp.append(a)
-                    pkv.append(v)
-        x, y = np.log10(np.abs(amp)), np.log10(np.abs(pkv))
-        ok = np.isfinite(x) & np.isfinite(y)
-        x, y = x[ok], y[ok]
-        if len(x) < min_n:
-            continue
-        s_, b_ = np.polyfit(x, y, 1)
-        rows.append(dict(id=R.id, eo=R.eo, group=title, frac_iso=len(x) / n_all, slope=s_,
-                         med_amp=np.median(10 ** x), med_pkv=np.median(10 ** y), pkv10=10 ** (s_ + b_)))
-S_iso = pd.DataFrame(rows)
-
-for title in titles:
-    f = S_iso.frac_iso[S_iso.group == title]
-    print(f"{title:16s} isolated {f.mean():.2f} ± {f.std():.2f} of saccades  n={len(f)} sessions")
-
-for col in ["frac_iso", "slope", "med_amp", "med_pkv", "pkv10"]:
-    if not compare_delayed:
-        session_trend(S_iso, col, f"{col} (isolated)")
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        full = smf.mixedlm(f"{col} ~ C(group, Treatment('{titles[0]}'))", S_iso, groups=S_iso["id"]).fit(reml=False)
-        null = smf.mixedlm(f"{col} ~ 1", S_iso, groups=S_iso["id"]).fit(reml=False)
-    p = chi2.sf(2 * (full.llf - null.llf), S_iso.group.nunique() - 1)
-    main = f"   (all saccades: {group_p[col]:.3g})" if col in group_p else ""
-    print(f"{col + ' (isolated)':24s} group LR p={p:.3g}{main}")
-
-if not compare_delayed:
-    fig, axes = plt.subplots(1, 4, figsize=(8.8, 2.2))
-    for ax, col in zip(axes, ["frac_iso", "slope", "pkv10", "med_amp"]):
-        plot_vs_eo(ax, S_iso, col, color=None)
-        ax.set_title(f"{col} (isolated)", fontsize=6)
-    axes[0].legend(fontsize=4)
-    sns.despine(fig)
-    fig.tight_layout()

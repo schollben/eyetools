@@ -22,7 +22,6 @@ DELAYED_IDS = (411, 416, 403)
 EXTRACT = dict(window_in_sec=5, velocity_threshold_eye=40, velocity_threshold_gaze=40,
                velocity_threshold_head=1, min_duration=8, min_inter_event=8)
 
-FERRET_MARKERS = ("o", "s", "^", "D", "v", "P")
 
 # one fixed colour per ferret (tab10), same in every figure
 FERRET_COLORS = dict(zip(NORMAL_IDS + DELAYED_IDS,
@@ -771,8 +770,7 @@ def plot_vs_eo(ax, df, col, color="k"):
     """One line per ferret of a per-session measure against EO. color=None -> FERRET_COLORS."""
     for fid, g in df.groupby("id"):
         g = g.sort_values("eo")
-        i = list(FERRET_COLORS).index(fid)
-        ax.plot(g.eo, g[col], marker=FERRET_MARKERS[i % len(FERRET_MARKERS)], ms=3, lw=0.8,
+        ax.plot(g.eo, g[col], marker="o", mfc="w", ms=3, lw=0.8,
                 color=FERRET_COLORS[fid] if color is None else color, label=f"F{fid}")
     ax.set_xlabel("EO (days)")
     ax.set_ylabel(col)

@@ -62,7 +62,12 @@ for group, title in zip(groups, titles):
 # Head saccades are R.df_head as extracted by process_session. Two columns are recomputed:
 # peak velocity (stored in rad/s) and amplitude, taken from UNWRAPPED yaw at the same
 # onset/peak frames — raw yaw jumps by 360 deg at the +-180 seam.
-HEAD = {}
+# METHODS: turns = arcs in the 2D body path (utils/find_arcs.find_arcs, default fine + coarse scales,
+# tuned on synthetic paths in test_findarcs.py): sustained same-direction path curvature while moving
+# > 50 mm/s, >= 0.3 s long, turning the heading >= 30 deg. A frame is in a turn from arc onset to end.
+# METHODS: stationary = body speed tracked and not in a running bout (running_mask: speed >
+# speed_threshold for >= min_bout frames).
+HEAD, ARCS, STATE, E, W = {}, {}, {}, {}, {}
 for R in Results:
     df = R.df_head.copy()
     yaw, pitch = unwrap_deg(R.yaw), np.asarray(R.pitch, float)
@@ -72,15 +77,23 @@ for R in Results:
     df["peak_velocity_deg_s"] = np.rad2deg(df["peak_velocity_deg_s"].astype(float))
     HEAD[id(R)] = df
 
-# one row per eye saccade (E) and its onset-aligned traces (W), computed once
-E, W = {}, {}
-for R in Results:
-    E[id(R)], W[id(R)] = head_eye_windows(R, HEAD[id(R)], flip_eye, pre, post, pair_window, pscr_win)
-    # locomotor state at each eye saccade onset; "unknown" where body speed is not tracked
-    run = running_mask(R, speed_threshold, min_bout)
-    ok = np.isfinite(np.asarray(R.speed, float))
-    on = E[id(R)]["onset"].to_numpy()
-    E[id(R)]["loco"] = np.where(~ok[on], "unknown", np.where(run[on], "running", "stationary"))
+    ARCS[id(R)] = find_arcs(R)
+    turn = np.zeros(len(R.yaw), bool)
+    for s, e in zip(ARCS[id(R)]["onset"], ARCS[id(R)]["end"]):
+        turn[s:e] = True
+    STATE[id(R)] = {"all": np.ones(len(turn), bool), "outside turns": ~turn,
+                    "stationary": np.isfinite(np.asarray(R.speed, float)) & ~running_mask(R, speed_threshold, min_bout)}
+
+    # one row per eye saccade (E) and its onset-aligned traces (W, same row order)
+    e, W[id(R)] = head_eye_windows(R, HEAD[id(R)], flip_eye, pre, post, pair_window, pscr_win)
+    e["in_turn"] = turn[e["onset"].to_numpy()]
+    e["with_head"] = np.sign(e["eye_disp"]) == e["head_sign"]   # eye moved the way the head turned (paired or not)
+    E[id(R)] = e
+
+print(pd.DataFrame([dict(id=R.id, eo=R.eo, turns=len(ARCS[id(R)]),
+                         turns_per_moving_min=len(ARCS[id(R)]) / max(np.nansum(np.asarray(R.speed, float) > 50) / FS / 60, 1e-9),
+                         eye_in_turn=int(E[id(R)].in_turn.sum()), n_eye=len(E[id(R)]))
+                    for R in Results]).round(1).to_string(index=False))
 
 #  per-session table — every developmental summary below reads from here
 rows = []

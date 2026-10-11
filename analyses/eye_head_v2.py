@@ -273,143 +273,46 @@ for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)
         fig.tight_layout()
         save_fig(fig, f"eye_head_B2_{sig}_by_head_amp")
 
-# %% D. timing: when do eye saccades start relative to head onset?
-# Lag = eye onset - head onset (ms): POSITIVE = the eye followed the head.
-# Everything is computed per HEAD saccade, split by locomotor state at head onset
-# (running_mask with speed_threshold / min_bout from the settings cell): head turns while
-# running may be a different behavior from rotations while stationary.
-#
-# 1. Eye saccade probability around head onset: for every head onset, the probability that
-#    an eye saccade (either eye) starts in each bin_ms bin, from pre_head_ms before to
-#    follow_ms after. Dashed = chance (the session's eye saccade rate, same bins). Pooled per
-#    EO bin.
-# 2. Coincidence: % of head saccades with an eye onset within +-coinc_ms of head onset.
-#    The direct test of "more coincident with age".
-# 3. First eye saccade: the earliest eye onset from pre_head_ms before head onset to the
-#    head peak, as eye - head (median over head saccades).
-#
-# 2 and 3 depend on eye saccade rate (more eye saccades = more coincidences, and an earlier
-# first one), and eye saccade rate rises with EO. So each gets a chance level: the same
-# measure after circularly shifting all eye onsets by a random offset (>= 10 s), which keeps
-# the rate but removes any timing relationship. excess = observed - chance.
+# %% D. eye saccade onsets around head saccade onsets (onset cross-correlogram)
+# METHODS: for each head saccade, eye onsets (both eyes) are binned by lag = eye onset - head onset
+# (bin_ms bins, +-lag_ms; positive = eye followed the head) and divided by the number of head
+# saccades: P(eye onset in bin | head onset) (onset_correlogram). Chance (dashed) = the session's eye
+# onset rate within frames of that state x bin width. Head saccades are split by state at head onset
+# (all / outside turns / stationary). Each session's curve first (sessions with >= min_ev head
+# saccades in that state), then mean +- SEM across sessions.
 
-pre_head_ms = 100     # how far before head onset an eye saccade still counts
-follow_ms = 500       # correlogram range after head onset
-coinc_ms = 50         # |eye - head| <= this = coincident
-bin_ms = 25           # correlogram bin
-n_shift = 50          # random shifts for the chance level
-states = ("stationary", "running")
+lag_ms, bin_ms = 500, 25
+states = ("all", "outside turns", "stationary")
+lag_f, bin_f = int(lag_ms / 1000 * FS), int(round(bin_ms / 1000 * FS))
 
-pre_f, fol_f = int(pre_head_ms / 1000 * FS), int(follow_ms / 1000 * FS)
-coinc_f, bin_f = coinc_ms / 1000 * FS, int(round(bin_ms / 1000 * FS))
-edges = np.arange(-pre_f, fol_f + bin_f, bin_f)
-centers_ms = (edges[:-1] + edges[1:]) / 2 / FS * 1000
-
-rng = np.random.default_rng(0)
-rows = []          # one row per session x state
-cg = {}            # (EO bin index, state) -> [eye onset counts, chance counts, n head saccades]
-for R in Results:
-    run = running_mask(R, speed_threshold, min_bout)
-    speed_ok = np.isfinite(np.asarray(R.speed, float))
-    H = HEAD[id(R)]
-    h_on_all = H["onset"].to_numpy().astype(int)
-    h_state = np.where(~speed_ok[h_on_all], "unknown",
-                       np.where(run[h_on_all], "running", "stationary"))
-    eye_on = np.sort(np.concatenate([R.df_LE["onset"].to_numpy(),
-                                     R.df_RE["onset"].to_numpy()]).astype(int))
-    n_frames = len(R.LE_vx)
-    eye_rate = len(eye_on) / n_frames          # eye onsets per frame
-    gi = next((i for i, (lo, hi) in enumerate(eo_bins) if lo <= R.eo <= hi), None)
-
-    for state in states:
-        Hs = H[h_state == state]
-        h_on = Hs["onset"].to_numpy().astype(int)
-        h_pk = Hs["peak"].to_numpy().astype(int)
-        if len(h_on) < 10:
-            continue
-
-        # 1. eye onset counts per bin around head onsets, pooled later per EO bin
-        lags = (eye_on[None, :] - h_on[:, None]).ravel()
-        counts = np.histogram(lags, edges)[0]
-        expected = len(h_on) * eye_rate * np.diff(edges)
-        c = cg.setdefault((gi, state), [0, 0, 0])
-        c[0], c[1], c[2] = c[0] + counts, c[1] + expected, c[2] + len(h_on)
-
-        # 2 + 3: observed (shift 0) and chance (random shifts)
-        coinc, first = [], []
-        for shift in [0] + list(rng.integers(int(10 * FS), n_frames - int(10 * FS), n_shift)):
-            on = np.sort((eye_on + shift) % n_frames)
-            # 2. coincidence: any eye onset within +-coinc_f of each head onset
-            lo_i = np.searchsorted(on, h_on - coinc_f, side="left")
-            hi_i = np.searchsorted(on, h_on + coinc_f, side="right")
-            coinc.append(100 * np.mean(hi_i > lo_i))
-            # 3. first eye onset in [head onset - pre_f, head peak]
-            i = np.searchsorted(on, h_on - pre_f, side="left")
-            has = (i < len(on)) & (on[np.minimum(i, len(on) - 1)] <= h_pk)
-            first.append(np.median((on[i[has]] - h_on[has]) / FS * 1000) if has.any()
-                         else np.nan)
-
-        rows.append(dict(id=R.id, eo=R.eo, state=state, n_head=len(h_on),
-                         coinc=coinc[0], coinc_chance=np.nanmean(coinc[1:]),
-                         first_lag=first[0], first_lag_chance=np.nanmedian(first[1:])))
-
-T = pd.DataFrame(rows)
-T["coinc_excess"] = T.coinc - T.coinc_chance
-T["first_lag_excess"] = T.first_lag - T.first_lag_chance
-
-# figure 1: probability of an eye saccade onset per bin, per head saccade; one panel per
-# state, one line per EO bin (solid = observed, dashed = chance)
-fig, axes = plt.subplots(1, len(states), figsize=(3 * len(states), 2), squeeze=False,
-                         sharey=True)
+fig, axes = plt.subplots(1, len(states), figsize=(2.6 * len(states), 2.2), squeeze=False, sharey=True)
 for ax, state in zip(axes[0], states):
-    for gi, ((lo, hi), c) in enumerate(zip(eo_bins, AGE_COLORS)):
-        if (gi, state) in cg:
-            counts, expected, n_head = cg[(gi, state)]
-            ax.plot(centers_ms, counts / n_head, color=c, lw=1,
-                    label=f"EO {lo}-{hi} (n={n_head})")
-            ax.plot(centers_ms, expected / n_head, color=c, lw=0.8, ls="--")
+    for group, title, c in zip(groups, titles, GROUP_COLORS):
+        obs, exp = [], []
+        for R in group:
+            m = STATE[id(R)][state]
+            H = HEAD[id(R)]
+            H = H[m[H["onset"].to_numpy().astype(int)]]
+            if len(H) < min_ev:
+                continue
+            centers_ms, counts, _ = onset_correlogram(R, H, lag_f, bin_f)
+            centers_ms, counts = centers_ms[:-1], counts[:-1]   # last histogram bin is closed: one extra lag
+            eye_on = np.concatenate([R.df_LE["onset"].to_numpy(), R.df_RE["onset"].to_numpy()]).astype(int)
+            obs.append(counts / len(H))
+            exp.append(m[eye_on].sum() / m.sum() * bin_f)
+        plot_mean_se(ax, centers_ms, np.array(obs), c, title, min_n=2)
+        if len(obs) >= 2:
+            ax.axhline(np.mean(exp), color=c, lw=0.8, ls="--")
     ax.axvline(0, color="0.8", lw=0.5)
-    ax.set_title(f"head saccades while {state}", fontsize=6)
+    ax.set_title(f"head saccades: {state}", fontsize=6)
     ax.set_xlabel("eye onset - head onset (ms)")
-    ax.set_ylabel(f"P(eye saccade onset) per {bin_ms} ms")
-    ax.legend(fontsize=4)
-
-if SAVE_FIGS:
-    sns.despine(fig)
-    fig.tight_layout()
-    save_fig(fig, "eye_head_D_correlogram " + loco)
-
-
-# figure 2: rows = state; columns = coincidence (obs vs chance), coincidence excess,
-# first lag (obs vs chance), first-lag excess. Session dots + bin median per EO bin.
-panels = ((("coinc", "coinc_chance"), f"% head saccades with eye within +-{coinc_ms} ms"),
-          (("coinc_excess",), "coincidence - chance (%)"),
-          (("first_lag", "first_lag_chance"), "first eye saccade: eye - head (ms)"),
-          (("first_lag_excess",), "first-saccade lag - chance (ms)"))
-fig, axes = plt.subplots(len(states), len(panels), figsize=(2.4 * len(panels), 2 * len(states)),
-                         squeeze=False)
-for row, state in enumerate(states):
-    Ts = T[T.state == state]
-    for ax, (cols, lbl) in zip(axes[row], panels):
-        for i, (lo, hi) in enumerate(eo_bins):
-            in_bin = (Ts.eo >= lo) & (Ts.eo <= hi)
-            for col, dx in zip(cols, (-0.18, 0.18) if len(cols) == 2 else (0,)):
-                v = Ts.loc[in_bin, col].dropna()
-                if not len(v):
-                    continue
-                c = "0.75" if col.endswith("_chance") else AGE_COLORS[i]
-                ax.plot(np.full(len(v), i + dx - 0.07), v, "o", ms=3, alpha=0.6, color=c)
-                ax.plot(i + dx + 0.07, v.median(), "o", ms=6, mfc="white", mew=1.2, color=c)
-        if len(cols) == 1:
-            ax.axhline(0, color="0.8", lw=0.5)
-        ax.set_xticks(range(len(eo_bins)), [f"EO {lo}-{hi}" for lo, hi in eo_bins])
-        ax.set_title(state, fontsize=6)
-        ax.set_ylabel(lbl)
+    ax.legend(fontsize=4, title="n sessions", title_fontsize=4)
+axes[0, 0].set_ylabel(f"P(eye saccade onset) per {bin_ms} ms")
 sns.despine(fig)
 fig.tight_layout()
 
-# if SAVE_FIGS:
-#     save_fig(fig, "eye_head_D_timing " + loco)
+if SAVE_FIGS:
+    save_fig(fig, "eye_head_D_onset_correlogram")
 
 
 # %% Wallace Fig 4A — eye and head rotation, averaged by eye saccade amplitude

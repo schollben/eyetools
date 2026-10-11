@@ -186,6 +186,8 @@ for fam, cols in families.items():
 # %% B. head-onset-triggered average: head and eye-in-head (head frame)
 # Sign-aligned so every head saccade turns positive. An eye trace moving negative while the
 # head keeps turning is the eye counter-rotating ("saccade and fixate").
+# METHODS: all head saccades. Each session's mean trace first (sessions with >= min_ev NaN-free
+# windows; eye = LE and RE windows pooled), then mean +- SEM across sessions.
 
 t_h = np.arange(-head_pre, head_post) / FS * 1000
 fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2), squeeze=False)
@@ -197,15 +199,16 @@ for ax, group, title in zip(axes[0], groups, titles):
     for R in group:
         T = head_triggered_windows(R, HEAD[id(R)], flip_eye, head_pre, head_post)
         hk = np.all(np.isfinite(T["head_pos"]), axis=1)
-        head.append(T["head_pos"][hk])
-        for k in ("LE_pos", "RE_pos"):
-            ok = hk & np.all(np.isfinite(T[k]), axis=1)
-            eye.append(T[k][ok])
+        if hk.sum() >= min_ev:
+            head.append(T["head_pos"][hk].mean(0))
+        ev = np.vstack([T[k][hk & np.all(np.isfinite(T[k]), axis=1)] for k in ("LE_pos", "RE_pos")])
+        if len(ev) >= min_ev:
+            eye.append(ev.mean(0))
     # eye on the left axis, head on the right, as in
     # saccade_andHead_triggered_average
     ax_h = ax.twinx()
-    plot_mean_se(ax, t_h, np.vstack(eye), EYE_COLOR, "eye")
-    plot_mean_se(ax_h, t_h, np.vstack(head), HEAD_COLOR, "head")
+    plot_mean_se(ax, t_h, np.array(eye), EYE_COLOR, "eye, sessions", min_n=2)
+    plot_mean_se(ax_h, t_h, np.array(head), HEAD_COLOR, "head, sessions", min_n=2)
 
     ax.axhline(0, color="0.8", lw=0.25)
     ax.axvline(0, color="0.8", lw=0.25)
@@ -225,17 +228,18 @@ for ax, group, title in zip(axes[0], groups, titles):
 
 if SAVE_FIGS:
     fig.tight_layout()
-    save_fig(fig, "eye_head_B_head_triggered " + loco)
+    save_fig(fig, "eye_head_B_head_triggered")
 
 
 # %% B.2 head-onset-triggered averages by head saccade amplitude
 # One line per head-amplitude bin (like movement_stats "mean kinematic traces"). Does the eye
 # contribute more as head movements get larger?
+# METHODS: session mean per amplitude bin (>= min_ev windows), then mean +- SEM across sessions.
 
 head_amp_bins = [0, 40, 80, 360]   # deg, head saccade amplitude (unwrapped)
 amp_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(head_amp_bins) - 1))
 
-traces = {}   # (group index, amp bin index) -> dict of head / eye arrays
+traces = {}   # (group index, amp bin index) -> dict of head / eye session-mean traces
 for gi, group in enumerate(groups):
     for R in group:
         T = head_triggered_windows(R, HEAD[id(R)], flip_eye, head_pre, head_post)
@@ -244,30 +248,30 @@ for gi, group in enumerate(groups):
         for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
             d = traces.setdefault((gi, bi), {"head": [], "eye": []})
             sel = hk & (amp >= lo) & (amp < hi)
-            d["head"].append(T["head_pos"][sel])
-            for k in ("LE_pos", "RE_pos"):
-                ok = sel & np.all(np.isfinite(T[k]), axis=1)
-                d["eye"].append(T[k][ok])
+            if sel.sum() >= min_ev:
+                d["head"].append(T["head_pos"][sel].mean(0))
+            ev = np.vstack([T[k][sel & np.all(np.isfinite(T[k]), axis=1)] for k in ("LE_pos", "RE_pos")])
+            if len(ev) >= min_ev:
+                d["eye"].append(ev.mean(0))
 
 for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)")):
     fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2), squeeze=False)
     for gi, (ax, title) in enumerate(zip(axes[0], titles)):
         for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
             arrs = traces.get((gi, bi), {}).get(sig, [])
-            if arrs:
-                plot_mean_se(ax, t_h, np.vstack(arrs), amp_colors[bi], f"{lo}-{hi}")
+            plot_mean_se(ax, t_h, np.array(arrs), amp_colors[bi], f"{lo}-{hi}", min_n=2)
         ax.axhline(0, color="0.8", lw=0.5)
         ax.axvline(0, color="0.8", lw=0.5)
         ax.set_title(f"{sig}  {title}", fontsize=6)
         ax.set_xlabel("time from head onset (ms)")
         ax.set_ylabel(ylabel)
-        ax.legend(fontsize=4, title="head amp (deg)", title_fontsize=4)
+        ax.legend(fontsize=4, title="head amp (deg), n sessions", title_fontsize=4)
     sns.despine(fig)
     fig.tight_layout()
 
     if SAVE_FIGS:
         fig.tight_layout()
-        save_fig(fig, f"eye_head_B2_{sig}_by_head_amp " + loco) 
+        save_fig(fig, f"eye_head_B2_{sig}_by_head_amp")
 
 # %% D. timing: when do eye saccades start relative to head onset?
 # Lag = eye onset - head onset (ms): POSITIVE = the eye followed the head.

@@ -6,6 +6,7 @@ sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
 import pickle
+
 import warnings
 import numpy as np
 import pandas as pd
@@ -18,7 +19,7 @@ import seaborn as sns
 from utils.find_arcs import find_arcs
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR,
                                        LE_COLOR, RE_COLOR, eo_groups, unwrap_deg, set_style, save_fig, head_eye_windows,
-                                       head_triggered_windows, eye_head_coupling, onset_correlogram, running_mask,
+                                       head_triggered_windows, onset_correlogram, running_mask,
                                        plot_mean_se, plot_vs_eo)
 set_style()
 
@@ -45,6 +46,9 @@ speed_threshold = 20     # mm/s, running_mask: stationary = not in a running bou
 min_bout = 30            # frames
 min_n = 5                # minimum saccades for a session's per-session PSCR measures
 min_ev = 10              # minimum events for a session to contribute a trace (mean +- SEM across sessions)
+lag_ms, bin_ms = 500, 25 # onset cross-correlogram: +-lag, bin width
+xc_half_ms = 50          # coupling window: correlogram peak +- xc_half_ms
+lag_f, bin_f = int(lag_ms / 1000 * FS), int(round(bin_ms / 1000 * FS))
 
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
@@ -100,33 +104,46 @@ print(pd.DataFrame([dict(id=R.id, eo=R.eo, turns=len(ARCS[id(R)]),
 # %% per-session table + trends vs EO (sessions are the unit; one line per ferret)
 # METHODS: head_rate = head saccades / tracked-yaw time (Hz); head_amp / head_pkv = session medians
 # (amplitude from unwrapped yaw + pitch).
-# METHODS: coupling = % of eye saccades (both eyes) starting inside a head saccade (onset within
-# [head onset - pair_window, head peak]) minus chance; head_with_eye_excess = % of head saccades
-# containing >= 1 eye onset minus chance. Chance = mean over 100 circular shifts (>= 10 s) of the eye
-# onsets against the head, which keeps both rates (eye_head_coupling).
+# METHODS: coupling = excess eye onsets (both eyes) per head saccade in a window around the peak of the
+# eye-vs-head onset cross-correlogram (cell D): sum over the window's bins of P(eye onset | lag) minus
+# chance (session eye onset rate x bin width). The window (peak +- xc_half_ms) is fixed once from the
+# grand-mean correlogram over all sessions (all head saccades), not per session or group. Sessions
+# with < min_ev head saccades are NaN.
 # METHODS: PSCR measures use eye saccades whose onset is inside a turn, with a NaN-free window, that
 # moved with the head (sign of horizontal eye displacement = sign of head yaw movement). cr_vel =
 # median most-negative eye velocity in the pscr_win frames after the saccade (counter-rotation);
 # pscr_gain = median of mean eye / mean head velocity over that window (head > 30 deg/s), -1 = full
 # compensation. Sessions with < min_n such saccades are NaN. turn_frac = % of eye saccades in turns.
 
+XC = {}   # per session: P(eye onset | lag) - chance, all head saccades
+for R in Results:
+    H = HEAD[id(R)]
+    if len(H) < min_ev:
+        continue
+    centers_ms, counts, _ = onset_correlogram(R, H, lag_f, bin_f)
+    centers_ms = centers_ms[:-1]   # last histogram bin is closed: one extra lag
+    XC[id(R)] = counts[:-1] / len(H) - (len(R.df_LE) + len(R.df_RE)) / len(R.LE_vx) * bin_f
+peak_ms = centers_ms[np.argmax(np.mean(list(XC.values()), axis=0))]
+xc_win = np.abs(centers_ms - peak_ms) <= xc_half_ms
+print(f"coupling window: {centers_ms[xc_win][0] - bin_ms / 2:.0f} to {centers_ms[xc_win][-1] + bin_ms / 2:.0f} ms "
+      f"(eye onset - head onset; correlogram peak {peak_ms:.0f} ms)")
+
 rows = []
 for gi, (group, title) in enumerate(zip(groups, titles)):
     for R in group:
         H, e = HEAD[id(R)], E[id(R)]
-        obs_e, chance_e, obs_h, chance_h = eye_head_coupling(R, H, pair_window)
         cr = e[e.in_turn & e.clean & e.with_head]
         ok = len(cr) >= min_n
         rows.append(dict(id=R.id, eo=R.eo, group=title, gi=gi, n_pscr=len(cr),
                          head_rate=len(H) / (np.isfinite(R.yaw).sum() / FS),
                          head_amp=H.amplitude_deg.median(), head_pkv=H.peak_velocity_deg_s.median(),
-                         coupling=100 * (obs_e - chance_e), head_with_eye_excess=100 * (obs_h - chance_h),
+                         coupling=XC[id(R)][xc_win].sum() if id(R) in XC else np.nan,
                          pscr_gain=cr.pscr_gain.median() if ok else np.nan,
                          cr_vel=cr.eye_cr_vel.median() if ok else np.nan,
                          turn_frac=100 * e.in_turn.mean()))
 S = pd.DataFrame(rows)
 families = dict(head=["head_rate", "head_amp", "head_pkv"],
-                coupling=["coupling", "head_with_eye_excess"],
+                coupling=["coupling"],
                 pscr=["pscr_gain", "cr_vel", "turn_frac"])
 
 # METHODS: EO trend per ferret: Pearson r of session value vs EO, sessions treated as independent
@@ -280,11 +297,9 @@ for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)
 # saccades: P(eye onset in bin | head onset) (onset_correlogram). Chance (dashed) = the session's eye
 # onset rate within frames of that state x bin width. Head saccades are split by state at head onset
 # (all / outside turns / stationary). Each session's curve first (sessions with >= min_ev head
-# saccades in that state), then mean +- SEM across sessions.
+# saccades in that state), then mean +- SEM across sessions. Shaded = coupling window (per-session table).
 
-lag_ms, bin_ms = 500, 25
 states = ("all", "outside turns", "stationary")
-lag_f, bin_f = int(lag_ms / 1000 * FS), int(round(bin_ms / 1000 * FS))
 
 fig, axes = plt.subplots(1, len(states), figsize=(2.6 * len(states), 2.2), squeeze=False, sharey=True)
 for ax, state in zip(axes[0], states):
@@ -305,6 +320,7 @@ for ax, state in zip(axes[0], states):
         if len(obs) >= 2:
             ax.axhline(np.mean(exp), color=c, lw=0.8, ls="--")
     ax.axvline(0, color="0.8", lw=0.5)
+    ax.axvspan(centers_ms[xc_win][0] - bin_ms / 2, centers_ms[xc_win][-1] + bin_ms / 2, color="0.9", lw=0, zorder=0)
     ax.set_title(f"head saccades: {state}", fontsize=6)
     ax.set_xlabel("eye onset - head onset (ms)")
     ax.legend(fontsize=4, title="n sessions", title_fontsize=4)

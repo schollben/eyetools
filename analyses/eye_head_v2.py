@@ -95,44 +95,92 @@ print(pd.DataFrame([dict(id=R.id, eo=R.eo, turns=len(ARCS[id(R)]),
                          eye_in_turn=int(E[id(R)].in_turn.sum()), n_eye=len(E[id(R)]))
                     for R in Results]).round(1).to_string(index=False))
 
-#  per-session table — every developmental summary below reads from here
+
+# %% per-session table + trends vs EO (sessions are the unit; one line per ferret)
+# METHODS: head_rate = head saccades / tracked-yaw time (Hz); head_amp / head_pkv = session medians
+# (amplitude from unwrapped yaw + pitch).
+# METHODS: coupling = % of eye saccades (both eyes) starting inside a head saccade (onset within
+# [head onset - pair_window, head peak]) minus chance; head_with_eye_excess = % of head saccades
+# containing >= 1 eye onset minus chance. Chance = mean over 100 circular shifts (>= 10 s) of the eye
+# onsets against the head, which keeps both rates (eye_head_coupling).
+# METHODS: PSCR measures use eye saccades whose onset is inside a turn, with a NaN-free window, that
+# moved with the head (sign of horizontal eye displacement = sign of head yaw movement). cr_vel =
+# median most-negative eye velocity in the pscr_win frames after the saccade (counter-rotation);
+# pscr_gain = median of mean eye / mean head velocity over that window (head > 30 deg/s), -1 = full
+# compensation. Sessions with < min_n such saccades are NaN. turn_frac = % of eye saccades in turns.
+
 rows = []
-for R in Results:
-    H, e = HEAD[id(R)], E[id(R)]
-    obs_e, chance_e, obs_h, chance_h = eye_head_coupling(R, H, pair_window)
-    p = e[e.paired]
-    cr = p[(p.same_direction == 1) & p.clean]
-    rows.append(dict(id=R.id, eo=R.eo,
-                     head_rate=len(H) / (np.isfinite(R.yaw).sum() / FS),
-                     head_amp=H.amplitude_deg.median(),
-                     head_pkv=H.peak_velocity_deg_s.median(),
-                     eye_in_head=100 * obs_e, eye_in_head_chance=100 * chance_e,
-                     coupling=100 * (obs_e - chance_e),
-                     head_with_eye=100 * obs_h, head_with_eye_chance=100 * chance_h,
-                     pscr_gain=cr.pscr_gain.median(), n_paired=len(p)))
-SESS = pd.DataFrame(rows)
+for gi, (group, title) in enumerate(zip(groups, titles)):
+    for R in group:
+        H, e = HEAD[id(R)], E[id(R)]
+        obs_e, chance_e, obs_h, chance_h = eye_head_coupling(R, H, pair_window)
+        cr = e[e.in_turn & e.clean & e.with_head]
+        ok = len(cr) >= min_n
+        rows.append(dict(id=R.id, eo=R.eo, group=title, gi=gi, n_pscr=len(cr),
+                         head_rate=len(H) / (np.isfinite(R.yaw).sum() / FS),
+                         head_amp=H.amplitude_deg.median(), head_pkv=H.peak_velocity_deg_s.median(),
+                         coupling=100 * (obs_e - chance_e), head_with_eye_excess=100 * (obs_h - chance_h),
+                         pscr_gain=cr.pscr_gain.median() if ok else np.nan,
+                         cr_vel=cr.eye_cr_vel.median() if ok else np.nan,
+                         turn_frac=100 * e.in_turn.mean()))
+S = pd.DataFrame(rows)
+families = dict(head=["head_rate", "head_amp", "head_pkv"],
+                coupling=["coupling", "head_with_eye_excess"],
+                pscr=["pscr_gain", "cr_vel", "turn_frac"])
 
+# METHODS: EO trend per ferret: Pearson r of session value vs EO, sessions treated as independent
+# (ferrets with >= 3 sessions). Reported as the number of ferrets whose r has the sign of the global
+# trend (r over all sessions pooled), and how many of those reach p < 0.05. Normal cohort only; in
+# compare_delayed mode the only comparison is delayed vs oldest normal sessions (group model below).
+# METHODS: global trend across EO groups: linear mixed model (LMM), measure ~ group index (EO bin
+# 0, 1, 2; or oldest normal = 0, delayed = 1) as a linear fixed effect, random intercept per ferret.
+# β = change per group step. p = likelihood-ratio test against the intercept-only model (both fit
+# by ML), chi2 with 1 df, Holm-corrected within each family of measures (head, coupling, pscr).
+group_stat = {}
+ncol = max(len(c) for c in families.values())   # same panel size in every family figure
+for fam, cols in families.items():
+    print(f"--- {fam}")
 
-# %% A. head saccades across development, binned by EO (one point per session, bin median)
+    if not compare_delayed:
+        fig, axes = plt.subplots(1, ncol, figsize=(2.2 * ncol, 2.4), squeeze=False)
+        for ax in axes[0, len(cols):]:
+            ax.axis("off")
+        for ax, col in zip(axes[0], cols):
+            plot_vs_eo(ax, S, col, color=None)
+            d = S.dropna(subset=[col])
+            lo = 0 if col in ("head_rate", "turn_frac") else d[col].min()   # y limits on whole tick steps
+            step = np.diff(MaxNLocator(5, steps=[1, 2, 5, 10]).tick_values(lo, d[col].max())[:2])[0]
+            lo, hi = np.floor(lo / step) * step, np.ceil(d[col].max() / step) * step
+            ax.set_yticks(np.linspace(lo, hi, round((hi - lo) / step) + 1))
+            ax.set_ylim(lo, hi)
+            up = pearsonr(d.eo, d[col])[0] > 0
+            fr = {fid: pearsonr(g.eo, g[col]) for fid, g in d.groupby("id") if len(g) >= 3}
+            same = [fid for fid, (r, p) in fr.items() if (r > 0) == up]
+            ax.set_title(f"{col}\n{len(same)}/{len(fr)} ferrets {'↑' if up else '↓'} "
+                         f"({sum(fr[fid][1] < 0.05 for fid in same)} with p<0.05)", fontsize=6)
+            print(f"{col:20s} " + "  ".join(f"F{fid} r={r:+.2f} p={p:.2g}" for fid, (r, p) in fr.items()))
+        axes[0, 0].legend(fontsize=4)
+        sns.despine(fig)
+        fig.subplots_adjust(left=0.07, right=0.98, bottom=0.2, top=0.8, wspace=0.5)
 
-fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
-for ax, col, lbl in zip(axes, ("head_rate", "head_amp", "head_pkv"),
-                        ("head saccades (/s)", "median amplitude (deg)",
-                         "median peak velocity (deg/s)")):
-    for i, (lo, hi) in enumerate(eo_bins):
-        v = SESS.loc[(SESS.eo >= lo) & (SESS.eo <= hi), col].dropna()
-        if not len(v):
-            continue
-        ax.plot(np.full(len(v), i - 0.1), v, "o", ms=3, alpha=0.6, color=AGE_COLORS[i])
-        ax.plot(i + 0.1, v.median(), "o", ms=7, mfc="white", mew=1.5, color=AGE_COLORS[i])
-    ax.set_xticks(range(len(eo_bins)), [f"EO {lo}-{hi}" for lo, hi in eo_bins])
-    ax.set_ylabel(lbl)
-    session_trend(SESS, col)
+        if SAVE_FIGS:
+            save_fig(fig, f"eye_head per-session {fam} vs EO")
 
-if SAVE_FIGS:
-    sns.despine(fig)
-    fig.tight_layout()
-    save_fig(fig, "eye_head_A_head_saccades")
+    p_raw, beta = [], []
+    for col in cols:
+        d = S.dropna(subset=[col])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")   # few ferrets: convergence warnings are routine
+            full = smf.mixedlm(f"{col} ~ gi", d, groups=d["id"]).fit(reml=False)
+            null = smf.mixedlm(f"{col} ~ 1", d, groups=d["id"]).fit(reml=False)
+        p_raw.append(chi2.sf(2 * (full.llf - null.llf), 1))
+        beta.append(full.params["gi"])
+    for col, b, p in zip(cols, beta, multipletests(p_raw, method="holm")[1]):
+        group_stat[col] = f"group trend β={b:+.2g}/group, LMM p={p:.2g} (Holm)"
+        desc = "  ".join(f"{t}: {S[col][S.group == t].mean():.3g} ± {S[col][S.group == t].std():.2g}" for t in titles)
+        print(f"{col:20s} {desc}  (mean ± SD over sessions)  {group_stat[col]}")
+    if compare_delayed:   # per-ferret means (delayed ferrets have one session each)
+        print(S.groupby(["group", "id"])[cols].mean().join(S.groupby(["group", "id"]).size().rename("n")).round(3).to_string())
 
 
 # %% B. head-onset-triggered average: head and eye-in-head (head frame)

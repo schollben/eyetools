@@ -16,7 +16,7 @@ from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 import seaborn as sns
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, EYE_COLOR, AGE_COLORS, FERRET_COLORS, EO_BINS, FS,
-                                       eo_groups, logamp_logvel, pooled_intervals, session_rate, event_traces,
+                                       eo_groups, logamp_logvel, pooled_intervals, session_rate, event_traces, eye_signal,
                                        set_style, session_trend, plot_vs_eo, save_fig)
 set_style()
 
@@ -33,6 +33,7 @@ min_n = 5                             # minimum number of saccades a session mus
 q_band = (5, 15)                      # amplitude band (deg) for the q_ratio shape index -- q_ratio: peak velocity × duration / amplitude
 pre, post = 12, 48                    # frames: -100 to +400 ms from onset (saccade-onset traces)
 amp_bins = [0, 4, 8, 12, 20, 45]      # amplitude bins (deg) for the saccade-onset traces
+iso_thresh, iso_win = 40, 12          # deg/s, frames: "isolated" saccade = speed < iso_thresh for iso_win before onset and after peak
 
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
@@ -374,3 +375,62 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "saccade direction")
+
+
+# %% sensitivity check: main sequence on isolated saccades only
+# ~55% of saccades are preceded within 100 ms by a fast (> 40 deg/s), mostly opposite-direction
+# eye movement that is not in the event list (below find_peaks prominence, or removed by the
+# order-dependent inter-event filter). Do the kinematics results hold without these sequences?
+# METHODS: a saccade is "isolated" if eye speed stays < iso_thresh (40 deg/s) and finite for
+# iso_win frames (100 ms) before onset and after the position peak. Per-session measures are
+# recomputed on isolated saccades and tested with the same mixed models as the main table.
+
+rows = []
+for group, title in zip(groups, titles):
+    for R in group:
+        amp, pkv, n_all = [], [], 0
+        for eye, df in (("LE", R.df_LE), ("RE", R.df_RE)):
+            if not len(df):
+                continue
+            sp = eye_signal(R, eye, "speed")
+            n_all += len(df)
+            for o, p, a, v in zip(df["onset"].to_numpy(int), df["peak"].to_numpy(int),
+                                  df["amplitude_deg"].to_numpy(float), df["peak_velocity_deg_s"].to_numpy(float)):
+                before, after = sp[max(0, o - iso_win):o], sp[p + 1:p + 1 + iso_win]
+                if (len(before) == iso_win and len(after) == iso_win
+                        and np.all(before < iso_thresh) and np.all(after < iso_thresh)):   # NaN compares False
+                    amp.append(a)
+                    pkv.append(v)
+        x, y = np.log10(np.abs(amp)), np.log10(np.abs(pkv))
+        ok = np.isfinite(x) & np.isfinite(y)
+        x, y = x[ok], y[ok]
+        if len(x) < min_n:
+            continue
+        s_, b_ = np.polyfit(x, y, 1)
+        rows.append(dict(id=R.id, eo=R.eo, group=title, frac_iso=len(x) / n_all, slope=s_,
+                         med_amp=np.median(10 ** x), med_pkv=np.median(10 ** y), pkv10=10 ** (s_ + b_)))
+S_iso = pd.DataFrame(rows)
+
+for title in titles:
+    f = S_iso.frac_iso[S_iso.group == title]
+    print(f"{title:16s} isolated {f.mean():.2f} ± {f.std():.2f} of saccades  n={len(f)} sessions")
+
+for col in ["frac_iso", "slope", "med_amp", "med_pkv", "pkv10"]:
+    if not compare_delayed:
+        session_trend(S_iso, col, f"{col} (isolated)")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        full = smf.mixedlm(f"{col} ~ C(group, Treatment('{titles[0]}'))", S_iso, groups=S_iso["id"]).fit(reml=False)
+        null = smf.mixedlm(f"{col} ~ 1", S_iso, groups=S_iso["id"]).fit(reml=False)
+    p = chi2.sf(2 * (full.llf - null.llf), S_iso.group.nunique() - 1)
+    main = f"   (all saccades: {group_p[col]:.3g})" if col in group_p else ""
+    print(f"{col + ' (isolated)':24s} group LR p={p:.3g}{main}")
+
+if not compare_delayed:
+    fig, axes = plt.subplots(1, 4, figsize=(8.8, 2.2))
+    for ax, col in zip(axes, ["frac_iso", "slope", "pkv10", "med_amp"]):
+        plot_vs_eo(ax, S_iso, col, color=None)
+        ax.set_title(f"{col} (isolated)", fontsize=6)
+    axes[0].legend(fontsize=4)
+    sns.despine(fig)
+    fig.tight_layout()

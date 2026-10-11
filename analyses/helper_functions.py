@@ -24,6 +24,11 @@ EXTRACT = dict(window_in_sec=5, velocity_threshold_eye=40, velocity_threshold_ga
 
 FERRET_MARKERS = ("o", "s", "^", "D", "v", "P")
 
+# one fixed colour per ferret (tab10), same in every figure
+FERRET_COLORS = dict(zip(NORMAL_IDS + DELAYED_IDS,
+                         ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+                          "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22"]))
+
 LOCO_COLORS = {"all": "#444444", "stationary": "#725EE7", "running": "#E93115"}
 
 # Eye and head traces, shared by every script. EYE_COLOR is the default when LE and RE
@@ -758,18 +763,15 @@ def session_trend(df, col, label=None):
         fit = smf.mixedlm(f"{col} ~ eo", d, groups=d["id"]).fit()
     print(f"{label:24s} n={len(d):3d}  rho={rho:+.3f} p={p:.3g}  |  mixedlm "
           f"{fit.params['eo']:+.4f}/EO day  SE={fit.bse['eo']:.4f}  p={fit.pvalues['eo']:.3g}")
-    for fid, g in d.groupby("id"):
-        if len(g) >= 4:
-            r, pp = spearmanr(g.eo, g[col])
-            print(f"{'':24s} F{fid} n={len(g):2d}  rho={r:+.3f} p={pp:.3g}")
     return fit
 
 
 def plot_vs_eo(ax, df, col, color="k"):
-    """One line per ferret of a per-session measure against EO."""
-    for i, (fid, g) in enumerate(df.groupby("id")):
+    """One line per ferret of a per-session measure against EO. color=None -> FERRET_COLORS."""
+    for fid, g in df.groupby("id"):
         g = g.sort_values("eo")
+        i = list(FERRET_COLORS).index(fid)
         ax.plot(g.eo, g[col], marker=FERRET_MARKERS[i % len(FERRET_MARKERS)], ms=3, lw=0.8,
-                color=color, label=f"F{fid}")
+                color=FERRET_COLORS[fid] if color is None else color, label=f"F{fid}")
     ax.set_xlabel("EO (days)")
     ax.set_ylabel(col)

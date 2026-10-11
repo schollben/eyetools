@@ -6,6 +6,7 @@ sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
 from utils import create_subplot_grid
+import pickle
 import numpy as np
 import pandas as pd
 from scipy.stats import mannwhitneyu as mwu
@@ -14,6 +15,10 @@ import seaborn as sns
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, EYE_COLOR, AGE_COLORS, EO_BINS, eo_groups, logamp_logvel,
                                        set_style, session_trend, plot_vs_eo, save_fig)
 set_style()
+
+# LOAD SAVED DATA
+with open("./analyses/results.pkl", "rb") as f:
+    Results = pickle.load(f)
 
 # SETTINGS
 SAVE_FIGS = False

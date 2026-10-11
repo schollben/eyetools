@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
+import pickle
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -16,28 +17,17 @@ from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, 
                                        session_trend)
 set_style()
 
-# LOAD DATA
-# good = (402, 405, 407, 420)  # TO ADD (once fixed): 753, 757
-# delayed experience: 416, 403, 411
-NORMAL_IDS = (402, 405, 407, 420) 
-DELAYED_IDS = (416, 403, 411)
-Results = load_results(NORMAL_IDS + DELAYED_IDS)
-
-# SAVE DATA
-save_figs = False
-
-
-# %% SETTING AND DATA EXTRACTED FOR PLOTS
-# Eye-head dynamics, replicating Wallace, Voit, Martin Machado et al., Kerr lab,
-# Current Biology 35:761-775 (Feb 2025), Figure 4, across development.
-# Their term for the return phase is PSCR — post-saccadic counter-rotation.
-#
 # Frame: flip_eye = "LE" is the HEAD frame — eye + = head yaw +, and world gaze = yaw + eye
 # (checked against the pipeline's gaze). With "RE" the eye axis points the other way and a
 # counter-rotation would read as positive.
 
-pool_by_eo = True # how panels are split: False = one panel per session, True = one panel per EO range
-eo_bins = EO_BINS
+# LOAD SAVED DATA
+with open("./analyses/results.pkl", "rb") as f:
+    Results = pickle.load(f)
+
+# SAVE DATA
+save_figs = False
+compare_delayed = False  # True: normal EO 8-20 vs. all delayed sessions
 
 flip_eye = "LE"
 pair_window = 30         # frames (250 ms) an eye saccade may lead its head saccade
@@ -54,11 +44,10 @@ loco = "stationary"
 speed_threshold = 20     # mm/s
 min_bout = 30            # frames
 
-compare_delayed = True  # True: normal EO 8-20 vs. all delayed sessions
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
 else:
-    groups, titles = eo_groups(Results, pool_by_eo, eo_bins, NORMAL_IDS)
+    groups, titles = eo_groups(Results, pool_by_eo=True, eo_bins=EO_BINS, NORMAL_IDS)
 
 # Head saccades are R.df_head as extracted by process_session. Two columns are recomputed:
 # peak velocity (stored in rad/s) and amplitude, taken from UNWRAPPED yaw at the same

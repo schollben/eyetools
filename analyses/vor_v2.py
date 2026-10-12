@@ -11,7 +11,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR,
-                                       eo_groups, head_signal, eye_signal, running_mask, clean_runs, run_xcorr,
+                                       eo_groups, head_signal, eye_signal, clean_runs, run_xcorr,
                                        set_style, save_fig, plot_mean_se)
 set_style()
 

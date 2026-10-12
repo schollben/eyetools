@@ -55,6 +55,8 @@ min_bin_sacc = 5         # minimum saccades for a session's value within one amp
 yaw_min = 30             # deg/s, |head yaw velocity| for the yaw+ / yaw- vergence comparison
 tilt_max = 20            # deg, |pitch| and |roll| ceiling (head roughly level) for that comparison
 trig_pre, trig_post = 12, 48   # frames: -100 to +400 ms around paired LE saccade onset (vergence traces)
+toy_speed_max = 1000     # mm/s, toy frames faster than this are tracking jumps
+dist_edges = np.array([50, 100, 150, 225, 350, 500, 800])   # mm, head-to-toy distance bins
 
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
@@ -137,6 +139,12 @@ for group, title in zip(groups, titles):
 # eye_ratio = median log2(|LE| / |RE|) of the same saccades (data family; 0 = equal scale).
 # verg_post = vergence change from saccade onset to onset + trig_post frames (deg, + = converging), median
 # per direction, averaged over the two directions (abducting > adducting gives divergence in both).
+# METHODS (toy family): dist = head (skull position) to toy distance (mm). Toy frames are used when the toy
+# position is finite and its speed (np.gradient * FS) < toy_speed_max (larger = tracking jumps). Frames =
+# saccade-free binocular toy frames (all locomotor states); NaN with < min_frames. r_verg_toy = Pearson r of
+# vergence vs log10 dist (< 0 = converging as the toy gets closer); slope_verg_toy = OLS slope (deg per
+# log10 mm). r_verg_toy_v = the same after regressing vergence on the mean vertical eye position (the
+# vertical-vergence coupling, see cross-talk); the toy is often below the eyes when close, so both are kept.
 # CAVEAT: eye kinematics are 6 Hz low-passed upstream; displacements are usable, saccade timing is coarse
 # (lag quantized at 8.3 ms) and the shape of intra-saccadic vergence transients is filter-limited.
 def partial_r(a, b, c):
@@ -147,7 +155,7 @@ def partial_r(a, b, c):
 
 
 lags = np.arange(-max_lag, max_lag + 1)
-rows, SACC, XC = [], {}, {}
+rows, SACC, XC, TOY = [], {}, {}, {}
 for gi, (group, title) in enumerate(zip(groups, titles)):
     for R in group:
         both, free, stat = BOTH[id(R)], FREE[id(R)], STAT[id(R)]
@@ -191,6 +199,21 @@ for gi, (group, title) in enumerate(zip(groups, titles)):
                 for sel in (version > 0, version < 0)]
         row["verg_post"] = np.mean(meds) if ok_h else np.nan
 
+        tx, ty = np.asarray(R.toy_x, float), np.asarray(R.toy_y, float)
+        dist = np.hypot(tx - np.asarray(R.position_x, float), ty - np.asarray(R.position_y, float))
+        toy_ok = np.isfinite(dist) & (np.hypot(np.gradient(tx), np.gradient(ty)) * FS < toy_speed_max)
+        k = free & both & toy_ok
+        vert_pos = (eye_signal(R, "LE", "y") + eye_signal(R, "RE", "y")) / 2
+        TOY[id(R)] = (k, np.log10(dist), vert_pos)
+        row["toy_pct"] = 100 * toy_ok.mean()
+        if k.sum() >= min_frames:
+            ld, vg, vp = np.log10(dist[k]), VERG[id(R)][k], vert_pos[k]
+            row["r_verg_toy"] = pearsonr(ld, vg)[0]
+            row["slope_verg_toy"] = np.polyfit(ld, vg, 1)[0]
+            row["r_verg_toy_v"] = pearsonr(ld, vg - np.polyval(np.polyfit(vp, vg, 1), vp))[0]
+        else:
+            row["r_verg_toy"] = row["slope_verg_toy"] = row["r_verg_toy_v"] = np.nan
+
         m = free & both
         lv, rv = eye_signal(R, "LE", "vx", flip_eye)[m], eye_signal(R, "RE", "vx", flip_eye)[m]
         enough = m.sum() >= min_frames
@@ -215,8 +238,9 @@ S = pd.DataFrame(rows)
 families = dict(data=["both_pct", "paired_frac", "xtalk", "verg_vert", "eye_ratio"],
                 saccade=["r_disp_x", "r_disp_y", "disconj_x", "lag_sd"],
                 slow=["r_vel_x", "r_vel_y", "verg_vel", "verg_iqr", "xc_lag"],
-                disconj=["abd_asym", "verg_post"])
-print(S[["id", "eo", "n_pairs", "n_horiz", "conj_frac"] + [c for cols in families.values() for c in cols]].round(3).to_string(index=False))
+                disconj=["abd_asym", "verg_post"],
+                toy=["r_verg_toy", "slope_verg_toy", "r_verg_toy_v"])
+print(S[["id", "eo", "n_pairs", "n_horiz", "conj_frac", "toy_pct"] + [c for cols in families.values() for c in cols]].round(3).to_string(index=False))
 
 # METHODS: EO trend per ferret: Pearson r of session value vs EO, sessions treated as independent
 # (ferrets with >= 3 sessions). Reported as the number of ferrets whose r has the sign of the global
@@ -436,3 +460,44 @@ sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
     save_fig(fig, "saccade-triggered vergence")
+
+
+# %% vergence vs head-to-toy distance
+# METHODS: per session, mean vergence (re the session median of the same frames, offset-free), vertical-
+# partialled vergence, and mean vertical eye position in each distance bin (toy frames as in the table;
+# NaN with < min_bin frames). Lines = mean +- SEM across sessions, bins with >= 2 sessions.
+centers = np.sqrt(dist_edges[:-1] * dist_edges[1:])
+fig, axes = plt.subplots(1, 3, figsize=(8.5, 2.4))
+for group, title, c in zip(groups, titles, GROUP_COLORS):
+    G = np.full((3, len(group), len(centers)), np.nan)
+    for si, R in enumerate(group):
+        k, ld, vp = TOY[id(R)]
+        if k.sum() < min_frames:
+            continue
+        vg = VERG[id(R)]
+        fit = np.polyfit(vp[k], vg[k], 1)
+        sig = (vg - np.median(vg[k]), vg - np.polyval(fit, vp), vp - np.median(vp[k]))
+        for bi, (lo, hi) in enumerate(zip(np.log10(dist_edges[:-1]), np.log10(dist_edges[1:]))):
+            kb = k & (ld >= lo) & (ld < hi)
+            if kb.sum() >= min_bin:
+                for i, x in enumerate(sig):
+                    G[i, si, bi] = x[kb].mean()
+    for ax, g in zip(axes, G):
+        n = np.isfinite(g).sum(0)
+        ok = n >= 2
+        mu = np.array([np.nanmean(x) if o else np.nan for x, o in zip(g.T, ok)])
+        se = np.array([np.nanstd(x) / np.sqrt(m) if o else np.nan for x, o, m in zip(g.T, ok, n)])
+        ax.errorbar(centers[ok], mu[ok], se[ok], marker="o", ms=3, lw=1, capsize=0, color=c, label=title)
+for ax, col, yl in zip(axes, ("r_verg_toy", "r_verg_toy_v", None),
+                       ("vergence re median (deg, + conv)", "vergence, vertical removed (deg)", "vertical eye position re median (deg)")):
+    ax.set_xscale("log")
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.set_xlabel("head-to-toy distance (mm)")
+    ax.set_ylabel(yl)
+    if col:
+        ax.set_title(f"{col}: {group_stat[col]}", fontsize=5)
+axes[0].legend(fontsize=5)
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "vergence vs toy distance")

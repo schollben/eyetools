@@ -25,7 +25,7 @@ compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
 
 # OTHER SETTINGS
 EYE_AXIS = {"h": {"LE": (-0.47, -0.52, 0.71), "RE": (-0.47, 0.52, 0.71)},
-            "v": {"LE": (0.74, -0.68, 0.0),   "RE": (-0.73, -0.68, 0.0)}}
+            "v": {"LE": (0.74, -0.68, 0.0),   "RE": (-0.73, -0.68, 0.0)}} #regression coefficients for projecting head velocity onto each eye's axis
 flip_eye = "LE"          # LE horizontal is flipped to match RE, so both eyes can be pooled
 gaze_pad = (12, 20)      # frames excluded before gaze-event onset / after its end (see fixation cell)
 nan_margin = 36          # frames excluded around each eye's tracking gaps (NaN), per eye
@@ -63,10 +63,11 @@ for R in Results:
 # Top: log10 fraction of fixation frames (2D histogram, contours) pooled over sessions and both eyes. Bottom: median eye velocity per
 # head velocity bin (bins with >= min_bin frames), one line per group.
 
-vel_edges = np.arange(-180, 181, 10)    # deg/s, head velocity bins
+vel_edges = np.arange(-150, 151, 10)    # deg/s, head velocity bins
 centers = (vel_edges[:-1] + vel_edges[1:]) / 2
 min_bin = 30   
-xy_bins = (np.arange(-300, 301, 10), np.arange(-100, 101, 5))   # deg/s, 2D histogram bins (head, eye)
+xy_bins = (np.arange(-200, 201, 10), np.arange(-100, 101, 10))   # deg/s, 2D histogram bins (head, eye)
+lvlbins = np.arange(-4, 0, 0.5)
 
 fig, axes = plt.subplots(2, len(groups), figsize=(2.6 * len(groups), 4.8), squeeze=False)
 
@@ -83,18 +84,22 @@ for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
     h, e = h[k], e[k]
     
     H = np.histogram2d(h, e, bins=xy_bins)[0].T
-    axes[0, j].contourf((xy_bins[0][:-1] + xy_bins[0][1:]) / 2, (xy_bins[1][:-1] + xy_bins[1][1:]) / 2,
-                        np.log10(np.where(H > 0, H / H.sum(), np.nan)), levels=10, cmap="Greys")
-    axes[0, j].set(xlim=(-300, 300), ylim=(-100, 100), title=f"{title} ({len(h)} frames)",
-                   xlabel="head velocity, eye horizontal axis (deg/s)", ylabel="eye horizontal velocity (deg/s)")
+    cs = axes[0, j].contourf((xy_bins[0][:-1] + xy_bins[0][1:]) / 2, (xy_bins[1][:-1] + xy_bins[1][1:]) / 2,
+                        np.log10(np.where(H >= 3, H / H.sum(), np.nan)), levels=lvlbins, cmap="Purples")
     
+    axes[0, j].set(xlim=(-200, 200), ylim=(-100, 100), yticks=np.arange(-100, 101, 50),
+                   title=f"{title} ({len(h)} frames)",
+                   xlabel="head velocity, eye horizontal axis (deg/s)", ylabel="eye horizontal velocity (deg/s)")
+
     b = np.digitize(h, vel_edges) - 1
     med = [np.median(e[b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(centers))]
-    axes[1, 0].plot(centers, med, color=c, marker="o", ms=2, lw=1, label=title)
+    axes[1, 0].plot(centers, med, color=c, marker="o", ms=4, mfc="w", lw=1, label=title)
 
 axes[1, 0].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].set(xlabel="head velocity, eye horizontal axis (deg/s)", ylabel="median eye horizontal velocity (deg/s)")
 axes[1, 0].legend(fontsize=5)
+fig.colorbar(cs, cax=axes[1, 2].inset_axes([0.1, 0, 0.08, 1]), label="log10 fraction of frames")
+
 for ax in axes[1, 1:]:
     ax.axis("off")
 sns.despine(fig)
@@ -107,10 +112,11 @@ if SAVE_FIGS:
 # %% VERTICAL: head pitch velocity vs vertical eye velocity (fixation frames)
 # Same layout as the horizontal cell.
 
-vel_edges = np.arange(-200, 201, 10)    # deg/s, head velocity bins
+vel_edges = np.arange(-150, 151, 10)    # deg/s, head velocity bins
 centers = (vel_edges[:-1] + vel_edges[1:]) / 2
 min_bin = 30   
-xy_bins = (np.arange(-300, 301, 10), np.arange(-100, 101, 5))   # deg/s, 2D histogram bins (head, eye)
+xy_bins = (np.arange(-200, 201, 10), np.arange(-100, 101, 10))   # deg/s, 2D histogram bins (head, eye)
+lvlbins = np.arange(-4, 0, 0.5)
 
 fig, axes = plt.subplots(2, len(groups), figsize=(2.6 * len(groups), 4.8), squeeze=False)
 
@@ -128,17 +134,20 @@ for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
     
     H = np.histogram2d(h, e, bins=xy_bins)[0].T
     axes[0, j].contourf((xy_bins[0][:-1] + xy_bins[0][1:]) / 2, (xy_bins[1][:-1] + xy_bins[1][1:]) / 2,
-                        np.log10(np.where(H > 0, H / H.sum(), np.nan)), levels=10, cmap="Greys")
-    axes[0, j].set(xlim=(-300, 300), ylim=(-100, 100), title=f"{title} ({len(h)} frames)",
+                        np.log10(np.where(H >= 3, H / H.sum(), np.nan)), levels=lvlbins, cmap="Purples")
+    
+    axes[0, j].set(xlim=(-200, 200), ylim=(-100, 100), yticks=np.arange(-100, 101, 50),
+                   title=f"{title} ({len(h)} frames)",
                    xlabel="head velocity, eye vertical axis (deg/s)", ylabel="eye vertical velocity (deg/s)")
     
     b = np.digitize(h, vel_edges) - 1
     med = [np.median(e[b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(centers))]
-    axes[1, 0].plot(centers, med, color=c, marker="o", ms=2, lw=1, label=title)
+    axes[1, 0].plot(centers, med, color=c, marker="o", ms=4, mfc="w", lw=1, label=title)
 
 axes[1, 0].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].set(xlabel="head velocity, eye vertical axis (deg/s)", ylabel="median eye vertical velocity (deg/s)")
 axes[1, 0].legend(fontsize=5)
+fig.colorbar(cs, cax=axes[1, 2].inset_axes([0.1, 0, 0.08, 1]), label="log10 fraction of frames")
 
 for ax in axes[1, 1:]:
     ax.axis("off")
@@ -152,10 +161,11 @@ if SAVE_FIGS:
 # %% counter-pitch: head pitch vs vertical eye position (fixation frames; static, not VOR)
 # Same layout as the horizontal cell, binned by head pitch angle.
 
-pitch_edges = np.arange(-40, 61, 15)    # deg, head pitch bins
+pitch_edges = np.arange(-30, 61, 15)    # deg, head pitch bins
 pcenters = (pitch_edges[:-1] + pitch_edges[1:]) / 2
 min_bin = 30   
 xy_bins = (np.arange(-90, 91, 5), np.arange(-20, 21, 1))         # deg, 2D histogram bins (head, eye)
+lvlbins = np.arange(-4, 0, 0.5)
 
 fig, axes = plt.subplots(2, len(groups), figsize=(2.6 * len(groups), 4.8), squeeze=False)
 
@@ -167,18 +177,20 @@ for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
     h, e = h[k], e[k]
     
     H = np.histogram2d(h, e, bins=xy_bins)[0].T
-    axes[0, j].contourf((xy_bins[0][:-1] + xy_bins[0][1:]) / 2, (xy_bins[1][:-1] + xy_bins[1][1:]) / 2,
-                        np.log10(np.where(H > 0, H / H.sum(), np.nan)), levels=10, cmap="Greys")
+    cs = axes[0, j].contourf((xy_bins[0][:-1] + xy_bins[0][1:]) / 2, (xy_bins[1][:-1] + xy_bins[1][1:]) / 2,
+                        np.log10(np.where(H > 0, H / H.sum(), np.nan)), levels=lvlbins, cmap="Purples")
     axes[0, j].set(xlim=(-90, 90), ylim=(-20, 20), title=f"{title} ({len(h)} frames)",
                    xlabel="head pitch (deg)", ylabel="eye vertical position (deg)")
     
     b = np.digitize(h, pitch_edges) - 1
     med = [np.median(e[b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(pcenters))]
-    axes[1, 0].plot(pcenters, med, color=c, marker="o", ms=2, lw=1, label=title)
+    axes[1, 0].plot(pcenters, med, color=c, marker="o", ms=4, mfc="w", lw=1, label=title)
 
 axes[1, 0].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].set(xlabel="head pitch (deg)", ylabel="median eye vertical position (deg)")
 axes[1, 0].legend(fontsize=5)
+axes[1, 0].set_ylim(-5,5)
+fig.colorbar(cs, cax=axes[1, 2].inset_axes([0.1, 0, 0.08, 1]), label="log10 fraction of frames")
 
 for ax in axes[1, 1:]:
     ax.axis("off")

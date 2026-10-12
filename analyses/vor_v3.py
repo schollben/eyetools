@@ -46,3 +46,28 @@ else:
 
 for group, title in zip(groups, titles):
     print(f"{title}: {len(group)} sessions, {len(set(R.id for R in group))} animals")
+
+
+# %% fixation frames (outside gaze shifts) and locomotor state
+# METHODS: every eye-head measure uses FIXATION frames only: frames outside every detected gaze event
+# (gaze shift) of either eye, padded by gaze_pad[0] frames before onset and gaze_pad[1] frames after the
+# event end (`peak`). Per eye, frames within nan_margin frames (300 ms) of that eye's tracking gaps (NaN)
+# are also excluded: events with NaN near onset / end are dropped by extraction (never labeled), and gap
+# edges carry transients. FIX[id(R)][eye] = that eye's fixation frames.
+# METHODS: running = body speed > speed_threshold for >= min_bout frames (running_mask); stationary =
+# body speed tracked and not running.
+FIX, RUN, STAT = {}, {}, {}
+for R in Results:
+    gs = np.zeros(len(R.LE_vx), bool)
+    for df in (R.df_LEgaze, R.df_REgaze):
+        for o, p in zip(df.onset, df.peak):
+            gs[max(0, o - gaze_pad[0]):p + gaze_pad[1] + 1] = True
+    FIX[id(R)] = {eye: ~gs & (np.convolve(~np.isfinite(eye_signal(R, eye, "vx")), np.ones(2 * nan_margin + 1), "same") == 0)
+                  for eye in ("LE", "RE")}
+    RUN[id(R)] = running_mask(R, speed_threshold, min_bout)
+    STAT[id(R)] = np.isfinite(np.asarray(R.speed, float)) & ~RUN[id(R)]
+
+print(pd.DataFrame([dict(id=R.id, eo=R.eo, **{f"fix_{eye}_pct": 100 * FIX[id(R)][eye].mean() for eye in ("LE", "RE")},
+                         **{f"fix_{eye}_stat_pct": 100 * (FIX[id(R)][eye] & STAT[id(R)]).mean() for eye in ("LE", "RE")},
+                         **{f"fix_{eye}_run_pct": 100 * (FIX[id(R)][eye] & RUN[id(R)]).mean() for eye in ("LE", "RE")})
+                    for R in Results]).round(1).to_string(index=False))

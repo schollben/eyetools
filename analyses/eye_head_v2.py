@@ -254,7 +254,7 @@ if SAVE_FIGS:
 # contribute more as head movements get larger?
 # METHODS: session mean per amplitude bin (>= min_ev windows), then mean +- SEM across sessions.
 
-head_amp_bins = [0, 40, 80, 360]   # deg, head saccade amplitude (unwrapped)
+head_amp_bins = [0, 30, 60, 90, 360]   # deg, head saccade amplitude (unwrapped)
 amp_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(head_amp_bins) - 1))
 
 traces = {}   # (group index, amp bin index) -> dict of head / eye session-mean traces

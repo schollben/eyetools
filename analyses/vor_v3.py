@@ -149,3 +149,25 @@ sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
     save_fig(fig, "counter-pitch fixation")
+
+
+# %% stationary vs running: binned eye velocity vs head velocity (fixation frames)
+# Median eye velocity per head velocity bin; colour = group, solid = stationary, dashed = running.
+fig, axes = plt.subplots(1, 2, figsize=(6, 2.4))
+for ax, hname, ekey, lab in ((axes[0], "yaw_v", "vx", "horizontal"), (axes[1], "pitch_v", "vy", "vertical")):
+    for group, title, c in zip(groups, titles, GROUP_COLORS):
+        for state, ls, M in (("stationary", "-", STAT), ("running", "--", RUN)):
+            h = np.concatenate([head_signal(R, hname)[FIX[id(R)][eye] & M[id(R)]] for R in group for eye in ("LE", "RE")])
+            e = np.concatenate([eye_signal(R, eye, ekey, flip_eye)[FIX[id(R)][eye] & M[id(R)]] for R in group for eye in ("LE", "RE")])
+            k = np.isfinite(h) & np.isfinite(e)
+            b = np.digitize(h[k], vel_edges) - 1
+            med = [np.median(e[k][b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(centers))]
+            ax.plot(centers, med, color=c, ls=ls, lw=1, label=f"{title} {state}")
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.set(xlabel=f"head {'yaw' if lab == 'horizontal' else 'pitch'} velocity (deg/s)",
+           ylabel=f"median eye {lab} velocity (deg/s)")
+axes[0].legend(fontsize=4)
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "VOR stationary vs running")

@@ -196,3 +196,51 @@ sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
     save_fig(fig, "head speed fixation")
+
+
+# %% eye-head velocity cross-correlation, horizontal and vertical (fixation frames)
+# METHODS: per session and component, cross-correlation of head velocity (yaw / pitch) and eye velocity
+# (horizontal / vertical) over contiguous fixation NaN-free runs (>= min_run frames), z-scored per run,
+# length-weighted over runs and both eyes (NaN with < min_frames frames). Top: mean +- SEM across
+# sessions per group. Bottom: per session, magnitude (largest |cc|) and its lag (ms, + = eye lags head).
+lags = np.arange(-max_lag, max_lag + 1)
+comps = (("horizontal", "yaw_v", "vx", "o"), ("vertical", "pitch_v", "vy", "^"))
+XC = {}
+for group in groups:
+    for R in group:
+        for comp, hname, ekey, _ in comps:
+            h = head_signal(R, hname)
+            acc, weight = np.zeros(len(lags)), 0
+            for eye in ("LE", "RE"):
+                e = eye_signal(R, eye, ekey, flip_eye)
+                for a, b in clean_runs(FIX[id(R)][eye] & np.isfinite(h) & np.isfinite(e), min_run):
+                    cc = run_xcorr(h[a:b], e[a:b], max_lag)
+                    if cc is not None:
+                        acc += cc * (b - a)
+                        weight += b - a
+            XC[id(R), comp] = acc / weight if weight >= min_frames else np.full(len(lags), np.nan)
+
+fig, axes = plt.subplots(2, 2, figsize=(6, 4.6))
+for ax, (comp, hname, ekey, _) in zip(axes[0], comps):
+    for group, title, c in zip(groups, titles, GROUP_COLORS):
+        cc = np.array([XC[id(R), comp] for R in group if np.isfinite(XC[id(R), comp]).all()])
+        plot_mean_se(ax, lags / FS * 1000, cc, c, title, min_n=2)
+    ax.axvline(0, color="0.8", lw=0.5)
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.set(title=comp, xlabel="eye lag re head (ms)", ylabel=f"correlation ({hname} vs eye {ekey})")
+    ax.legend(fontsize=4)
+for comp, hname, ekey, marker in comps:
+    for group, title, c in zip(groups, titles, GROUP_COLORS):
+        cc = [(R.eo, XC[id(R), comp]) for R in group if np.isfinite(XC[id(R), comp]).all()]
+        i = [np.argmax(np.abs(x)) for _, x in cc]
+        eo = [e for e, _ in cc]
+        axes[1, 0].scatter(eo, [abs(x[ii]) for (_, x), ii in zip(cc, i)], s=8, color=c, marker=marker, label=f"{title} {comp}")
+        axes[1, 1].scatter(eo, lags[i] / FS * 1000 if i else [], s=8, color=c, marker=marker, label=f"{title} {comp}")
+axes[1, 0].set(xlabel="EO (days)", ylabel="peak |correlation|", ylim=(0, None))
+axes[1, 1].set(xlabel="EO (days)", ylabel="lag of peak (ms)")
+axes[1, 1].axhline(0, color="0.8", lw=0.5)
+axes[1, 0].legend(fontsize=4)
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "eye-head xcorr fixation")

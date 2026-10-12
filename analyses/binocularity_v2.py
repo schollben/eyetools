@@ -33,6 +33,8 @@ compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
 # OTHER SETTINGS
 # Frame: flip_eye = "RE" is the CONJUGATE frame (both eyes + = same direction of rotation), so
 # version = (LE + RE) / 2 and vergence = LE - RE = convergence + (= LE nasal + RE nasal).
+# Conjugate + = LE nasal = rightward; yaw+ = leftward (RE_x points along yaw). In a rightward saccade the
+# LE adducts and the RE abducts.
 # Absolute vergence is NOT calibrated: each eye's 0 is its own 3D-model neutral, and the session median
 # vergence is ~0 in every well-tracked session. Only within-session vergence changes are interpreted.
 flip_eye = "RE"
@@ -52,6 +54,7 @@ amp_edges = np.array([2, 4, 8, 12, 20, 40])    # deg, horizontal saccade amplitu
 min_bin_sacc = 5         # minimum saccades for a session's value within one amplitude bin
 yaw_min = 30             # deg/s, |head yaw velocity| for the yaw+ / yaw- vergence comparison
 tilt_max = 20            # deg, |pitch| and |roll| ceiling (head roughly level) for that comparison
+trig_pre, trig_post = 12, 48   # frames: -100 to +400 ms around paired LE saccade onset (vergence traces)
 
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
@@ -73,9 +76,8 @@ for group, title in zip(groups, titles):
 # METHODS: LE and RE saccades are detected independently and paired by onset (paired_saccades: greedy
 # nearest onset within pair_window frames, each RE saccade used once). Displacement = position at the
 # position peak minus position at onset, per eye (registration-free). The pairing depends only on onsets,
-# so the horizontal (PH, conjugate frame), vertical (PV) and own-frame horizontal (PO) tables have the
-# same rows. Unpaired saccades are mostly tracking dropout of the other eye (unpaired_nan).
-BOTH, FREE, RUN, STAT, VERG, VVERG, PH, PV, PO = {}, {}, {}, {}, {}, {}, {}, {}, {}
+# so the horizontal (PH, conjugate frame) and vertical (PV) tables have the same rows. Unpaired saccades are mostly tracking dropout of the other eye (unpaired_nan).
+BOTH, FREE, RUN, STAT, VERG, VVERG, PH, PV = {}, {}, {}, {}, {}, {}, {}, {}
 rows = []
 for R in Results:
     both = np.ones(len(R.LE_vx), bool)
@@ -90,7 +92,6 @@ for R in Results:
     VVERG[id(R)] = eye_signal(R, "LE", "vx", flip_eye) - eye_signal(R, "RE", "vx", flip_eye)
     PH[id(R)] = paired_saccades(R, pair_window, flip_eye, "horizontal")
     PV[id(R)] = paired_saccades(R, pair_window, flip_eye, "vertical")
-    PO[id(R)] = paired_saccades(R, pair_window, None, "horizontal")
     P = PH[id(R)]
     rows.append(dict(id=R.id, eo=R.eo, both_pct=100 * both.mean(), free_both_pct=100 * (both & FREE[id(R)]).mean(),
                      n_LE=len(R.df_LE), n_RE=len(R.df_RE), paired_frac=P.paired.mean(),
@@ -128,8 +129,16 @@ for group, title in zip(groups, titles):
 # METHODS: xc = cross-correlation of LE and RE horizontal velocity over contiguous saccade-free binocular
 # runs (>= min_run frames), z-scored per run, length-weighted over runs (as vor_v2). xc_lag = lag of the
 # peak (ms, + = RE lags LE).
+# METHODS (disconj family): horizontal saccades in which both eyes move the same way (conjugate frame).
+# Abducting eye = RE in rightward saccades, LE in leftward. asym = (|abd| - |add|) / mean(|abd|, |add|) per
+# saccade. Per direction, abd_asym = intercept of OLS asym ~ vertical (asymmetry at zero vertical component,
+# removing the vertical leak), averaged over the two directions so that an LE/RE amplitude scale difference
+# (eye_ratio, which flips the sign of asym between directions) cancels; > 0 = abducting eye larger.
+# eye_ratio = median log2(|LE| / |RE|) of the same saccades (data family; 0 = equal scale).
+# verg_post = vergence change from saccade onset to onset + trig_post frames (deg, + = converging), median
+# per direction, averaged over the two directions (abducting > adducting gives divergence in both).
 # CAVEAT: eye kinematics are 6 Hz low-passed upstream; displacements are usable, saccade timing is coarse
-# (lag quantized at 8.3 ms).
+# (lag quantized at 8.3 ms) and the shape of intra-saccadic vergence transients is filter-limited.
 def partial_r(a, b, c):
     """Pearson r of a and b after regressing each on c (OLS with intercept)."""
     ra = a - np.polyval(np.polyfit(c, a, 1), c)
@@ -151,9 +160,10 @@ for gi, (group, title) in enumerate(zip(groups, titles)):
         version, vertical = (lx + rx) / 2, (ly + ry) / 2
         big = np.hypot(version, vertical) >= min_amp
         hz = big & (np.abs(version) > np.abs(vertical))
-        lx, rx, ly, ry, version, vertical, lag = (a[big] for a in (lx, rx, ly, ry, version, vertical, H.lag_ms[k].to_numpy()))
+        lx, rx, ly, ry, version, vertical, lag, on = (a[big] for a in (lx, rx, ly, ry, version, vertical,
+                                                                      H.lag_ms[k].to_numpy(), H.LE_onset[k].to_numpy()))
         hz = hz[big]
-        SACC[id(R)] = dict(lx=lx, rx=rx, ly=ly, ry=ry, version=version, vertical=vertical, hz=hz)
+        SACC[id(R)] = dict(lx=lx, rx=rx, ly=ly, ry=ry, version=version, vertical=vertical, hz=hz, on=on)
         row["n_pairs"], row["n_horiz"] = big.sum(), hz.sum()
         ok, ok_h = big.sum() >= min_pairs, hz.sum() >= min_pairs
         row["r_disp_x"] = pearsonr(lx[hz], rx[hz])[0] if ok_h else np.nan
@@ -163,6 +173,23 @@ for gi, (group, title) in enumerate(zip(groups, titles)):
         row["xtalk"] = (np.polyfit(version, ly, 1)[0] - np.polyfit(version, ry, 1)[0]) / 2 if ok else np.nan
         X = np.c_[version, vertical, np.ones(len(version))]
         row["verg_vert"] = np.linalg.lstsq(X, lx - rx, rcond=None)[0][1] if ok else np.nan
+
+        conj = hz & (np.sign(lx) == np.sign(rx))
+        row["conj_frac"] = conj.sum() / max(hz.sum(), 1)
+        right = version[conj] > 0
+        abd = np.where(right, np.abs(rx[conj]), np.abs(lx[conj]))
+        add = np.where(right, np.abs(lx[conj]), np.abs(rx[conj]))
+        asym = (abd - add) / ((abd + add) / 2)
+        vc = vertical[conj]
+        icpt = [np.polyfit(vc[sel], asym[sel], 1)[1] if sel.sum() >= min_bin_sacc else np.nan for sel in (right, ~right)]
+        row["abd_asym"] = np.mean(icpt) if conj.sum() >= min_pairs else np.nan
+        row["eye_ratio"] = np.median(np.log2(np.abs(lx[conj]) / np.abs(rx[conj]))) if conj.sum() >= min_pairs else np.nan
+        verg = VERG[id(R)]
+        post = np.minimum(on + trig_post, len(verg) - 1)
+        dv = verg[post] - verg[on]
+        meds = [np.nanmedian(dv[hz & sel]) if np.isfinite(dv[hz & sel]).sum() >= min_bin_sacc else np.nan
+                for sel in (version > 0, version < 0)]
+        row["verg_post"] = np.mean(meds) if ok_h else np.nan
 
         m = free & both
         lv, rv = eye_signal(R, "LE", "vx", flip_eye)[m], eye_signal(R, "RE", "vx", flip_eye)[m]
@@ -185,10 +212,11 @@ for gi, (group, title) in enumerate(zip(groups, titles)):
         row["xc_lag"] = lags[np.argmax(XC[id(R)])] / FS * 1000 if weight >= min_frames else np.nan
         rows.append(row)
 S = pd.DataFrame(rows)
-families = dict(data=["both_pct", "paired_frac", "xtalk", "verg_vert"],
+families = dict(data=["both_pct", "paired_frac", "xtalk", "verg_vert", "eye_ratio"],
                 saccade=["r_disp_x", "r_disp_y", "disconj_x", "lag_sd"],
-                slow=["r_vel_x", "r_vel_y", "verg_vel", "verg_iqr", "xc_lag"])
-print(S[["id", "eo", "n_pairs", "n_horiz"] + [c for cols in families.values() for c in cols]].round(3).to_string(index=False))
+                slow=["r_vel_x", "r_vel_y", "verg_vel", "verg_iqr", "xc_lag"],
+                disconj=["abd_asym", "verg_post"])
+print(S[["id", "eo", "n_pairs", "n_horiz", "conj_frac"] + [c for cols in families.values() for c in cols]].round(3).to_string(index=False))
 
 # METHODS: EO trend per ferret: Pearson r of session value vs EO, sessions treated as independent
 # (ferrets with >= 3 sessions). Reported as the number of ferrets whose r has the sign of the global
@@ -377,3 +405,34 @@ sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
     save_fig(fig, "slow conjugacy vs head speed")
+
+
+# %% saccade-triggered vergence (abducting vs adducting eye)
+# METHODS: vergence (LE - RE, conjugate frame, + = converging) around the LE onset of paired horizontal
+# saccades, minus its value at onset. Per session mean per direction (>= min_bin_sacc saccades with a full
+# NaN-free window); lines = mean +- SEM across sessions. Abducting > adducting shows as divergence (< 0)
+# in both directions.
+t = np.arange(-trig_pre, trig_post) / FS * 1000
+fig, axes = plt.subplots(1, len(groups), figsize=(2.6 * len(groups), 2.2), squeeze=False, sharey=True)
+for ax, group, title in zip(axes[0], groups, titles):
+    for name, sign, c in (("rightward", 1, "k"), ("leftward", -1, "0.5")):
+        tr = []
+        for R in group:
+            d, verg = SACC[id(R)], VERG[id(R)]
+            on = d["on"][d["hz"] & (np.sign(d["version"]) == sign)]
+            on = on[(on >= trig_pre) & (on + trig_post <= len(verg))]
+            w = np.array([verg[o - trig_pre:o + trig_post] - verg[o] for o in on]).reshape(-1, len(t))
+            w = w[np.isfinite(w).all(1)]
+            if len(w) >= min_bin_sacc:
+                tr.append(w.mean(0))
+        plot_mean_se(ax, t, tr, c, name, min_n=2)
+    ax.axvline(0, color="0.8", lw=0.5)
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.set_title(f"{title}\nabd_asym: {group_stat['abd_asym']}\nverg_post: {group_stat['verg_post']}", fontsize=5)
+    ax.set_xlabel("time from LE onset (ms)")
+    ax.legend(fontsize=4)
+axes[0, 0].set_ylabel("vergence change (deg, + conv)")
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "saccade-triggered vergence")

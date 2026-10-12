@@ -236,8 +236,8 @@ if SAVE_FIGS:
 # head saccade, with or without an eye saccade. Session mean per bin (>= min_ev windows), then
 # mean +- SEM across sessions.
 
-b2_state = "all"         # "all" or "stationary" (state at head onset)
-b2_dir = "with head"     # "with head", "against head" or "all"
+b2_state = "stationary"         # "all" or "stationary" (state at head onset)
+b2_dir = "all"     # "with head", "against head" or "all"
 head_amp_bins = [0, 40, 60, 80, 360]   # deg, head saccade amplitude (unwrapped)
 amp_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(head_amp_bins) - 1))
 head_dirs = {"with head": 1.0, "against head": 0.0}   # same_direction of the first eye saccade after head onset
@@ -293,8 +293,9 @@ if SAVE_FIGS:
 # peak). Every trace is horizontal, zeroed at eye onset, and flipped so the head turns positive
 # (head frame: eye + = head +). Head = yaw, eye = horizontal eye; velocities get the same savgol(11, 3).
 # METHODS: all eye saccades whose onset is inside a turn (paired with a head saccade or not) with a
-# NaN-free window. Each session's mean trace first (>= min_ev saccades for that eye / class), then
-# mean +- SEM across sessions.
+# NaN-free window, that moved with the head (with_head; against-head saccades would cancel in the
+# mean). Each session's mean trace first (>= min_ev saccades for that eye / class), then mean +- SEM
+# across sessions.
 
 t_ms = np.arange(-pre, post) / FS * 1000
 
@@ -307,7 +308,7 @@ for kind, unit in (("pos", "rotation (deg)"), ("vel", "velocity (deg/s)")):
             m = {"LE": [], "RE": [], "head": []}   # session-mean traces
             for R in group:
                 e, w = E[id(R)], W[id(R)]
-                sel = (e.in_turn & e.clean & (e.amp_h >= lo) & (e.amp_h < hi)).to_numpy()
+                sel = (e.in_turn & e.clean & e.with_head & (e.amp_h >= lo) & (e.amp_h < hi)).to_numpy()
                 for eye in ("LE", "RE"):
                     k = sel & (e.eye == eye).to_numpy()
                     if k.sum() >= min_ev:
@@ -324,7 +325,7 @@ for kind, unit in (("pos", "rotation (deg)"), ("vel", "velocity (deg/s)")):
             ax_h.tick_params(axis="y", colors=HEAD_COLOR)
             ax.axhline(0, color="0.8", lw=0.5)
             ax.axvline(0, color="0.8", lw=0.5)
-            ax.set_title(f"{title}  eye amp {lo}-{hi} deg  (in turns)", fontsize=6)
+            ax.set_title(f"{title}  eye amp {lo}-{hi} deg  (in turns, with head)", fontsize=6)
             ax.set_xlabel("time from eye onset (ms)")
             ax.set_ylabel(f"eye {unit}")
             lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
@@ -333,7 +334,7 @@ for kind, unit in (("pos", "rotation (deg)"), ("vel", "velocity (deg/s)")):
     fig.tight_layout()
 
     if SAVE_FIGS:
-        save_fig(fig, f"eye_head_4{'A' if kind == 'pos' else 'C'}_{kind}_in_turns")
+        save_fig(fig, f"eye_head_4{'A' if kind == 'pos' else 'C'}_{kind}_in_turns_with_head")
 
 
 # %% Wallace Fig 4D — peak head velocity vs peak counter-rotation eye velocity, per group

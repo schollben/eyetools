@@ -442,7 +442,8 @@ def head_eye_windows(R, head_df, flip_eye="LE", pre=24, post=72, pair_window=30,
                          (unpaired: dominant head velocity in the window)
       same_direction     1 = eye moved with the paired head saccade, 0 = against, else NaN
       clean              window [onset-pre, onset+post) in range and NaN-free
-      head_peak_vel      peak head velocity after eye onset (sign-aligned, deg/s)
+      head_peak_vel      peak head velocity in the pscr_win frames after the eye
+                         saccade (same window as eye_cr_vel; sign-aligned, deg/s)
       eye_cr_vel         most negative eye velocity in the pscr_win frames after the eye
                          saccade ends: the counter-rotation (Wallace Fig 4D y)
       pscr_gain          mean eye / mean head velocity over that window when head > 30
@@ -484,7 +485,7 @@ def head_eye_windows(R, head_df, flip_eye="LE", pre=24, post=72, pair_window=30,
                 hv, ev = yv[a:b] * s, vx[a:b] * s
                 k = p - o + pre
                 w = slice(k + 1, min(k + 1 + pscr_win, win))
-                hpk = hv[pre:].max()
+                hpk = hv[w].max() if w.stop > w.start else np.nan
                 cr = ev[w].min() if w.stop > w.start else np.nan
                 gain = (ev[w].mean() / hv[w].mean()
                         if w.stop > w.start and hv[w].mean() > 30 else np.nan)

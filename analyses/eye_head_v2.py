@@ -339,7 +339,7 @@ for kind, unit in (("pos", "rotation (deg)"), ("vel", "velocity (deg/s)")):
 # %% Wallace Fig 4D — peak head velocity vs peak counter-rotation eye velocity, per group
 # One point per eye saccade in a turn that moved WITH the head (LE and RE pooled), horizontal only,
 # in the same flipped frame as 4A/4C (head turns positive):
-#   x = peak (positive) head velocity from eye onset to the end of the window
+#   x = peak (positive) head velocity in the pscr_win frames after the eye saccade ends
 #   y = peak negative eye velocity in the pscr_win frames after the eye saccade ends
 #       (the counter-rotation, not the saccade itself)
 # METHODS: black = per-session mean y in 100 deg/s bins of x (head_vel_bins; bins with >= min_n
@@ -382,5 +382,3 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "eye_head_4D_counter_rotation_in_turns")
-
-# %%

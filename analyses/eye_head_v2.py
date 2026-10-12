@@ -40,7 +40,7 @@ pair_window = 30         # frames (250 ms) an eye saccade may lead its head sacc
 pre, post = 24, 72       # frames: -200 to +600 ms from eye-saccade onset
 pscr_win = 24            # frames (200 ms) after the eye saccade ends: counter-rotation window
 head_pre, head_post = 24, 144   # frames: -200 to +1200 ms from head onset (panel B)
-amp_classes = [(5, 10), (10, 15), (15, np.inf)]   # Wallace Fig 4A/4C classes, horizontal deg
+amp_classes = [(0, 10), (10, 15), (15, np.inf)]   # Wallace Fig 4A/4C classes, horizontal deg
 head_vel_bins = np.arange(50, 551, 100)            # Wallace Fig 4D bins, deg/s
 speed_threshold = 20     # mm/s, running_mask: stationary = not in a running bout
 min_bout = 30            # frames
@@ -249,23 +249,23 @@ if SAVE_FIGS:
     save_fig(fig, "eye_head_B_head_triggered")
 
 
-# %% B.2 head-onset-triggered averages by head saccade amplitude
-# One line per head-amplitude bin (like movement_stats "mean kinematic traces"). Does the eye
-# contribute more as head movements get larger?
-# METHODS: session mean per amplitude bin (>= min_ev windows), then mean +- SEM across sessions.
+# %% B.2 head-onset-triggered averages by head saccade peak velocity
+# One line per head peak-velocity bin (like movement_stats "mean kinematic traces"). Does the eye
+# contribute more as head movements get faster?
+# METHODS: head peak velocity bins at ~pooled quartiles; session mean per bin (>= min_ev windows), then mean +- SEM across sessions.
 
-head_amp_bins = [0, 40, 80, 360]   # deg, head saccade amplitude (unwrapped)
-amp_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(head_amp_bins) - 1))
+head_vel_bins_b2 = [0, 80, 120, 160, np.inf]   # deg/s, head saccade peak velocity
+vel_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(head_vel_bins_b2) - 1))
 
-traces = {}   # (group index, amp bin index) -> dict of head / eye session-mean traces
+traces = {}   # (group index, velocity bin index) -> dict of head / eye session-mean traces
 for gi, group in enumerate(groups):
     for R in group:
         T = head_triggered_windows(R, HEAD[id(R)], flip_eye, head_pre, head_post)
-        amp = HEAD[id(R)]["amplitude_deg"].to_numpy(float)
+        pkv = HEAD[id(R)]["peak_velocity_deg_s"].to_numpy(float)
         hk = np.all(np.isfinite(T["head_pos"]), axis=1)
-        for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
+        for bi, (lo, hi) in enumerate(zip(head_vel_bins_b2[:-1], head_vel_bins_b2[1:])):
             d = traces.setdefault((gi, bi), {"head": [], "eye": []})
-            sel = hk & (amp >= lo) & (amp < hi)
+            sel = hk & (pkv >= lo) & (pkv < hi)
             if sel.sum() >= min_ev:
                 d["head"].append(T["head_pos"][sel].mean(0))
             ev = np.vstack([T[k][sel & np.all(np.isfinite(T[k]), axis=1)] for k in ("LE_pos", "RE_pos")])
@@ -275,21 +275,21 @@ for gi, group in enumerate(groups):
 for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)")):
     fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2), squeeze=False)
     for gi, (ax, title) in enumerate(zip(axes[0], titles)):
-        for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
+        for bi, (lo, hi) in enumerate(zip(head_vel_bins_b2[:-1], head_vel_bins_b2[1:])):
             arrs = traces.get((gi, bi), {}).get(sig, [])
-            plot_mean_se(ax, t_h, np.array(arrs), amp_colors[bi], f"{lo}-{hi}", min_n=2)
+            plot_mean_se(ax, t_h, np.array(arrs), vel_colors[bi], f"{lo:.0f}-{hi:.0f}", min_n=2)
         ax.axhline(0, color="0.8", lw=0.5)
         ax.axvline(0, color="0.8", lw=0.5)
         ax.set_title(f"{sig}  {title}", fontsize=6)
         ax.set_xlabel("time from head onset (ms)")
         ax.set_ylabel(ylabel)
-        ax.legend(fontsize=4, title="head amp (deg), n sessions", title_fontsize=4)
+        ax.legend(fontsize=4, title="head pkv (deg/s), n sessions", title_fontsize=4)
     sns.despine(fig)
     fig.tight_layout()
 
     if SAVE_FIGS:
         fig.tight_layout()
-        save_fig(fig, f"eye_head_B2_{sig}_by_head_amp")
+        save_fig(fig, f"eye_head_B2_{sig}_by_head_vel")
 
 # %% D. eye saccade onsets around head saccade onsets (onset cross-correlogram)
 # METHODS: for each head saccade, eye onsets (both eyes) are binned by lag = eye onset - head onset

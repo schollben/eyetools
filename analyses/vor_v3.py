@@ -171,3 +171,28 @@ sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
     save_fig(fig, "VOR stationary vs running")
+
+
+# %% head angular speed in fixation frames (fixation in either eye)
+# Left: head angular speed distributions per group (solid = stationary, dashed = running). Right: head
+# angular speed vs running speed in running fixation frames, one panel per group.
+fig, axes = plt.subplots(1, len(groups) + 1, figsize=(2.6 * (len(groups) + 1), 2.2), squeeze=False)
+for group, title, c in zip(groups, titles, GROUP_COLORS):
+    for state, ls, M in (("stationary", "-", STAT), ("running", "--", RUN)):
+        vals = np.concatenate([head_signal(R, "speed")[(FIX[id(R)]["LE"] | FIX[id(R)]["RE"]) & M[id(R)]] for R in group])
+        vals = vals[np.isfinite(vals)]
+        if len(vals) >= min_frames:
+            axes[0, 0].hist(vals, bins=np.arange(0, 300, 5), histtype="step", density=True, color=c, ls=ls,
+                            label=f"{title} {state}")
+axes[0, 0].set_xlabel("head angular speed (deg/s)")
+axes[0, 0].legend(fontsize=4)
+for ax, group, title in zip(axes[0, 1:], groups, titles):
+    s = np.concatenate([np.asarray(R.speed, float)[(FIX[id(R)]["LE"] | FIX[id(R)]["RE"]) & RUN[id(R)]] for R in group])
+    h = np.concatenate([head_signal(R, "speed")[(FIX[id(R)]["LE"] | FIX[id(R)]["RE"]) & RUN[id(R)]] for R in group])
+    k = np.isfinite(s) & np.isfinite(h)
+    ax.scatter(s[k], h[k], s=1, alpha=0.05, color=HEAD_COLOR, lw=0, rasterized=True)
+    ax.set(ylim=(0, 500), title=title, xlabel="running speed (mm/s)", ylabel="head angular speed (deg/s)")
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "head speed fixation")

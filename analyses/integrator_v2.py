@@ -232,3 +232,52 @@ for fam, cols in families.items():
         print(f"{col:15s} {desc}  (mean ± SD over sessions)  {group_stat[col]}")
     if compare_delayed:   # per-ferret means (delayed ferrets have one session each)
         print(S.groupby(["group", "id"])[cols].mean().join(S.groupby(["group", "id"]).size().rename("n")).round(3).to_string())
+
+
+# %% drift vs eye position (illustration; stats are per session above)
+# Top: per session, mean drift of the clean periods in each position bin (both eyes pooled, bins with
+# >= 2 periods); lines = mean +- SEM across sessions, bins with >= 2 sessions.
+# Bottom: clean periods pooled over the group's sessions and both eyes; line = median session leak
+# drawn through the pooled mean.
+centers = (pos_edges[:-1] + pos_edges[1:]) / 2
+fig, axes = plt.subplots(2, len(AXES), figsize=(3 * len(AXES), 4.6), squeeze=False)
+for j, (ax_key, (plus, minus)) in enumerate(AXES.items()):
+    ax = axes[0, j]
+    for group, title, c in zip(groups, titles, GROUP_COLORS):
+        G = np.full((len(group), len(centers)), np.nan)
+        for si, R in enumerate(group):
+            p = P[(P.sess == id(R)) & (P.axis == ax_key)]
+            for bi, (lo, hi) in enumerate(zip(pos_edges[:-1], pos_edges[1:])):
+                d = p.drift[(p.pos >= lo) & (p.pos < hi)]
+                if len(d) >= 2:
+                    G[si, bi] = d.mean()
+        n = np.isfinite(G).sum(0)
+        ok = n >= 2
+        mu = np.array([np.nanmean(g) if o else np.nan for g, o in zip(G.T, ok)])
+        se = np.array([np.nanstd(g) / np.sqrt(k) if o else np.nan for g, o, k in zip(G.T, ok, n)])
+        ax.errorbar(centers[ok], mu[ok], se[ok], marker="o", ms=3, lw=1, capsize=0, color=c, label=title)
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.axvline(0, color="0.8", lw=0.5)
+    ax.set_xlabel(f"eye position (deg, {plus} + / {minus} -)")
+    ax.set_ylabel("drift (deg/s)")
+    ax.set_title(f"leak_{ax_key}: {group_stat[f'leak_{ax_key}']}", fontsize=6)
+
+    ax = axes[1, j]
+    for group, title, c in zip(groups, titles, GROUP_COLORS):
+        p = P[P.sess.isin([id(R) for R in group]) & (P.axis == ax_key)]
+        ax.scatter(p.pos, p.drift, s=4, facecolor="w", edgecolor=c, lw=0.5, alpha=0.5)
+        med = S[f"leak_{ax_key}"][S.group == title].median()
+        if np.isfinite(med):
+            ax.axline((p.pos.mean(), p.drift.mean()), slope=med, color=c, lw=1,
+                      label=f"{title} median leak={med:.2f}/s")
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.axvline(0, color="0.8", lw=0.5)
+    ax.set_xlim(pos_edges[0], pos_edges[-1])
+    ax.set_xlabel(f"eye position (deg, {plus} + / {minus} -)")
+    ax.set_ylabel("drift (deg/s)")
+    ax.legend(fontsize=4)
+axes[0, 0].legend(fontsize=5)
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "integrator drift vs position")

@@ -6,7 +6,7 @@ from scipy.ndimage import gaussian_filter1d
 from utils.session_data import SessionData
 
 
-def find_arcs(session: SessionData, fs=120, max_gap_s=0.2, speed_min=50.0, min_dur_s=0.3, min_turn_deg=30,
+def find_arcs(session: SessionData, fs=120, max_gap_s=0.2, speed_min=50.0, min_dur_s=0.5, min_turn_deg=30,
               fine=dict(sigma_s=0.08, kappa_hi=0.015, kappa_lo=0.01125, merge_gap_s=0.0, edge_frac=0.0),
               coarse=dict(sigma_s=0.24, kappa_hi=0.001, kappa_lo=0.00075, merge_gap_s=0.4, edge_frac=0.33),
               plot=False, plot_window_s=(0, 60)):

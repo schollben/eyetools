@@ -44,8 +44,8 @@ amp_classes = [(5, 10), (10, 15), (15, np.inf)]   # Wallace Fig 4A/4C classes, h
 head_vel_bins = np.arange(50, 551, 100)            # Wallace Fig 4D bins, deg/s
 speed_threshold = 20     # mm/s, running_mask: stationary = not in a running bout
 min_bout = 30            # frames
-min_n = 5                # minimum saccades for a session's per-session PSCR measures
-min_ev = 5              # minimum events for a session to contribute a trace (mean +- SEM across sessions)
+min_n = 3                # minimum saccades for a session's per-session PSCR measures
+min_ev = 3               # minimum events for a session to contribute a trace (mean +- SEM across sessions)
 states = ("all", "outside turns", "stationary")   # head saccades split by state at head onset (D)
 
 if compare_delayed:
@@ -405,3 +405,5 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "eye_head_4D_counter_rotation_in_turns")
+
+# %%

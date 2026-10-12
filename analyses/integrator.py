@@ -14,10 +14,12 @@ import seaborn as sns
 from scipy.stats import kruskal, mannwhitneyu as mwu
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, load_results, set_style, EO_BINS,FS, EYE_COLORS, eo_groups, fit_line, clean_runs,
                                        eye_signal, drift_frames, drift_by_position)
+import pickle
 set_style()
 
-# LOAD DATA
-Results = load_results(NORMAL_IDS + DELAYED_IDS)
+# LOAD SAVED DATA
+with open("./analyses/results.pkl", "rb") as f:
+    Results = pickle.load(f)
 
 # %% settings for every plot below
 # The integrator holds the eye at an eccentric position. A LEAKY integrator lets the eye

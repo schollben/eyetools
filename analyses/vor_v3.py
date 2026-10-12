@@ -71,3 +71,30 @@ print(pd.DataFrame([dict(id=R.id, eo=R.eo, **{f"fix_{eye}_pct": 100 * FIX[id(R)]
                          **{f"fix_{eye}_stat_pct": 100 * (FIX[id(R)][eye] & STAT[id(R)]).mean() for eye in ("LE", "RE")},
                          **{f"fix_{eye}_run_pct": 100 * (FIX[id(R)][eye] & RUN[id(R)]).mean() for eye in ("LE", "RE")})
                     for R in Results]).round(1).to_string(index=False))
+
+
+# %% horizontal: head yaw velocity vs horizontal eye velocity (fixation frames)
+# Top: fixation frames pooled over the group's sessions and both eyes. Bottom: median eye velocity per
+# head velocity bin (bins with >= min_bin frames), one line per group.
+centers = (vel_edges[:-1] + vel_edges[1:]) / 2
+fig, axes = plt.subplots(2, len(groups), figsize=(2.6 * len(groups), 4.8), squeeze=False)
+for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
+    h = np.concatenate([head_signal(R, "yaw_v")[FIX[id(R)][eye]] for R in group for eye in ("LE", "RE")])
+    e = np.concatenate([eye_signal(R, eye, "vx", flip_eye)[FIX[id(R)][eye]] for R in group for eye in ("LE", "RE")])
+    k = np.isfinite(h) & np.isfinite(e)
+    h, e = h[k], e[k]
+    axes[0, j].scatter(h, e, s=1, alpha=0.05, color=EYE_COLOR, lw=0, rasterized=True)
+    axes[0, j].set(xlim=(-300, 300), ylim=(-100, 100), title=f"{title} ({len(h)} frames)",
+                   xlabel="head yaw velocity (deg/s)", ylabel="eye horizontal velocity (deg/s)")
+    b = np.digitize(h, vel_edges) - 1
+    med = [np.median(e[b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(centers))]
+    axes[1, 0].plot(centers, med, color=c, marker="o", ms=2, lw=1, label=title)
+axes[1, 0].axhline(0, color="0.8", lw=0.5)
+axes[1, 0].set(xlabel="head yaw velocity (deg/s)", ylabel="median eye horizontal velocity (deg/s)")
+axes[1, 0].legend(fontsize=5)
+for ax in axes[1, 1:]:
+    ax.axis("off")
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "VOR horizontal fixation")

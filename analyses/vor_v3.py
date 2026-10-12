@@ -123,3 +123,29 @@ sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
     save_fig(fig, "VOR vertical fixation")
+
+
+# %% counter-pitch: head pitch vs vertical eye position (fixation frames; static, not VOR)
+# Same layout as the horizontal cell, binned by head pitch angle.
+pcenters = (pitch_edges[:-1] + pitch_edges[1:]) / 2
+fig, axes = plt.subplots(2, len(groups), figsize=(2.6 * len(groups), 4.8), squeeze=False)
+for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
+    h = np.concatenate([head_signal(R, "pitch")[FIX[id(R)][eye]] for R in group for eye in ("LE", "RE")])
+    e = np.concatenate([eye_signal(R, eye, "y", flip_eye)[FIX[id(R)][eye]] for R in group for eye in ("LE", "RE")])
+    k = np.isfinite(h) & np.isfinite(e)
+    h, e = h[k], e[k]
+    axes[0, j].scatter(h, e, s=1, alpha=0.05, color=EYE_COLOR, lw=0, rasterized=True)
+    axes[0, j].set(xlim=(-90, 90), ylim=(-20, 20), title=f"{title} ({len(h)} frames)",
+                   xlabel="head pitch (deg)", ylabel="eye vertical position (deg)")
+    b = np.digitize(h, pitch_edges) - 1
+    med = [np.median(e[b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(pcenters))]
+    axes[1, 0].plot(pcenters, med, color=c, marker="o", ms=2, lw=1, label=title)
+axes[1, 0].axhline(0, color="0.8", lw=0.5)
+axes[1, 0].set(xlabel="head pitch (deg)", ylabel="median eye vertical position (deg)")
+axes[1, 0].legend(fontsize=5)
+for ax in axes[1, 1:]:
+    ax.axis("off")
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "counter-pitch fixation")

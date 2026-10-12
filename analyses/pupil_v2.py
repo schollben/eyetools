@@ -1,4 +1,11 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
+# notes:
+# Pupil = (major + minor) / 2 of the pupil ellipse (mm, utils/load_eye_kinematics). 
+# Apparent size depends on eye position (foreshortening, ellipse fit)
+# so the pupil is used only with the eye near the camera axis (+/- eye_max).
+# 
+# THIS SCRIPT IS OVERLY COMPLEX AND MAY REQUIRE REFACTORING
+#
 # main init
 # Set your paths in local_config.py (copy local_config.py.example to get started): cd /Users/benjaminscholl/Documents/eyetools/
 import sys
@@ -6,7 +13,6 @@ sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
 import pickle
-
 import warnings
 import numpy as np
 import pandas as pd
@@ -28,11 +34,9 @@ with open("./analyses/results.pkl", "rb") as f:
 
 # SETTINGS
 SAVE_FIGS = False
-compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
+compare_delayed = True   # True: normal EO 8-20 vs. all delayed sessions
 
 # OTHER SETTINGS
-# Pupil = (major + minor) / 2 of the pupil ellipse (mm, utils/load_eye_kinematics). Apparent size depends on eye
-# position (foreshortening, ellipse fit), so the pupil is used only with the eye near the camera axis (eye_max).
 eye_max = 5              # deg, pupil used only where |x| and |y| < eye_max (that eye); 10 = sensitivity check
 nan_margin = 36          # frames excluded around each eye's tracking gaps (blinks / lid closure; as vor_v2)
 outlier_sd = 5           # robust SDs (1.4826 x MAD) from the eye's session median -> NaN (as HMM/run_hmm_eye)

@@ -6,7 +6,6 @@ sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
 import pickle
-
 import warnings
 import numpy as np
 import pandas as pd
@@ -24,20 +23,20 @@ set_style()
 
 # LOAD SAVED DATA
 with open("./analyses/results.pkl", "rb") as f:
-    Results = pickle.load(f)
+    Results = pickle.load(f) 
+    #notes: Head signals: roll_v/pitch_v/yaw_v are stored as rad/s; head_signal converts to deg/s.
 
 # SETTINGS
 SAVE_FIGS = False
 compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
 
 # OTHER SETTINGS
-# Head signals: roll_v/pitch_v/yaw_v are stored as rad/s; head_signal converts to deg/s.
-# Frame: flip_eye = "LE" is the HEAD frame — eye + = head yaw +, so VOR (counter-rotation) gain is
-# NEGATIVE (-1 = full compensation). With "RE" the eye axis points the other way and the sign flips.
-flip_eye = "LE"
+flip_eye = "LE" # to align eye signals with the head frame
+
 # Vertical: eye y / vy point OPPOSITE to head pitch in both eyes (pipeline gaze ~ -0.6 pitch + 0.5 eye y),
 # so vertical eye signals are negated into the head frame: compensatory gain_v / counter_pitch < 0, as gain_h.
 eye_sign = {"vx": 1, "vy": -1, "y": -1}
+
 sacc_pad = (12, 20)      # frames excluded before eye-saccade onset / after its end (see saccade-free cell)
 nan_margin = 36          # frames excluded around each eye's tracking gaps (NaN), per eye (see saccade-free cell)
 speed_threshold = 50     # mm/s, running_mask: stationary = not in a running bout
@@ -59,8 +58,6 @@ else:
 for group, title in zip(groups, titles):
     print(f"{title}: {len(group)} sessions, {len(set(R.id for R in group))} animals")
 
-
-# %% saccade-free frames and locomotor state
 # METHODS: every eye-head measure below uses SACCADE-FREE frames only: frames outside every detected
 # eye saccade of either eye (saccades are conjugate, so one eye's saccade excludes the frame for both),
 # padded by sacc_pad[0] frames before onset and sacc_pad[1] frames after the saccade end (`peak`, the
@@ -81,11 +78,140 @@ for R in Results:
     RUN[id(R)] = running_mask(R, speed_threshold, min_bout)
     STAT[id(R)] = np.isfinite(np.asarray(R.speed, float)) & ~RUN[id(R)]
 
-print(pd.DataFrame([dict(id=R.id, eo=R.eo, **{f"free_{eye}_pct": 100 * FREE[id(R)][eye].mean() for eye in ("LE", "RE")},
-                         **{f"free_{eye}_stat_pct": 100 * (FREE[id(R)][eye] & STAT[id(R)]).mean() for eye in ("LE", "RE")},
-                         **{f"free_{eye}_run_pct": 100 * (FREE[id(R)][eye] & RUN[id(R)]).mean() for eye in ("LE", "RE")})
-                    for R in Results]).round(1).to_string(index=False))
 
+# %% example scatters: head vs eye in saccade-free frames (illustration; stats are per session above)
+# Points = saccade-free frames pooled over the group's sessions and both eyes. Line = median session
+# value (slope) drawn through the pooled mean. Velocity axes are cut at +-500 / +-300 deg/s for display:
+# ~0.2% of saccade-free frames have |head yaw velocity| > 500 (tracking flips: yaw jumps ~160 deg in a
+# frame); they are kept in the fits (excluding them changes median gain by < 0.03).
+rows_ = (("gain_h", "yaw_v", "vx", "head yaw velocity (deg/s)", "eye horizontal velocity (deg/s)"),
+         ("gain_v", "pitch_v", "vy", "head pitch velocity (deg/s)", "eye vertical velocity (deg/s)"),
+         ("counter_pitch", "pitch", "y", "head pitch (deg)", "eye vertical position (deg)"))
+fig, axes = plt.subplots(len(rows_), len(groups), figsize=(2.6 * len(groups), 2.4 * len(rows_)), squeeze=False)
+for j, (group, title) in enumerate(zip(groups, titles)):
+    for i, (col, hname, ekey, xl, yl) in enumerate(rows_):
+        ax = axes[i, j]
+        h = np.concatenate([head_signal(R, hname)[FREE[id(R)][eye]] for R in group for eye in ("LE", "RE")])
+        e = np.concatenate([eye_sign[ekey] * eye_signal(R, eye, ekey, flip_eye)[FREE[id(R)][eye]] for R in group for eye in ("LE", "RE")])
+        k = np.isfinite(h) & np.isfinite(e)
+        ax.scatter(h[k], e[k], s=1, alpha=0.05, color=EYE_COLOR, lw=0, rasterized=True)
+        med = S[col][S.group == title].median()
+        if np.isfinite(med):
+            ax.axline((h[k].mean(), e[k].mean()), slope=med, color="k", lw=1)
+        ax.set_title(f"{title}  {col} median={med:.2f}\n{group_stat[col]}", fontsize=6)
+        ax.set_xlabel(xl)
+        ax.set_ylabel(yl)
+        if hname == "pitch":
+            ax.set_xlim(-90, 90)
+            ax.set_ylim(-20, 20)
+        else:
+            ax.set_xlim(-500, 500)
+            ax.set_ylim(-100, 100)
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "VOR scatter saccade-free")
+
+# horizontal VOR by locomotor state
+fig, axes = create_subplot_grid(len(groups))
+for ax, group, title in zip(axes, groups, titles):
+    for state, col, M in (("stationary", "gain_h_stat", STAT), ("running", "gain_h_run", RUN)):
+        h = np.concatenate([head_signal(R, "yaw_v")[FREE[id(R)][eye] & M[id(R)]] for R in group for eye in ("LE", "RE")])
+        e = np.concatenate([eye_signal(R, eye, "vx", flip_eye)[FREE[id(R)][eye] & M[id(R)]] for R in group for eye in ("LE", "RE")])
+        k = np.isfinite(h) & np.isfinite(e)
+        ax.scatter(h[k], e[k], s=1, alpha=0.05, color=LOCO_COLORS[state], lw=0, rasterized=True)
+        med = S[col][S.group == title].median()
+        if np.isfinite(med):
+            ax.axline((h[k].mean(), e[k].mean()), slope=med, color=LOCO_COLORS[state], lw=1)
+    ax.set_xlim(-500, 500)
+    ax.set_ylim(-300, 300)
+    ax.set_title(f"{title}  stat={S.gain_h_stat[S.group == title].median():.2f} "
+                 f"run={S.gain_h_run[S.group == title].median():.2f}", fontsize=6)
+    ax.set_xlabel("head yaw velocity (deg/s)")
+    ax.set_ylabel("eye horizontal velocity (deg/s)")
+sns.despine()
+if SAVE_FIGS:
+    save_fig(plt.gcf(), "VOR by locomotor state")
+
+
+# %% horizontal VOR gain vs running speed and vs |head velocity|
+# METHODS: per session and bin, gain_h fit on the saccade-free frames in that bin (both eyes pooled;
+# NaN with < min_bin frames). Lines = mean +- SEM across sessions, bins with >= 2 sessions. For the
+# |head velocity| bins, each bin holds both directions of head movement (+-), so the slope is defined.
+fig, axes = plt.subplots(1, 2, figsize=(6, 2.2))
+for ax, edges, xl in ((axes[0], speed_edges, "running speed (mm/s)"), (axes[1], mag_edges, "|head yaw velocity| (deg/s)")):
+    centers = (edges[:-1] + edges[1:]) / 2
+    for group, title, c in zip(groups, titles, GROUP_COLORS):
+        G = np.full((len(group), len(centers)), np.nan)
+        for si, R in enumerate(group):
+            h = head_signal(R, "yaw_v")
+            x = np.asarray(R.speed, float) if edges is speed_edges else np.abs(h)
+            for bi, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
+                m = (x >= lo) & (x < hi)
+                hh = np.concatenate([h[FREE[id(R)][eye] & m] for eye in ("LE", "RE")])
+                ee = np.concatenate([eye_signal(R, eye, "vx", flip_eye)[FREE[id(R)][eye] & m] for eye in ("LE", "RE")])
+                k = np.isfinite(hh) & np.isfinite(ee)
+                if k.sum() >= min_bin:
+                    G[si, bi] = np.polyfit(hh[k], ee[k], 1)[0]
+        n = np.isfinite(G).sum(0)
+        ok = n >= 2
+        mu = np.array([np.nanmean(g) if o else np.nan for g, o in zip(G.T, ok)])
+        se = np.array([np.nanstd(g) / np.sqrt(k) if o else np.nan for g, o, k in zip(G.T, ok, n)])
+        ax.errorbar(centers[ok], mu[ok], se[ok], marker="o", ms=3, lw=1, capsize=0, color=c, label=title)
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.set_xlabel(xl)
+    ax.set_ylabel("horizontal VOR gain")
+axes[0].legend(fontsize=5)
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "VOR gain vs speed and head velocity")
+
+
+# %% head angular speed in saccade-free frames (head stability)
+# Distributions pool the group's saccade-free frames (illustration); per-session medians and the
+# head-speed-vs-running-speed slope are in the per-session table (head family).
+fig, axes = plt.subplots(1, len(groups) + 1, figsize=(2.6 * (len(groups) + 1), 2.2), squeeze=False)
+for group, title, c in zip(groups, titles, GROUP_COLORS):
+    for state, ls, M in (("stationary", "-", STAT), ("running", "--", RUN)):
+        vals = np.concatenate([head_signal(R, "speed")[(FREE[id(R)]["LE"] | FREE[id(R)]["RE"]) & M[id(R)]] for R in group])
+        vals = vals[np.isfinite(vals)]
+        if len(vals) >= min_frames:
+            axes[0, 0].hist(vals, bins=np.arange(0, 300, 5), histtype="step", density=True, color=c, ls=ls,
+                            label=f"{title} {state}")
+axes[0, 0].set_xlabel("head angular speed (deg/s)")
+axes[0, 0].legend(fontsize=4)
+for ax, group, title in zip(axes[0, 1:], groups, titles):
+    s = np.concatenate([np.asarray(R.speed, float)[(FREE[id(R)]["LE"] | FREE[id(R)]["RE"]) & RUN[id(R)]] for R in group])
+    h = np.concatenate([head_signal(R, "speed")[(FREE[id(R)]["LE"] | FREE[id(R)]["RE"]) & RUN[id(R)]] for R in group])
+    k = np.isfinite(s) & np.isfinite(h)
+    ax.scatter(s[k], h[k], s=1, alpha=0.05, color=HEAD_COLOR, lw=0, rasterized=True)
+    ax.set_ylim(0, 500)
+    ax.set_title(f"{title}  head_per_run median={S.head_per_run[S.group == title].median():.2f}\n"
+                 f"{group_stat['head_per_run']}", fontsize=6)
+    ax.set_xlabel("running speed (mm/s)")
+    ax.set_ylabel("head angular speed (deg/s)")
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "head speed saccade-free")
+
+
+# %% eye-head velocity cross-correlation, saccade-free runs (VOR latency)
+# Session curves from the per-session table cell (XC); mean +- SEM across sessions per group.
+fig, ax = plt.subplots(figsize=(3, 2.2))
+for group, title, c in zip(groups, titles, GROUP_COLORS):
+    cc = np.array([XC[id(R)] for R in group if np.isfinite(XC[id(R)]).all()])
+    plot_mean_se(ax, lags / FS * 1000, cc, c, title, min_n=2)
+ax.axvline(0, color="0.8", lw=0.5)
+ax.axhline(0, color="0.8", lw=0.5)
+ax.set_xlabel("eye lag re head (ms)")
+ax.set_ylabel("correlation (yaw vel vs eye vx)")
+ax.set_title(f"xc_r: {group_stat['xc_r']}\nxc_lag: {group_stat['xc_lag']}", fontsize=6)
+ax.legend(fontsize=5)
+sns.despine(fig)
+if SAVE_FIGS:
+    save_fig(fig, "eye-head xcorr saccade-free")
 
 # %% per-session table + trends vs EO (sessions are the unit; one line per ferret)
 # METHODS: gains = OLS slope of eye on head over the session's saccade-free frames (each eye its own
@@ -198,138 +324,3 @@ for fam, cols in families.items():
         print(f"{col:15s} {desc}  (mean ± SD over sessions)  {group_stat[col]}")
     if compare_delayed:   # per-ferret means (delayed ferrets have one session each)
         print(S.groupby(["group", "id"])[cols].mean().join(S.groupby(["group", "id"]).size().rename("n")).round(3).to_string())
-
-
-# %% example scatters: head vs eye in saccade-free frames (illustration; stats are per session above)
-# Points = saccade-free frames pooled over the group's sessions and both eyes. Line = median session
-# value (slope) drawn through the pooled mean. Velocity axes are cut at +-500 / +-300 deg/s for display:
-# ~0.2% of saccade-free frames have |head yaw velocity| > 500 (tracking flips: yaw jumps ~160 deg in a
-# frame); they are kept in the fits (excluding them changes median gain by < 0.03).
-rows_ = (("gain_h", "yaw_v", "vx", "head yaw velocity (deg/s)", "eye horizontal velocity (deg/s)"),
-         ("gain_v", "pitch_v", "vy", "head pitch velocity (deg/s)", "eye vertical velocity (deg/s)"),
-         ("counter_pitch", "pitch", "y", "head pitch (deg)", "eye vertical position (deg)"))
-fig, axes = plt.subplots(len(rows_), len(groups), figsize=(2.6 * len(groups), 2.4 * len(rows_)), squeeze=False)
-for j, (group, title) in enumerate(zip(groups, titles)):
-    for i, (col, hname, ekey, xl, yl) in enumerate(rows_):
-        ax = axes[i, j]
-        h = np.concatenate([head_signal(R, hname)[FREE[id(R)][eye]] for R in group for eye in ("LE", "RE")])
-        e = np.concatenate([eye_sign[ekey] * eye_signal(R, eye, ekey, flip_eye)[FREE[id(R)][eye]] for R in group for eye in ("LE", "RE")])
-        k = np.isfinite(h) & np.isfinite(e)
-        ax.scatter(h[k], e[k], s=1, alpha=0.05, color=EYE_COLOR, lw=0, rasterized=True)
-        med = S[col][S.group == title].median()
-        if np.isfinite(med):
-            ax.axline((h[k].mean(), e[k].mean()), slope=med, color="k", lw=1)
-        ax.set_title(f"{title}  {col} median={med:.2f}\n{group_stat[col]}", fontsize=6)
-        ax.set_xlabel(xl)
-        ax.set_ylabel(yl)
-        if hname == "pitch":
-            ax.set_xlim(-90, 90)
-            ax.set_ylim(-20, 20)
-        else:
-            ax.set_xlim(-500, 500)
-            ax.set_ylim(-300, 300)
-sns.despine(fig)
-fig.tight_layout()
-if SAVE_FIGS:
-    save_fig(fig, "VOR scatter saccade-free")
-
-# horizontal VOR by locomotor state
-fig, axes = create_subplot_grid(len(groups))
-for ax, group, title in zip(axes, groups, titles):
-    for state, col, M in (("stationary", "gain_h_stat", STAT), ("running", "gain_h_run", RUN)):
-        h = np.concatenate([head_signal(R, "yaw_v")[FREE[id(R)][eye] & M[id(R)]] for R in group for eye in ("LE", "RE")])
-        e = np.concatenate([eye_signal(R, eye, "vx", flip_eye)[FREE[id(R)][eye] & M[id(R)]] for R in group for eye in ("LE", "RE")])
-        k = np.isfinite(h) & np.isfinite(e)
-        ax.scatter(h[k], e[k], s=1, alpha=0.05, color=LOCO_COLORS[state], lw=0, rasterized=True)
-        med = S[col][S.group == title].median()
-        if np.isfinite(med):
-            ax.axline((h[k].mean(), e[k].mean()), slope=med, color=LOCO_COLORS[state], lw=1)
-    ax.set_xlim(-500, 500)
-    ax.set_ylim(-300, 300)
-    ax.set_title(f"{title}  stat={S.gain_h_stat[S.group == title].median():.2f} "
-                 f"run={S.gain_h_run[S.group == title].median():.2f}", fontsize=6)
-    ax.set_xlabel("head yaw velocity (deg/s)")
-    ax.set_ylabel("eye horizontal velocity (deg/s)")
-sns.despine()
-if SAVE_FIGS:
-    save_fig(plt.gcf(), "VOR by locomotor state")
-
-
-# %% horizontal VOR gain vs running speed and vs |head velocity|
-# METHODS: per session and bin, gain_h fit on the saccade-free frames in that bin (both eyes pooled;
-# NaN with < min_bin frames). Lines = mean +- SEM across sessions, bins with >= 2 sessions. For the
-# |head velocity| bins, each bin holds both directions of head movement (+-), so the slope is defined.
-fig, axes = plt.subplots(1, 2, figsize=(6, 2.2))
-for ax, edges, xl in ((axes[0], speed_edges, "running speed (mm/s)"), (axes[1], mag_edges, "|head yaw velocity| (deg/s)")):
-    centers = (edges[:-1] + edges[1:]) / 2
-    for group, title, c in zip(groups, titles, GROUP_COLORS):
-        G = np.full((len(group), len(centers)), np.nan)
-        for si, R in enumerate(group):
-            h = head_signal(R, "yaw_v")
-            x = np.asarray(R.speed, float) if edges is speed_edges else np.abs(h)
-            for bi, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
-                m = (x >= lo) & (x < hi)
-                hh = np.concatenate([h[FREE[id(R)][eye] & m] for eye in ("LE", "RE")])
-                ee = np.concatenate([eye_signal(R, eye, "vx", flip_eye)[FREE[id(R)][eye] & m] for eye in ("LE", "RE")])
-                k = np.isfinite(hh) & np.isfinite(ee)
-                if k.sum() >= min_bin:
-                    G[si, bi] = np.polyfit(hh[k], ee[k], 1)[0]
-        n = np.isfinite(G).sum(0)
-        ok = n >= 2
-        mu = np.array([np.nanmean(g) if o else np.nan for g, o in zip(G.T, ok)])
-        se = np.array([np.nanstd(g) / np.sqrt(k) if o else np.nan for g, o, k in zip(G.T, ok, n)])
-        ax.errorbar(centers[ok], mu[ok], se[ok], marker="o", ms=3, lw=1, capsize=0, color=c, label=title)
-    ax.axhline(0, color="0.8", lw=0.5)
-    ax.set_xlabel(xl)
-    ax.set_ylabel("horizontal VOR gain")
-axes[0].legend(fontsize=5)
-sns.despine(fig)
-fig.tight_layout()
-if SAVE_FIGS:
-    save_fig(fig, "VOR gain vs speed and head velocity")
-
-
-# %% head angular speed in saccade-free frames (head stability)
-# Distributions pool the group's saccade-free frames (illustration); per-session medians and the
-# head-speed-vs-running-speed slope are in the per-session table (head family).
-fig, axes = plt.subplots(1, len(groups) + 1, figsize=(2.6 * (len(groups) + 1), 2.2), squeeze=False)
-for group, title, c in zip(groups, titles, GROUP_COLORS):
-    for state, ls, M in (("stationary", "-", STAT), ("running", "--", RUN)):
-        vals = np.concatenate([head_signal(R, "speed")[(FREE[id(R)]["LE"] | FREE[id(R)]["RE"]) & M[id(R)]] for R in group])
-        vals = vals[np.isfinite(vals)]
-        if len(vals) >= min_frames:
-            axes[0, 0].hist(vals, bins=np.arange(0, 300, 5), histtype="step", density=True, color=c, ls=ls,
-                            label=f"{title} {state}")
-axes[0, 0].set_xlabel("head angular speed (deg/s)")
-axes[0, 0].legend(fontsize=4)
-for ax, group, title in zip(axes[0, 1:], groups, titles):
-    s = np.concatenate([np.asarray(R.speed, float)[(FREE[id(R)]["LE"] | FREE[id(R)]["RE"]) & RUN[id(R)]] for R in group])
-    h = np.concatenate([head_signal(R, "speed")[(FREE[id(R)]["LE"] | FREE[id(R)]["RE"]) & RUN[id(R)]] for R in group])
-    k = np.isfinite(s) & np.isfinite(h)
-    ax.scatter(s[k], h[k], s=1, alpha=0.05, color=HEAD_COLOR, lw=0, rasterized=True)
-    ax.set_ylim(0, 500)
-    ax.set_title(f"{title}  head_per_run median={S.head_per_run[S.group == title].median():.2f}\n"
-                 f"{group_stat['head_per_run']}", fontsize=6)
-    ax.set_xlabel("running speed (mm/s)")
-    ax.set_ylabel("head angular speed (deg/s)")
-sns.despine(fig)
-fig.tight_layout()
-if SAVE_FIGS:
-    save_fig(fig, "head speed saccade-free")
-
-
-# %% eye-head velocity cross-correlation, saccade-free runs (VOR latency)
-# Session curves from the per-session table cell (XC); mean +- SEM across sessions per group.
-fig, ax = plt.subplots(figsize=(3, 2.2))
-for group, title, c in zip(groups, titles, GROUP_COLORS):
-    cc = np.array([XC[id(R)] for R in group if np.isfinite(XC[id(R)]).all()])
-    plot_mean_se(ax, lags / FS * 1000, cc, c, title, min_n=2)
-ax.axvline(0, color="0.8", lw=0.5)
-ax.axhline(0, color="0.8", lw=0.5)
-ax.set_xlabel("eye lag re head (ms)")
-ax.set_ylabel("correlation (yaw vel vs eye vx)")
-ax.set_title(f"xc_r: {group_stat['xc_r']}\nxc_lag: {group_stat['xc_lag']}", fontsize=6)
-ax.legend(fontsize=5)
-sns.despine(fig)
-if SAVE_FIGS:
-    save_fig(fig, "eye-head xcorr saccade-free")

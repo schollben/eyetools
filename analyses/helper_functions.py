@@ -559,15 +559,15 @@ def paired_saccades(R, pair_window=12, flip_eye="RE", axis="horizontal"):
     40 deg/s in 74-89% of cases. `paired` is a data-quality flag, not monocular movement.
 
     Greedy nearest-onset matching within pair_window FRAMES, each RE saccade used once.
-    axis: "horizontal" -> x | "vertical" -> y | "total" -> 2D magnitude.
-    eye_signal flips only keys ending in "x", so flip_eye is a no-op for "vertical" and is
-    bypassed for "total" — correct, since those axes are already shared.
+    axis: "horizontal" -> x | "vertical" -> y.
+    eye_signal flips only keys ending in "x", so flip_eye is a no-op for "vertical" —
+    correct, since that axis is already shared.
 
     Columns: LE_onset, RE_onset, lag_ms, paired, LE_disp, RE_disp (signed displacement
     pos[peak]-pos[onset], deg), LE_amp, RE_amp, LE_pkv, RE_pkv, other_nan, other_max_speed.
     Unpaired rows keep their LE columns and carry NaN for the RE ones.
     """
-    key = {"horizontal": "x", "vertical": "y", "total": "x"}[axis]
+    key = {"horizontal": "x", "vertical": "y"}[axis]
     lx = eye_signal(R, "LE", key, flip_eye)
     rx = eye_signal(R, "RE", key, flip_eye)
     rs = eye_signal(R, "RE", "speed")
@@ -642,7 +642,7 @@ def conjugate_samples(group, data_mode="events", signal="velocity", flip_eye="RE
     head_range: None, or (lo, hi) in deg/s on head_signal(R, "speed"), continuous only.
     Non-finite pairs are dropped. Returns equal-length float arrays.
     """
-    ax_key = {"horizontal": "x", "vertical": "y", "total": "x"}[axis]
+    ax_key = {"horizontal": "x", "vertical": "y"}[axis]
     key = ax_key if signal == "position" else "v" + ax_key
 
     ev_l, ev_r, co_l, co_r = [], [], [], []

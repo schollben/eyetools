@@ -10,6 +10,9 @@ import pickle
 from analyses.helper_functions import load_results
 
 # session IDs for normal experience recordings
+# issues? 
+# session_2025-07-09_ferret_753_EyeCameras_P41_E13
+# 
 NORMAL_IDS = (402, 405, 407, 420, 753, 757)
 
 # delayed experience IDS (note we are targeting early Experience recordings): 

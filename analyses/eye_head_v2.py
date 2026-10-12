@@ -1,4 +1,9 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
+#
+# notes/to-do: 
+# add GAZE shifts
+# move locomotion analyses to a separate module!
+#
 # main init
 # Set your paths in local_config.py (copy local_config.py.example to get started): cd /Users/benjaminscholl/Documents/eyetools/
 import sys

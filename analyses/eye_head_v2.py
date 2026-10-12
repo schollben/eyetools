@@ -289,7 +289,7 @@ if SAVE_FIGS:
 # Eye-head dynamics, replicating Wallace, Voit, Martin Machado et al., Kerr lab, Current Biology
 # 35:761-775 (Feb 2025), Fig 4, across development. Their term for the return phase is PSCR —
 # post-saccadic counter-rotation: the negative eye-velocity lobe after the saccade.
-# Rows = groups, columns = eye amplitude classes (amp_classes: HORIZONTAL eye displacement, onset ->
+# One panel per group; color = eye amplitude class (amp_classes: HORIZONTAL eye displacement, onset ->
 # peak). Every trace is horizontal, zeroed at eye onset, and flipped so the head turns positive
 # (head frame: eye + = head +). Head = yaw, eye = horizontal eye; velocities get the same savgol(11, 3).
 # METHODS: all eye saccades whose onset is inside a turn (paired with a head saccade or not) with a
@@ -299,12 +299,14 @@ if SAVE_FIGS:
 
 t_ms = np.arange(-pre, post) / FS * 1000
 
+class_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(amp_classes)))
+styles = {"LE": "-", "RE": "--", "head": ":"}   # line style per signal, color per amplitude class
+
 for kind, unit in (("pos", "rotation (deg)"), ("vel", "velocity (deg/s)")):
-    fig, axes = plt.subplots(len(groups), len(amp_classes),
-                             figsize=(3 * len(amp_classes), 2 * len(groups)), squeeze=False)
-    for row, (group, title) in enumerate(zip(groups, titles)):
-        for col, (lo, hi) in enumerate(amp_classes):
-            ax = axes[row][col]
+    fig, axes = plt.subplots(1, len(groups), figsize=(3.4 * len(groups), 2.6), squeeze=False)
+    for ax, group, title, c in zip(axes[0], groups, titles, GROUP_COLORS):
+        ax_h = ax.twinx()   # eye on the left axis, head on the right
+        for (lo, hi), cc in zip(amp_classes, class_colors):
             m = {"LE": [], "RE": [], "head": []}   # session-mean traces
             for R in group:
                 e, w = E[id(R)], W[id(R)]
@@ -316,20 +318,21 @@ for kind, unit in (("pos", "rotation (deg)"), ("vel", "velocity (deg/s)")):
                 if sel.sum() >= min_ev:
                     m["head"].append(w[f"head_{kind}"][sel].mean(0))
 
-            ax_h = ax.twinx()   # eye on the left axis, head on the right
-            plot_mean_se(ax, t_ms, np.array(m["LE"]), LE_COLOR, "LE", min_n=2)
-            plot_mean_se(ax, t_ms, np.array(m["RE"]), RE_COLOR, "RE", min_n=2)
-            plot_mean_se(ax_h, t_ms, np.array(m["head"]), HEAD_COLOR, "head", min_n=2)
+            for key, a in (("LE", ax), ("RE", ax), ("head", ax_h)):
+                n0 = len(a.lines)
+                plot_mean_se(a, t_ms, np.array(m[key]), cc, f"{lo}-{hi} deg {key}", min_n=2)
+                for line in a.lines[n0:]:
+                    line.set_linestyle(styles[key])
 
-            ax_h.set_ylabel(f"head {unit}", color=HEAD_COLOR)
-            ax_h.tick_params(axis="y", colors=HEAD_COLOR)
-            ax.axhline(0, color="0.8", lw=0.5)
-            ax.axvline(0, color="0.8", lw=0.5)
-            ax.set_title(f"{title}  eye amp {lo}-{hi} deg  (in turns, with head)", fontsize=6)
-            ax.set_xlabel("time from eye onset (ms)")
-            ax.set_ylabel(f"eye {unit}")
-            lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
-            ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4, title="n sessions", title_fontsize=4)
+        ax_h.set_ylabel(f"head {unit} (dotted)", color=HEAD_COLOR)
+        ax_h.tick_params(axis="y", colors=HEAD_COLOR)
+        ax.axhline(0, color="0.8", lw=0.5)
+        ax.axvline(0, color="0.8", lw=0.5)
+        ax.set_title(f"{title}  (in turns, with head)", fontsize=6, color=c)
+        ax.set_xlabel("time from eye onset (ms)")
+        ax.set_ylabel(f"eye {unit} (LE solid, RE dashed)")
+        lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
+        ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4, title="n sessions", title_fontsize=4)
     fig.suptitle(f"pscr_gain: {group_stat['pscr_gain']}", fontsize=6)
     fig.tight_layout()
 

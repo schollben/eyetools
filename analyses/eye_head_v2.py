@@ -48,7 +48,7 @@ min_n = 5                # minimum saccades for a session's per-session PSCR mea
 min_ev = 10              # minimum events for a session to contribute a trace (mean +- SEM across sessions)
 lag_ms, bin_ms = 500, 25 # onset cross-correlogram: +-lag, bin width
 xc_half_ms = 50          # coupling window: correlogram peak +- xc_half_ms
-states = ("all", "outside turns", "stationary")   # head saccades split by state at head onset (B.2, D)
+states = ("all", "outside turns", "stationary")   # head saccades split by state at head onset (D)
 lag_f, bin_f = int(lag_ms / 1000 * FS), int(round(bin_ms / 1000 * FS))
 
 if compare_delayed:
@@ -252,62 +252,61 @@ if SAVE_FIGS:
 
 # %% B.2 head-onset-triggered averages by head saccade amplitude
 # One line per head-amplitude bin (like movement_stats "mean kinematic traces"). Does the eye
-# contribute more as head movements get larger? One figure per state; rows split head saccades by the
-# direction of their first eye saccade after head onset.
-# METHODS: head saccades split by state at head onset, and by the direction of their first paired eye
-# saccade after head onset (earliest eye onset, either eye, within [head onset, head peak]; same_direction:
-# sign of horizontal eye displacement = sign of head yaw displacement). Head saccades with no paired eye
-# saccade are left out. Session mean per bin (>= min_ev windows), then mean +- SEM across sessions.
+# contribute more as head movements get larger? State and eye direction are chosen below.
+# METHODS: head saccades in b2_state at head onset. b2_dir splits them by the direction of their first
+# paired eye saccade after head onset (earliest eye onset, either eye, within [head onset, head peak];
+# same_direction: sign of horizontal eye displacement = sign of head yaw displacement); "all" keeps every
+# head saccade, with or without an eye saccade. Session mean per bin (>= min_ev windows), then
+# mean +- SEM across sessions.
 
-head_amp_bins = [0, 30, 60, 90, 360]   # deg, head saccade amplitude (unwrapped)
+b2_state = "all"         # "all" or "stationary" (state at head onset)
+b2_dir = "with head"     # "with head", "against head" or "all"
+head_amp_bins = [0, 40, 60, 80, 360]   # deg, head saccade amplitude (unwrapped)
 amp_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(head_amp_bins) - 1))
 head_dirs = {"with head": 1.0, "against head": 0.0}   # same_direction of the first eye saccade after head onset
 
-traces = {}   # (state, direction, group index, amp bin index) -> dict of head / eye session-mean traces
+traces = {}   # (group index, amp bin index) -> dict of head / eye session-mean traces
 for gi, group in enumerate(groups):
     for R in group:
         H, e = HEAD[id(R)], E[id(R)]
         T = head_triggered_windows(R, H, flip_eye, head_pre, head_post)
         amp = H["amplitude_deg"].to_numpy(float)
-        hk = np.all(np.isfinite(T["head_pos"]), axis=1)
-        first = e[e.paired & (e.lag_ms >= 0)].sort_values("onset").groupby("head_idx")["same_direction"].first()
-        hdir = np.full(len(H), np.nan)
-        hdir[first.index.to_numpy(int)] = first.to_numpy(float)
-        for state in states:
-            st = STATE[id(R)][state][H["onset"].to_numpy().astype(int)]
-            for dname, dval in head_dirs.items():
-                for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
-                    d = traces.setdefault((state, dname, gi, bi), {"head": [], "eye": []})
-                    sel = hk & st & (hdir == dval) & (amp >= lo) & (amp < hi)
-                    if sel.sum() >= min_ev:
-                        d["head"].append(T["head_pos"][sel].mean(0))
-                    ev = np.vstack([T[k][sel & np.all(np.isfinite(T[k]), axis=1)] for k in ("LE_pos", "RE_pos")])
-                    if len(ev) >= min_ev:
-                        d["eye"].append(ev.mean(0))
+        keep = np.all(np.isfinite(T["head_pos"]), axis=1) & STATE[id(R)][b2_state][H["onset"].to_numpy().astype(int)]
+        if b2_dir != "all":
+            first = e[e.paired & (e.lag_ms >= 0)].sort_values("onset").groupby("head_idx")["same_direction"].first()
+            hdir = np.full(len(H), np.nan)
+            hdir[first.index.to_numpy(int)] = first.to_numpy(float)
+            keep &= hdir == head_dirs[b2_dir]
+        for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
+            d = traces.setdefault((gi, bi), {"head": [], "eye": []})
+            sel = keep & (amp >= lo) & (amp < hi)
+            if sel.sum() >= min_ev:
+                d["head"].append(T["head_pos"][sel].mean(0))
+            ev = np.vstack([T[k][sel & np.all(np.isfinite(T[k]), axis=1)] for k in ("LE_pos", "RE_pos")])
+            if len(ev) >= min_ev:
+                d["eye"].append(ev.mean(0))
 
-rows = [(sig, dname) for sig in ("head", "eye") for dname in head_dirs]
-for state in states:
-    fig, axes = plt.subplots(len(rows), len(groups), figsize=(2.5 * len(groups), 1.8 * len(rows)),
-                             squeeze=False, sharex=True, sharey="row")
-    for ri, (sig, dname) in enumerate(rows):
-        for gi, title in enumerate(titles):
-            ax = axes[ri, gi]
-            for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
-                arrs = traces.get((state, dname, gi, bi), {}).get(sig, [])
-                plot_mean_se(ax, t_h, np.array(arrs), amp_colors[bi], f"{lo}-{hi}", min_n=2)
-            ax.axhline(0, color="0.8", lw=0.5)
-            ax.axvline(0, color="0.8", lw=0.5)
-            ax.set_title(f"{sig}, first eye saccade {dname}  {title}", fontsize=6)
-            ax.set_ylabel(f"{sig} rotation (deg)")
-            ax.legend(fontsize=4, title="head amp (deg), n sessions", title_fontsize=4)
-    for ax in axes[-1]:
-        ax.set_xlabel("time from head onset (ms)")
-    fig.suptitle(f"head saccades: {state}", fontsize=7)
-    sns.despine(fig)
-    fig.tight_layout()
+fig, axes = plt.subplots(2, len(groups), figsize=(2.5 * len(groups), 3.6), squeeze=False,
+                         sharex=True, sharey="row")
+for ri, sig in enumerate(("head", "eye")):
+    for gi, title in enumerate(titles):
+        ax = axes[ri, gi]
+        for bi, (lo, hi) in enumerate(zip(head_amp_bins[:-1], head_amp_bins[1:])):
+            plot_mean_se(ax, t_h, np.array(traces.get((gi, bi), {}).get(sig, [])), amp_colors[bi],
+                         f"{lo}-{hi}", min_n=2)
+        ax.axhline(0, color="0.8", lw=0.5)
+        ax.axvline(0, color="0.8", lw=0.5)
+        ax.set_title(title, fontsize=6, color=GROUP_COLORS[gi])
+        ax.set_ylabel(f"{sig} rotation (deg)")
+        ax.legend(fontsize=4, title="head amp (deg), n sessions", title_fontsize=4)
+for ax in axes[-1]:
+    ax.set_xlabel("time from head onset (ms)")
+fig.suptitle(f"head saccades: {b2_state}, first eye saccade: {b2_dir}", fontsize=7)
+sns.despine(fig)
+fig.tight_layout()
 
-    if SAVE_FIGS:
-        save_fig(fig, f"eye_head_B2_by_head_amp_{state.replace(' ', '_')}")
+if SAVE_FIGS:
+    save_fig(fig, f"eye_head_B2_by_head_amp_{b2_state}_{b2_dir.replace(' ', '_')}")
 
 # %% Wallace Fig 4A / 4C — eye and head position / velocity around eye saccades in turns
 # Eye-head dynamics, replicating Wallace, Voit, Martin Machado et al., Kerr lab, Current Biology

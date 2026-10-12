@@ -145,9 +145,9 @@ for i, (ax, group, title) in enumerate(zip(axes, groups, titles)):
 
     x, y = logamp_logvel(group)
 
-    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3, color=GROUP_COLORS[i])
+    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.2, color="white", edgecolor="k")
     
-    ax.set_title(title)
+    ax.set_title(title, color=GROUP_COLORS[i])
     ax.axis([0.25, 1.75, 1, 3])  # [xmin, xmax, ymin, ymax]
     ax.set_xlabel("log10 amplitude (deg)")
     ax.set_ylabel("log10 peak velocity (deg/s)")
@@ -175,9 +175,9 @@ for i, (ax, group, title) in enumerate(zip(axes, groups, titles)):
     x = abs(amp[inds])
     y = dur_ms[inds]
 
-    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.3, color=GROUP_COLORS[i])
+    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.2, color="white", edgecolor="k")
     
-    ax.set_title(title)
+    ax.set_title(title, color=GROUP_COLORS[i])
     ax.axis([0, 40, 0, 500])  # [xmin, xmax, ymin, ymax]
     ax.set_xlabel("Amplitude (deg)")
     ax.set_ylabel("Duration (ms)")

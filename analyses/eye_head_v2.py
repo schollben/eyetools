@@ -387,14 +387,14 @@ for ax, group, title, c in zip(axes[0], groups, titles, GROUP_COLORS):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")   # bins with no sessions stay NaN
         mb, se = np.nanmean(bm, 0), np.nanstd(bm, 0) / np.sqrt(n)
-    ax.scatter(x, y, s=1, alpha=0.2, color=c)
+    ax.scatter(x, y, s=1, alpha=0.2, facecolor="white", edgecolor="k")
     ax.errorbar(centers, mb, yerr=se, fmt="o-", ms=3, lw=1, capsize=2, color="k")
 
     r = np.corrcoef(x, y)[0, 1]
     print(f"{title:15s} n={len(x):5d}  r={r:+.3f}  "
           + "  ".join(f"{cc:.0f}:{mm:.0f} (n={k})" for cc, mm, k in zip(centers, mb, n)))
 
-    ax.set_title(f"{title}  n={len(x)}  r={r:+.2f}  (in turns)", fontsize=6)
+    ax.set_title(f"{title}  n={len(x)}  r={r:+.2f}  (in turns)", fontsize=6, color=c)
     ax.set_xlabel("peak head velocity (deg/s)")
     ax.axhline(0, color="0.8", lw=0.5)
     ax.set_ylabel("peak negative eye velocity (deg/s)")
@@ -406,3 +406,5 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "eye_head_4D_counter_rotation_in_turns")
+
+# %%

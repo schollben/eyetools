@@ -98,7 +98,7 @@ for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
 axes[1, 0].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].set(xlabel="head velocity, eye horizontal axis (deg/s)", ylabel="median eye horizontal velocity (deg/s)")
 axes[1, 0].legend(fontsize=5)
-fig.colorbar(cs, cax=axes[1, 2].inset_axes([0.1, 0, 0.08, 1]), label="log10 fraction of frames")
+fig.colorbar(cs, cax=axes[1, 1].inset_axes([0.1, 0, 0.08, 1]), label="log10 fraction of frames")
 
 for ax in axes[1, 1:]:
     ax.axis("off")
@@ -147,7 +147,7 @@ for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
 axes[1, 0].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].set(xlabel="head velocity, eye vertical axis (deg/s)", ylabel="median eye vertical velocity (deg/s)")
 axes[1, 0].legend(fontsize=5)
-fig.colorbar(cs, cax=axes[1, 2].inset_axes([0.1, 0, 0.08, 1]), label="log10 fraction of frames")
+fig.colorbar(cs, cax=axes[1, 1].inset_axes([0.1, 0, 0.08, 1]), label="log10 fraction of frames")
 
 for ax in axes[1, 1:]:
     ax.axis("off")
@@ -190,7 +190,8 @@ axes[1, 0].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].set(xlabel="head pitch (deg)", ylabel="median eye vertical position (deg)")
 axes[1, 0].legend(fontsize=5)
 axes[1, 0].set_ylim(-5,5)
-fig.colorbar(cs, cax=axes[1, 2].inset_axes([0.1, 0, 0.08, 1]), label="log10 fraction of frames")
+axes[1, 0].set_xlim(-30,60)
+fig.colorbar(cs, cax=axes[1, 1].inset_axes([0.1, 0, 0.08, 1]), label="log10 fraction of frames")
 
 for ax in axes[1, 1:]:
     ax.axis("off")
@@ -205,7 +206,8 @@ if SAVE_FIGS:
 # METHODS: per session and component, cross-correlation of head velocity (reprojected onto each eye's
 # horizontal / vertical axis, EYE_AXIS) and eye velocity (horizontal / vertical) over contiguous fixation NaN-free runs (>= min_run frames), z-scored per run,
 # length-weighted over runs and both eyes (NaN with < min_frames frames). Top: mean +- SEM across
-# sessions per group. Bottom: per session, magnitude (largest |cc|) and its lag (ms, + = eye lags head).
+# sessions per group. Bottom: per group, sessions (points) and mean +- SEM (open markers) of magnitude (largest |cc|)
+# and its lag (ms, + = eye lags head); o = horizontal, ^ = vertical.
 lags = np.arange(-max_lag, max_lag + 1)
 comps = (("horizontal", "h", "vx", "o"), ("vertical", "v", "vy", "^"))
 XC = {}
@@ -232,15 +234,21 @@ for ax, (comp, axis, ekey, _) in zip(axes[0], comps):
     ax.axhline(0, color="0.8", lw=0.5)
     ax.set(title=comp, xlabel="eye lag re head (ms)", ylabel=f"correlation (head vs eye {ekey})")
     ax.legend(fontsize=4)
-for comp, axis, ekey, marker in comps:
-    for group, title, c in zip(groups, titles, GROUP_COLORS):
-        cc = [(R.eo, XC[id(R), comp]) for R in group if np.isfinite(XC[id(R), comp]).all()]
-        i = [np.argmax(np.abs(x)) for _, x in cc]
-        eo = [e for e, _ in cc]
-        axes[1, 0].scatter(eo, [abs(x[ii]) for (_, x), ii in zip(cc, i)], s=8, color=c, marker=marker, label=f"{title} {comp}")
-        axes[1, 1].scatter(eo, lags[i] / FS * 1000 if i else [], s=8, color=c, marker=marker, label=f"{title} {comp}")
-axes[1, 0].set(xlabel="EO (days)", ylabel="peak |correlation|", ylim=(0, None))
-axes[1, 1].set(xlabel="EO (days)", ylabel="lag of peak (ms)")
+rng = np.random.default_rng(0)
+for k, (comp, axis, ekey, marker) in enumerate(comps):
+    dx = (k - 0.5) * 0.3    # horizontal left, vertical right of each group
+    for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
+        cc = np.array([XC[id(R), comp] for R in group if np.isfinite(XC[id(R), comp]).all()])
+        if len(cc) == 0:
+            continue
+        i = np.argmax(np.abs(cc), axis=1)
+        for ax, y in zip(axes[1], (np.abs(cc[np.arange(len(cc)), i]), lags[i] / FS * 1000)):
+            ax.scatter(j + dx + rng.uniform(-0.05, 0.05, len(y)), y, s=8, color=c, marker=marker, alpha=0.6)
+            ax.errorbar(j + dx, y.mean(), yerr=y.std(ddof=1) / np.sqrt(len(y)) if len(y) > 1 else 0,
+                        color="k", marker=marker, ms=5, mfc="w", capsize=2, label=comp if j == 0 else None)
+for ax, ylabel in zip(axes[1], ("peak |correlation|", "lag of peak (ms)")):
+    ax.set(xticks=range(len(groups)), xticklabels=titles, ylabel=ylabel)
+axes[1, 0].set(ylim=(0, None))
 axes[1, 1].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].legend(fontsize=4)
 sns.despine(fig)

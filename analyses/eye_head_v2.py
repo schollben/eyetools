@@ -289,8 +289,8 @@ if SAVE_FIGS:
 # Eye-head dynamics, replicating Wallace, Voit, Martin Machado et al., Kerr lab, Current Biology
 # 35:761-775 (Feb 2025), Fig 4, across development. Their term for the return phase is PSCR —
 # post-saccadic counter-rotation: the negative eye-velocity lobe after the saccade.
-# One panel per group; color = eye amplitude class (amp_classes: HORIZONTAL eye displacement, onset ->
-# peak). Every trace is horizontal, zeroed at eye onset, and flipped so the head turns positive
+# One panel per group; eye amplitude classes (amp_classes: HORIZONTAL eye displacement, onset -> peak)
+# side by side, each in its own -200..600 ms window, with scale bars instead of axes. Every trace is horizontal, zeroed at eye onset, and flipped so the head turns positive
 # (head frame: eye + = head +). Head = yaw, eye = horizontal eye; velocities get the same savgol(11, 3).
 # METHODS: all eye saccades whose onset is inside a turn (paired with a head saccade or not) with a
 # NaN-free window, that moved with the head (with_head; against-head saccades would cancel in the
@@ -299,14 +299,17 @@ if SAVE_FIGS:
 
 t_ms = np.arange(-pre, post) / FS * 1000
 
-class_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(amp_classes)))
-styles = {"LE": "-", "RE": "--", "head": ":"}   # line style per signal, color per amplitude class
+seg_ms = t_ms[-1] - t_ms[0] + 200   # each amplitude class shifted by one window + 200 ms gap
+bars = {"pos": (10, 40, "deg"), "vel": (100, 100, "deg/s")}   # scale bar sizes: eye, head, unit (vel 1:1, gain readable)
+bar_ms = 200
 
 for kind, unit in (("pos", "rotation (deg)"), ("vel", "velocity (deg/s)")):
-    fig, axes = plt.subplots(1, len(groups), figsize=(3.4 * len(groups), 2.6), squeeze=False)
+    fig, axes = plt.subplots(1, len(groups), figsize=(3.4 * len(groups), 2.2), squeeze=False)
+    panels = []
     for ax, group, title, c in zip(axes[0], groups, titles, GROUP_COLORS):
         ax_h = ax.twinx()   # eye on the left axis, head on the right
-        for (lo, hi), cc in zip(amp_classes, class_colors):
+        ns = []
+        for ci, (lo, hi) in enumerate(amp_classes):
             m = {"LE": [], "RE": [], "head": []}   # session-mean traces
             for R in group:
                 e, w = E[id(R)], W[id(R)]
@@ -318,21 +321,37 @@ for kind, unit in (("pos", "rotation (deg)"), ("vel", "velocity (deg/s)")):
                 if sel.sum() >= min_ev:
                     m["head"].append(w[f"head_{kind}"][sel].mean(0))
 
-            for key, a in (("LE", ax), ("RE", ax), ("head", ax_h)):
-                n0 = len(a.lines)
-                plot_mean_se(a, t_ms, np.array(m[key]), cc, f"{lo}-{hi} deg {key}", min_n=2)
-                for line in a.lines[n0:]:
-                    line.set_linestyle(styles[key])
+            t = t_ms + ci * seg_ms
+            plot_mean_se(ax, t, np.array(m["LE"]), LE_COLOR, "_LE", min_n=2)
+            plot_mean_se(ax, t, np.array(m["RE"]), RE_COLOR, "_RE", min_n=2)
+            plot_mean_se(ax_h, t, np.array(m["head"]), HEAD_COLOR, "_head", min_n=2)
+            ax.axvline(ci * seg_ms, color="0.8", lw=0.5)
+            ax.plot([t[0], t[-1]], [0, 0], color="0.8", lw=0.5)
+            ns.append((ci * seg_ms, f"{lo}-{hi} deg\nn = {len(m['LE'])} / {len(m['RE'])} / {len(m['head'])}"))
 
-        ax_h.set_ylabel(f"head {unit} (dotted)", color=HEAD_COLOR)
-        ax_h.tick_params(axis="y", colors=HEAD_COLOR)
-        ax.axhline(0, color="0.8", lw=0.5)
-        ax.axvline(0, color="0.8", lw=0.5)
-        ax.set_title(f"{title}  (in turns, with head)", fontsize=6, color=c)
-        ax.set_xlabel("time from eye onset (ms)")
-        ax.set_ylabel(f"eye {unit} (LE solid, RE dashed)")
-        lines, lines_h = ax.get_legend_handles_labels(), ax_h.get_legend_handles_labels()
-        ax.legend(lines[0] + lines_h[0], lines[1] + lines_h[1], fontsize=4, title="n sessions", title_fontsize=4)
+        panels.append((ax, ax_h, ns, title, c))
+
+    # shared y limits across groups, head axis scaled by hb / eb: zeros aligned and one bar serves both
+    eb, hb, u = bars[kind]
+    ylim = [min(min(p[0].get_ylim()[0], p[1].get_ylim()[0] * eb / hb) for p in panels),
+            max(max(p[0].get_ylim()[1], p[1].get_ylim()[1] * eb / hb) for p in panels)]
+    x0 = t_ms[0] - 120   # scale bars left of the first window
+    for ax, ax_h, ns, title, c in panels:
+        ax.set_ylim(ylim)
+        ax_h.set_ylim([v * hb / eb for v in ylim])
+        ax.plot([x0, x0, x0 + bar_ms], [ylim[0] + eb, ylim[0], ylim[0]], color="k", lw=1.5, clip_on=False)
+        ax.text(x0 - 20, ylim[0] + eb / 2, f"eye {eb} {u}", fontsize=5, ha="right", va="center", rotation=90)
+        ax.text(x0 - 110, ylim[0] + eb / 2, f"head {hb} {u}", fontsize=5, color=HEAD_COLOR,
+                ha="right", va="center", rotation=90)
+        ax.text(x0 + bar_ms / 2, ylim[0], f"{bar_ms} ms", fontsize=5, ha="center", va="top")
+        for x, txt in ns:
+            ax.text(x, ylim[1], txt, fontsize=5, ha="center", va="bottom")
+        ax.axis("off")
+        ax_h.axis("off")
+        ax.set_title(f"{title}  (in turns, with head)\n", fontsize=6, color=c)
+        ax.legend(handles=[plt.Line2D([], [], color=col, label=lab) for col, lab in
+                           ((LE_COLOR, "LE"), (RE_COLOR, "RE"), (HEAD_COLOR, "head"))],
+                  fontsize=4, loc="upper right", title="n sessions: LE / RE / head", title_fontsize=4, frameon=False)
     fig.suptitle(f"pscr_gain: {group_stat['pscr_gain']}", fontsize=6)
     fig.tight_layout()
 

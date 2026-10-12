@@ -39,6 +39,7 @@ compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
 # vergence is ~0 in every well-tracked session. Only within-session vergence changes are interpreted.
 flip_eye = "RE"
 sacc_pad = (12, 20)      # frames excluded before eye-saccade onset / after its end (as vor_v2)
+nan_margin = 36          # frames excluded around tracking gaps (NaN) of either eye (as vor_v2)
 speed_threshold = 50     # mm/s, running_mask: stationary = not in a running bout
 min_bout = 60            # frames, shortest run of frames counted as running
 min_both = 0.5           # fraction of frames with both eyes tracked; sessions below are dropped
@@ -77,6 +78,9 @@ for group, title in zip(groups, titles):
 # METHODS: saccade-free frames (FREE) = outside every detected eye saccade of either eye, padded
 # sacc_pad[0] frames before onset and sacc_pad[1] after the end (as vor_v2). running = body speed >
 # speed_threshold for >= min_bout frames; stationary = body speed tracked and not running.
+# METHODS: FREE also excludes frames within nan_margin frames (300 ms) of a tracking gap of either eye:
+# saccades with NaN near onset / end are never labeled by extraction, and gap edges carry transients
+# (measured in vor_v2).
 # METHODS: LE and RE saccades are detected independently and paired by onset (paired_saccades: greedy
 # nearest onset within pair_window frames, each RE saccade used once). Displacement = position at the
 # position peak minus position at onset, per eye (registration-free). The pairing depends only on onsets,
@@ -89,7 +93,9 @@ for R in Results:
         for key in ("x", "y", "vx", "vy"):
             both &= np.isfinite(eye_signal(R, eye, key))
     BOTH[id(R)] = both
-    FREE[id(R)] = non_saccade_mask(R, pad_pre=sacc_pad[0], pad_post=sacc_pad[1])
+    gap = ~np.isfinite(eye_signal(R, "LE", "vx")) | ~np.isfinite(eye_signal(R, "RE", "vx"))
+    FREE[id(R)] = (non_saccade_mask(R, pad_pre=sacc_pad[0], pad_post=sacc_pad[1])
+                   & (np.convolve(gap, np.ones(2 * nan_margin + 1), "same") == 0))
     RUN[id(R)] = running_mask(R, speed_threshold, min_bout)
     STAT[id(R)] = np.isfinite(np.asarray(R.speed, float)) & ~RUN[id(R)]
     VERG[id(R)] = eye_signal(R, "LE", "x", flip_eye) - eye_signal(R, "RE", "x", flip_eye)

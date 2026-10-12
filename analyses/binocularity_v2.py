@@ -57,6 +57,8 @@ tilt_max = 20            # deg, |pitch| and |roll| ceiling (head roughly level) 
 trig_pre, trig_post = 12, 48   # frames: -100 to +400 ms around paired LE saccade onset (vergence traces)
 toy_speed_max = 1000     # mm/s, toy frames faster than this are tracking jumps
 dist_edges = np.array([50, 100, 150, 225, 350, 500, 800])   # mm, head-to-toy distance bins
+pupil_lag = 120          # frames (1 s), LE-RE pupil cross-correlation
+pupil_min_run = 4 * pupil_lag   # frames, shortest binocular pupil run worth correlating
 
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
@@ -145,6 +147,14 @@ for group, title in zip(groups, titles):
 # vergence vs log10 dist (< 0 = converging as the toy gets closer); slope_verg_toy = OLS slope (deg per
 # log10 mm). r_verg_toy_v = the same after regressing vergence on the mean vertical eye position (the
 # vertical-vergence coupling, see cross-talk); the toy is often below the eyes when close, so both are kept.
+# METHODS (pupil family): frames with both pupils and both eyes tracked. Apparent pupil size depends on eye
+# position (foreshortening in the eye camera), so each eye's pupil is also regressed on its own x and y
+# (OLS per session; "_c" = corrected). r_pupil / r_pupil_c = Pearson r of LE vs RE pupil (raw / corrected).
+# pxc = cross-correlation of the corrected pupils over runs of >= pupil_min_run frames, z-scored per run,
+# length-weighted; pupil_lag = lag of the peak (ms, + = RE lags LE). r_pupil_verg / r_pupil_verg_c = Pearson
+# r of the mean of the two z-scored pupils vs vergence in saccade-free stationary frames (stationary limits
+# the locomotion/arousal confound); the corrected version is conservative, since vergence is made of the
+# same x positions that are regressed out.
 # CAVEAT: eye kinematics are 6 Hz low-passed upstream; displacements are usable, saccade timing is coarse
 # (lag quantized at 8.3 ms) and the shape of intra-saccadic vergence transients is filter-limited.
 def partial_r(a, b, c):
@@ -155,7 +165,8 @@ def partial_r(a, b, c):
 
 
 lags = np.arange(-max_lag, max_lag + 1)
-rows, SACC, XC, TOY = [], {}, {}, {}
+plags = np.arange(-pupil_lag, pupil_lag + 1)
+rows, SACC, XC, TOY, PXC = [], {}, {}, {}, {}
 for gi, (group, title) in enumerate(zip(groups, titles)):
     for R in group:
         both, free, stat = BOTH[id(R)], FREE[id(R)], STAT[id(R)]
@@ -214,6 +225,34 @@ for gi, (group, title) in enumerate(zip(groups, titles)):
         else:
             row["r_verg_toy"] = row["slope_verg_toy"] = row["r_verg_toy_v"] = np.nan
 
+        pup, pup_c = {}, {}
+        kp = both & np.isfinite(np.asarray(R.LE_pupil, float)) & np.isfinite(np.asarray(R.RE_pupil, float))
+        for eye in ("LE", "RE"):
+            pp = np.asarray(getattr(R, f"{eye}_pupil"), float)
+            X = np.c_[eye_signal(R, eye, "x"), eye_signal(R, eye, "y"), np.ones(len(pp))]
+            res = np.full(len(pp), np.nan)
+            if kp.sum() >= min_frames:
+                res[kp] = pp[kp] - X[kp] @ np.linalg.lstsq(X[kp], pp[kp], rcond=None)[0]
+            pup[eye], pup_c[eye] = pp, res
+        enough = kp.sum() >= min_frames
+        row["r_pupil"] = pearsonr(pup["LE"][kp], pup["RE"][kp])[0] if enough else np.nan
+        row["r_pupil_c"] = pearsonr(pup_c["LE"][kp], pup_c["RE"][kp])[0] if enough else np.nan
+        acc, weight = np.zeros(len(plags)), 0
+        for a, b in clean_runs(kp, pupil_min_run):
+            cc = run_xcorr(pup_c["LE"][a:b], pup_c["RE"][a:b], pupil_lag)
+            if cc is not None:
+                acc += cc * (b - a)
+                weight += b - a
+        PXC[id(R)] = acc / weight if weight >= min_frames else np.full(len(plags), np.nan)
+        row["pupil_lag"] = plags[np.argmax(PXC[id(R)])] / FS * 1000 if weight >= min_frames else np.nan
+        k = kp & free & stat
+        for col, P_ in (("r_pupil_verg", pup), ("r_pupil_verg_c", pup_c)):
+            if k.sum() >= min_frames:
+                z = sum((P_[e][k] - P_[e][k].mean()) / P_[e][k].std() for e in ("LE", "RE")) / 2
+                row[col] = pearsonr(z, VERG[id(R)][k])[0]
+            else:
+                row[col] = np.nan
+
         m = free & both
         lv, rv = eye_signal(R, "LE", "vx", flip_eye)[m], eye_signal(R, "RE", "vx", flip_eye)[m]
         enough = m.sum() >= min_frames
@@ -239,7 +278,8 @@ families = dict(data=["both_pct", "paired_frac", "xtalk", "verg_vert", "eye_rati
                 saccade=["r_disp_x", "r_disp_y", "disconj_x", "lag_sd"],
                 slow=["r_vel_x", "r_vel_y", "verg_vel", "verg_iqr", "xc_lag"],
                 disconj=["abd_asym", "verg_post"],
-                toy=["r_verg_toy", "slope_verg_toy", "r_verg_toy_v"])
+                toy=["r_verg_toy", "slope_verg_toy", "r_verg_toy_v"],
+                pupil=["r_pupil", "r_pupil_c", "pupil_lag", "r_pupil_verg", "r_pupil_verg_c"])
 print(S[["id", "eo", "n_pairs", "n_horiz", "conj_frac", "toy_pct"] + [c for cols in families.values() for c in cols]].round(3).to_string(index=False))
 
 # METHODS: EO trend per ferret: Pearson r of session value vs EO, sessions treated as independent
@@ -262,7 +302,7 @@ for fam, cols in families.items():
         for ax, col in zip(axes[0], cols):
             plot_vs_eo(ax, S, col, color=None)
             d = S.dropna(subset=[col])
-            lo = 0 if col.startswith(("both", "paired", "disconj", "lag", "verg")) else d[col].min()   # y limits on whole tick steps
+            lo = 0 if col in ("both_pct", "paired_frac", "disconj_x", "lag_sd", "verg_vel", "verg_iqr") else d[col].min()   # y limits on whole tick steps
             step = np.diff(MaxNLocator(5, steps=[1, 2, 5, 10]).tick_values(lo, d[col].max())[:2])[0]
             lo, hi = np.floor(lo / step) * step, np.ceil(d[col].max() / step) * step
             ax.set_yticks(np.linspace(lo, hi, round((hi - lo) / step) + 1))
@@ -501,3 +541,36 @@ sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
     save_fig(fig, "vergence vs toy distance")
+
+
+# %% binocular pupil coupling
+# Left: LE-RE cross-correlation of the position-corrected pupils (session curves from the table cell),
+# mean +- SEM across sessions. Right: per-session pupil-vergence r, raw vs position-corrected (one point per
+# session, colour = group).
+fig, axes = plt.subplots(1, 2, figsize=(6, 2.4))
+ax = axes[0]
+for group, title, c in zip(groups, titles, GROUP_COLORS):
+    cc = np.array([PXC[id(R)] for R in group if np.isfinite(PXC[id(R)]).all()])
+    plot_mean_se(ax, plags / FS * 1000, cc, c, title, min_n=2)
+ax.axvline(0, color="0.8", lw=0.5)
+ax.axhline(0, color="0.8", lw=0.5)
+ax.set_xlabel("RE lag re LE (ms)")
+ax.set_ylabel("LE-RE pupil correlation (corrected)")
+ax.set_title(f"r_pupil_c: {group_stat['r_pupil_c']}\npupil_lag: {group_stat['pupil_lag']}", fontsize=5)
+ax.legend(fontsize=4)
+
+ax = axes[1]
+for title, c in zip(titles, GROUP_COLORS):
+    d = S[S.group == title]
+    ax.scatter(d.r_pupil_verg, d.r_pupil_verg_c, s=10, facecolor="w", edgecolor=c, lw=0.8, label=title)
+ax.axline((0, 0), slope=1, color="0.7", lw=0.5)
+ax.axhline(0, color="0.8", lw=0.5)
+ax.axvline(0, color="0.8", lw=0.5)
+ax.set_xlabel("pupil-vergence r (raw)")
+ax.set_ylabel("pupil-vergence r (position-corrected)")
+ax.set_title(f"r_pupil_verg_c: {group_stat['r_pupil_verg_c']}", fontsize=5)
+ax.legend(fontsize=4)
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "binocular pupil coupling")

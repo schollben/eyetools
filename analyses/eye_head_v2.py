@@ -48,6 +48,7 @@ min_n = 5                # minimum saccades for a session's per-session PSCR mea
 min_ev = 10              # minimum events for a session to contribute a trace (mean +- SEM across sessions)
 lag_ms, bin_ms = 500, 25 # onset cross-correlogram: +-lag, bin width
 xc_half_ms = 50          # coupling window: correlogram peak +- xc_half_ms
+states = ("all", "outside turns", "stationary")   # head saccades split by state at head onset (B.2, D)
 lag_f, bin_f = int(lag_ms / 1000 * FS), int(round(bin_ms / 1000 * FS))
 
 if compare_delayed:
@@ -299,8 +300,6 @@ for sig, ylabel in (("head", "head rotation (deg)"), ("eye", "eye rotation (deg)
 # (all / outside turns / stationary). Each session's curve first (sessions with >= min_ev head
 # saccades in that state), then mean +- SEM across sessions. Shaded = coupling window (per-session table).
 
-states = ("all", "outside turns", "stationary")
-
 fig, axes = plt.subplots(1, len(states), figsize=(2.6 * len(states), 2.2), squeeze=False, sharey=True)
 for ax, state in zip(axes[0], states):
     for group, title, c in zip(groups, titles, GROUP_COLORS):
@@ -330,6 +329,63 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "eye_head_D_onset_correlogram")
+
+
+# %% D.2 onset cross-correlogram split by eye saccade direction relative to the head saccade
+# METHODS: as D, but each eye onset is counted as "with head" if the sign of its horizontal
+# displacement (onset to peak, head frame) equals the sign of that head saccade's yaw displacement,
+# "against head" if opposite. Chance (dashed) = the session's rate of eye onsets with that sign (within
+# frames of that state) x bin width, averaged over head saccades. Printed: excess (obs - chance)
+# summed over pre-onset bins (-250 to 0 ms) and over the coupling window, session mean +- SEM.
+
+edges = np.arange(-lag_f, lag_f + bin_f, bin_f)
+pre_win = (centers_ms > -250) & (centers_ms < 0)
+dirs = ("with head", "against head")
+
+fig, axes = plt.subplots(len(dirs), len(states), figsize=(2.6 * len(states), 4.2), squeeze=False, sharey=True)
+summary = []
+for si, state in enumerate(states):
+    for group, title, c in zip(groups, titles, GROUP_COLORS):
+        obs, exp = {d: [] for d in dirs}, {d: [] for d in dirs}
+        for R in group:
+            m = STATE[id(R)][state]
+            H = HEAD[id(R)]
+            H = H[m[H["onset"].to_numpy().astype(int)]]
+            if len(H) < min_ev:
+                continue
+            e_on, e_sign = E[id(R)]["onset"].to_numpy(), np.sign(E[id(R)]["eye_disp"].to_numpy())
+            h_on, h_sign = H["onset"].to_numpy().astype(int), np.sign(H["yaw_disp"].to_numpy())
+            lags = e_on[None, :] - h_on[:, None]
+            rate = {s: (m[e_on] & (e_sign == s)).sum() / m.sum() * bin_f for s in (1, -1)}
+            for d, k in zip(dirs, (1, -1)):
+                counts = np.histogram(lags[e_sign[None, :] == k * h_sign[:, None]], edges)[0][:-1]   # drop closed last bin
+                obs[d].append(counts / len(H))
+                exp[d].append(np.mean([rate.get(k * s, 0.0) for s in h_sign]))
+                x = obs[d][-1] - exp[d][-1]
+                summary.append(dict(state=state, group=title, direction=d, pre=x[pre_win].sum(), peak=x[xc_win].sum()))
+        for di, d in enumerate(dirs):
+            ax = axes[di, si]
+            plot_mean_se(ax, centers_ms, np.array(obs[d]), c, title, min_n=2)
+            if len(obs[d]) >= 2:
+                ax.axhline(np.mean(exp[d]), color=c, lw=0.8, ls="--")
+for di, d in enumerate(dirs):
+    for si, state in enumerate(states):
+        ax = axes[di, si]
+        ax.axvline(0, color="0.8", lw=0.5)
+        ax.axvspan(centers_ms[xc_win][0] - bin_ms / 2, centers_ms[xc_win][-1] + bin_ms / 2, color="0.9", lw=0, zorder=0)
+        ax.set_title(f"eye saccades {d}; head saccades: {state}", fontsize=6)
+        ax.set_xlabel("eye onset - head onset (ms)")
+        ax.legend(fontsize=4, title="n sessions", title_fontsize=4)
+    axes[di, 0].set_ylabel(f"P(eye onset {d}) per {bin_ms} ms")
+sns.despine(fig)
+fig.tight_layout()
+
+print(f"excess eye onsets per head saccade (obs - chance), pre = -250 to 0 ms, peak = coupling window; mean ± SEM over sessions")
+print(pd.DataFrame(summary).groupby(["state", "direction", "group"], sort=False)[["pre", "peak"]]
+      .agg(lambda x: f"{x.mean():+.3f} ± {x.sem():.3f}").to_string())
+
+if SAVE_FIGS:
+    save_fig(fig, "eye_head_D2_onset_correlogram_by_direction")
 
 
 # %% Wallace Fig 4A / 4C — eye and head position / velocity around eye saccades in turns
@@ -429,6 +485,3 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "eye_head_4D_counter_rotation_in_turns")
-
-
-# %%

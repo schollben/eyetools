@@ -48,6 +48,10 @@ head_bins = np.array([0, 20, 50, 100, 1000])   # deg/s, head angular speed bins
 min_bin = 50             # minimum frames for a session's value within one head-speed bin
 max_lag = 15             # frames (125 ms), LE-RE velocity cross-correlation
 min_run = 4 * max_lag    # frames, shortest saccade-free run worth correlating
+amp_edges = np.array([2, 4, 8, 12, 20, 40])    # deg, horizontal saccade amplitude bins (disconjugacy vs amplitude)
+min_bin_sacc = 5         # minimum saccades for a session's value within one amplitude bin
+yaw_min = 30             # deg/s, |head yaw velocity| for the yaw+ / yaw- vergence comparison
+tilt_max = 20            # deg, |pitch| and |roll| ceiling (head roughly level) for that comparison
 
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
@@ -121,6 +125,9 @@ for group, title in zip(groups, titles):
 # LE vs RE horizontal velocity; r_vel_y = partial r of LE vs RE vertical velocity, horizontal version
 # velocity removed (as r_disp_y); verg_vel = median |vergence velocity| (deg/s) in stationary frames;
 # verg_iqr = interquartile range of the vergence angle (deg; within-session spread, offset-free).
+# METHODS: xc = cross-correlation of LE and RE horizontal velocity over contiguous saccade-free binocular
+# runs (>= min_run frames), z-scored per run, length-weighted over runs (as vor_v2). xc_lag = lag of the
+# peak (ms, + = RE lags LE).
 # CAVEAT: eye kinematics are 6 Hz low-passed upstream; displacements are usable, saccade timing is coarse
 # (lag quantized at 8.3 ms).
 def partial_r(a, b, c):
@@ -130,7 +137,8 @@ def partial_r(a, b, c):
     return pearsonr(ra, rb)[0]
 
 
-rows = []
+lags = np.arange(-max_lag, max_lag + 1)
+rows, SACC, XC = [], {}, {}
 for gi, (group, title) in enumerate(zip(groups, titles)):
     for R in group:
         both, free, stat = BOTH[id(R)], FREE[id(R)], STAT[id(R)]
@@ -145,6 +153,7 @@ for gi, (group, title) in enumerate(zip(groups, titles)):
         hz = big & (np.abs(version) > np.abs(vertical))
         lx, rx, ly, ry, version, vertical, lag = (a[big] for a in (lx, rx, ly, ry, version, vertical, H.lag_ms[k].to_numpy()))
         hz = hz[big]
+        SACC[id(R)] = dict(lx=lx, rx=rx, ly=ly, ry=ry, version=version, vertical=vertical, hz=hz)
         row["n_pairs"], row["n_horiz"] = big.sum(), hz.sum()
         ok, ok_h = big.sum() >= min_pairs, hz.sum() >= min_pairs
         row["r_disp_x"] = pearsonr(lx[hz], rx[hz])[0] if ok_h else np.nan
@@ -164,11 +173,21 @@ for gi, (group, title) in enumerate(zip(groups, titles)):
         k = m & stat
         row["verg_vel"] = np.median(np.abs(VVERG[id(R)][k])) if k.sum() >= min_frames else np.nan
         row["verg_iqr"] = np.subtract(*np.percentile(VERG[id(R)][m], [75, 25])) if enough else np.nan
+
+        l, r = eye_signal(R, "LE", "vx", flip_eye), eye_signal(R, "RE", "vx", flip_eye)
+        acc, weight = np.zeros(len(lags)), 0
+        for a, b in clean_runs(m, min_run):
+            cc = run_xcorr(l[a:b], r[a:b], max_lag)
+            if cc is not None:
+                acc += cc * (b - a)
+                weight += b - a
+        XC[id(R)] = acc / weight if weight >= min_frames else np.full(len(lags), np.nan)
+        row["xc_lag"] = lags[np.argmax(XC[id(R)])] / FS * 1000 if weight >= min_frames else np.nan
         rows.append(row)
 S = pd.DataFrame(rows)
 families = dict(data=["both_pct", "paired_frac", "xtalk", "verg_vert"],
                 saccade=["r_disp_x", "r_disp_y", "disconj_x", "lag_sd"],
-                slow=["r_vel_x", "r_vel_y", "verg_vel", "verg_iqr"])
+                slow=["r_vel_x", "r_vel_y", "verg_vel", "verg_iqr", "xc_lag"])
 print(S[["id", "eo", "n_pairs", "n_horiz"] + [c for cols in families.values() for c in cols]].round(3).to_string(index=False))
 
 # METHODS: EO trend per ferret: Pearson r of session value vs EO, sessions treated as independent
@@ -224,3 +243,137 @@ for fam, cols in families.items():
         print(f"{col:15s} {desc}  (mean ± SD over sessions)  {group_stat[col]}")
     if compare_delayed:   # per-ferret means (delayed ferrets have one session each)
         print(S.groupby(["group", "id"])[cols].mean().join(S.groupby(["group", "id"]).size().rename("n")).round(3).to_string())
+
+
+# %% example scatters: LE vs RE saccade displacement (illustration; stats are per session above)
+# Points = paired saccades pooled over the group's sessions. Top: horizontal saccades, horizontal
+# displacement. Bottom: all saccades, vertical displacement with the horizontal version regressed out per
+# session and eye (the partial r of r_disp_y). Grey line = unity.
+fig, axes = plt.subplots(2, len(groups), figsize=(2.6 * len(groups), 5), squeeze=False)
+for j, (group, title) in enumerate(zip(groups, titles)):
+    xs, ys, xv, yv = [], [], [], []
+    for R in group:
+        d = SACC[id(R)]
+        xs.append(d["lx"][d["hz"]])
+        ys.append(d["rx"][d["hz"]])
+        if len(d["version"]) >= min_pairs:
+            xv.append(d["ly"] - np.polyval(np.polyfit(d["version"], d["ly"], 1), d["version"]))
+            yv.append(d["ry"] - np.polyval(np.polyfit(d["version"], d["ry"], 1), d["version"]))
+    for ax, x, y, col, lim, lab in ((axes[0, j], xs, ys, "r_disp_x", 30, "horizontal"),
+                                    (axes[1, j], xv, yv, "r_disp_y", 15, "vertical, version removed")):
+        ax.scatter(np.concatenate(x), np.concatenate(y), s=1, alpha=0.1, color=EYE_COLOR, lw=0, rasterized=True)
+        ax.axline((0, 0), slope=1, color="0.7", lw=0.5)
+        ax.set_xlim(-lim, lim)
+        ax.set_ylim(-lim, lim)
+        ax.set_title(f"{title}  {col} median={S[col][S.group == title].median():.2f}\n{group_stat[col]}", fontsize=6)
+        ax.set_xlabel(f"LE {lab} (deg)")
+        ax.set_ylabel(f"RE {lab} (deg)")
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "binocular saccade displacement scatter")
+
+
+# %% disconjugacy vs saccade amplitude
+# METHODS: per session, median |LE - RE| / mean(|LE|, |RE|) of horizontal saccades in bins of the mean
+# horizontal amplitude of the two eyes (NaN with < min_bin_sacc). Binning on the mean of both eyes (not one
+# eye) and a ratio (not an OLS slope of one eye on the other) keeps the measure symmetric and free of
+# regression dilution. Lines = mean +- SEM across sessions, bins with >= 2 sessions.
+centers = (amp_edges[:-1] + amp_edges[1:]) / 2
+fig, ax = plt.subplots(figsize=(3, 2.2))
+for group, title, c in zip(groups, titles, GROUP_COLORS):
+    G = np.full((len(group), len(centers)), np.nan)
+    for si, R in enumerate(group):
+        d = SACC[id(R)]
+        amp = ((np.abs(d["lx"]) + np.abs(d["rx"])) / 2)[d["hz"]]
+        dis = np.abs(d["lx"] - d["rx"])[d["hz"]] / amp
+        for bi, (lo, hi) in enumerate(zip(amp_edges[:-1], amp_edges[1:])):
+            k = (amp >= lo) & (amp < hi)
+            if k.sum() >= min_bin_sacc:
+                G[si, bi] = np.median(dis[k])
+    n = np.isfinite(G).sum(0)
+    ok = n >= 2
+    mu = np.array([np.nanmean(g) if o else np.nan for g, o in zip(G.T, ok)])
+    se = np.array([np.nanstd(g) / np.sqrt(k) if o else np.nan for g, o, k in zip(G.T, ok, n)])
+    ax.errorbar(centers[ok], mu[ok], se[ok], marker="o", ms=3, lw=1, capsize=0, color=c, label=title)
+ax.set_ylim(0, None)
+ax.set_xlabel("horizontal saccade amplitude (deg, mean of eyes)")
+ax.set_ylabel("disconjugacy |LE - RE| / amp")
+ax.set_title(f"disconj_x: {group_stat['disconj_x']}", fontsize=6)
+ax.legend(fontsize=5)
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "disconjugacy vs amplitude")
+
+
+# %% slow (saccade-free) conjugacy vs head speed and locomotor state; LE-RE velocity xcorr
+# METHODS: per session, head-speed bin and locomotor state: r_vel_x and verg_vel on saccade-free binocular
+# frames in that bin (NaN with < min_bin frames). Lines = mean +- SEM across sessions, bins with >= 2
+# sessions; colour = group, solid = stationary, dashed = running.
+# METHODS: yaw+ / yaw- = saccade-free binocular frames with head yaw velocity > yaw_min / < -yaw_min and
+# the head roughly level (|pitch|, |roll| < tilt_max). yaw+ = leftward (RE_x points along yaw). Per session
+# median signed vergence velocity (deg/s, + = converging); mean +- SEM across sessions.
+centers = np.sqrt(head_bins[:-1] * head_bins[1:])   # geometric centres for the log axis
+centers[0] = head_bins[1] / 2
+fig, axes = plt.subplots(1, 4, figsize=(11, 2.4))
+for group, title, c in zip(groups, titles, GROUP_COLORS):
+    for state, ls, M in (("stationary", "-", STAT), ("running", "--", RUN)):
+        G = np.full((2, len(group), len(centers)), np.nan)
+        for si, R in enumerate(group):
+            hs = head_signal(R, "speed")
+            l, r = eye_signal(R, "LE", "vx", flip_eye), eye_signal(R, "RE", "vx", flip_eye)
+            for bi, (lo, hi) in enumerate(zip(head_bins[:-1], head_bins[1:])):
+                k = FREE[id(R)] & BOTH[id(R)] & M[id(R)] & (hs >= lo) & (hs < hi)
+                if k.sum() >= min_bin:
+                    G[0, si, bi] = pearsonr(l[k], r[k])[0]
+                    G[1, si, bi] = np.median(np.abs(VVERG[id(R)][k]))
+        for ax, g in zip(axes[:2], G):
+            n = np.isfinite(g).sum(0)
+            ok = n >= 2
+            mu = np.array([np.nanmean(x) if o else np.nan for x, o in zip(g.T, ok)])
+            se = np.array([np.nanstd(x) / np.sqrt(k) if o else np.nan for x, o, k in zip(g.T, ok, n)])
+            ax.errorbar(centers[ok], mu[ok], se[ok], marker="o", ms=3, lw=1, ls=ls, capsize=0, color=c,
+                        label=f"{title} {state}")
+for ax, yl in zip(axes[:2], ("LE-RE velocity r (r_vel_x)", "|vergence velocity| (deg/s)")):
+    ax.set_xscale("log")
+    ax.set_xlabel("head angular speed (deg/s)")
+    ax.set_ylabel(yl)
+axes[0].axhline(0, color="0.8", lw=0.5)
+axes[0].legend(fontsize=4)
+
+ax = axes[2]
+for gi_, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
+    vals = np.full((len(group), 2), np.nan)
+    for si, R in enumerate(group):
+        yv = head_signal(R, "yaw_v")
+        level = (np.abs(head_signal(R, "pitch")) < tilt_max) & (np.abs(head_signal(R, "roll")) < tilt_max)
+        for di, sel in enumerate((yv > yaw_min, yv < -yaw_min)):
+            k = FREE[id(R)] & BOTH[id(R)] & level & sel
+            if k.sum() >= min_bin:
+                vals[si, di] = np.median(VVERG[id(R)][k])
+    n = np.isfinite(vals).sum(0)
+    mu, se = np.nanmean(vals, 0), np.nanstd(vals, 0) / np.sqrt(np.maximum(n, 1))
+    ax.errorbar(np.array([0, 1]) + 0.1 * gi_, mu, se, marker="o", ms=3, lw=1, capsize=0, color=c,
+                label=f"{title} (n={n.min()})")
+    print(f"{title}  vergence velocity yaw+ {mu[0]:+.2f}  yaw- {mu[1]:+.2f} deg/s  (mean of {n.tolist()} sessions)")
+ax.axhline(0, color="0.8", lw=0.5)
+ax.set_xticks([0.1, 1.1], ["yaw+ (left)", "yaw- (right)"])
+ax.set_xlim(-0.5, 1.7)
+ax.set_ylabel("vergence velocity (deg/s, + conv)")
+ax.legend(fontsize=4)
+
+ax = axes[3]
+for group, title, c in zip(groups, titles, GROUP_COLORS):
+    cc = np.array([XC[id(R)] for R in group if np.isfinite(XC[id(R)]).all()])
+    plot_mean_se(ax, lags / FS * 1000, cc, c, title, min_n=2)
+ax.axvline(0, color="0.8", lw=0.5)
+ax.axhline(0, color="0.8", lw=0.5)
+ax.set_xlabel("RE lag re LE (ms)")
+ax.set_ylabel("LE-RE velocity correlation")
+ax.set_title(f"xc_lag: {group_stat['xc_lag']}", fontsize=6)
+ax.legend(fontsize=4)
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "slow conjugacy vs head speed")

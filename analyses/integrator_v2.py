@@ -7,14 +7,19 @@ import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
 import pickle
 
+import warnings
 import numpy as np
 import pandas as pd
+from scipy.stats import pearsonr, chi2
+import statsmodels.formula.api as smf
+from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 import seaborn as sns
 from utils import non_saccade_mask
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, AGE_COLORS, HEAD_COLOR,
                                        EYE_COLORS, eo_groups, head_signal, eye_signal, running_mask, clean_runs,
-                                       set_style, save_fig)
+                                       set_style, save_fig, plot_vs_eo)
 set_style()
 
 # LOAD SAVED DATA
@@ -133,3 +138,97 @@ sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
     save_fig(fig, "integrator clean periods QC")
+
+
+# %% per-session table + trends vs EO (sessions are the unit; one line per ferret)
+# METHODS: per clean period, eye and axis: pos = mean eye position (deg), drift = OLS slope of eye
+# position vs time over the period (deg/s), which averages out frame-to-frame velocity noise.
+# METHODS: per session and axis, both eyes pooled (NaN with < min_periods clean periods): leak = OLS slope
+# of drift on pos (1/s; negative = drift back toward neutral, tau = -1/leak); cent = fraction of
+# eccentric periods (|pos| > min_ecc) whose drift points toward neutral (0.5 = no bias); drift = median
+# |drift| (deg/s). clean_s = seconds of clean periods in the session.
+rows = []
+for gi, (group, title) in enumerate(zip(groups, titles)):
+    for R in group:
+        for a, b in PERIODS[id(R)]:
+            tt = np.arange(b - a) / FS
+            for eye in ("LE", "RE"):
+                for ax in AXES:
+                    x = eye_signal(R, eye, ax, flip_eye)[a:b]
+                    rows.append(dict(sess=id(R), id=R.id, eo=R.eo, group=title, gi=gi, eye=eye, axis=ax,
+                                     start=a, n=b - a, pos=x.mean(), drift=np.polyfit(tt, x, 1)[0]))
+P = pd.DataFrame(rows)
+
+rows = []
+for gi, (group, title) in enumerate(zip(groups, titles)):
+    for R in group:
+        ok = len(PERIODS[id(R)]) >= min_periods
+        row = dict(id=R.id, eo=R.eo, group=title, gi=gi, n_periods=len(PERIODS[id(R)]),
+                   clean_s=sum(b - a for a, b in PERIODS[id(R)]) / FS)
+        for ax in AXES:
+            p = P[(P.sess == id(R)) & (P.axis == ax)]
+            ecc = p[np.abs(p.pos) > min_ecc]
+            row[f"leak_{ax}"] = np.polyfit(p.pos, p.drift, 1)[0] if ok else np.nan
+            row[f"cent_{ax}"] = (np.sign(ecc.drift) != np.sign(ecc.pos)).mean() if ok and len(ecc) else np.nan
+            row[f"drift_{ax}"] = np.median(np.abs(p.drift)) if ok else np.nan
+        rows.append(row)
+S = pd.DataFrame(rows)
+families = dict(horizontal=["leak_x", "cent_x", "drift_x"],
+                vertical=["leak_y", "cent_y", "drift_y"],
+                data=["clean_s"])
+for title in titles:
+    print(f"{title}: {S.leak_x[S.group == title].notna().sum()}/{(S.group == title).sum()} sessions with >= {min_periods} periods")
+
+# METHODS: EO trend per ferret: Pearson r of session value vs EO, sessions treated as independent
+# (ferrets with >= 3 sessions). Reported as the number of ferrets whose r has the sign of the global
+# trend (r over all sessions pooled), and how many of those reach p < 0.05. Normal cohort only; in
+# compare_delayed mode the only comparison is delayed vs oldest normal sessions (group model below).
+# METHODS: global trend across EO groups: linear mixed model (LMM), measure ~ group index (EO bin
+# 0, 1, 2; or oldest normal = 0, delayed = 1) as a linear fixed effect, random intercept per ferret.
+# β = change per group step. p = likelihood-ratio test against the intercept-only model (both fit
+# by ML), chi2 with 1 df, Holm-corrected within each family of measures (horizontal, vertical, data).
+group_stat = {}
+ncol = max(len(c) for c in families.values())   # same panel size in every family figure
+for fam, cols in families.items():
+    print(f"--- {fam}")
+
+    if not compare_delayed:
+        fig, axes = plt.subplots(1, ncol, figsize=(2.2 * ncol, 2.4), squeeze=False)
+        for ax in axes[0, len(cols):]:
+            ax.axis("off")
+        for ax, col in zip(axes[0], cols):
+            plot_vs_eo(ax, S, col, color=None)
+            d = S.dropna(subset=[col])
+            lo = 0 if col.startswith(("drift", "clean")) else d[col].min()   # y limits on whole tick steps
+            step = np.diff(MaxNLocator(5, steps=[1, 2, 5, 10]).tick_values(lo, d[col].max())[:2])[0]
+            lo, hi = np.floor(lo / step) * step, np.ceil(d[col].max() / step) * step
+            ax.set_yticks(np.linspace(lo, hi, round((hi - lo) / step) + 1))
+            ax.set_ylim(lo, hi)
+            up = pearsonr(d.eo, d[col])[0] > 0
+            fr = {fid: pearsonr(g.eo, g[col]) for fid, g in d.groupby("id") if len(g) >= 3}
+            same = [fid for fid, (r, p) in fr.items() if (r > 0) == up]
+            ax.set_title(f"{col}\n{len(same)}/{len(fr)} ferrets {'↑' if up else '↓'} "
+                         f"({sum(fr[fid][1] < 0.05 for fid in same)} with p<0.05)", fontsize=6)
+            print(f"{col:15s} " + "  ".join(f"F{fid} r={r:+.2f} p={p:.2g}" for fid, (r, p) in fr.items()))
+        axes[0, 0].legend(fontsize=4)
+        sns.despine(fig)
+        fig.subplots_adjust(left=0.07, right=0.98, bottom=0.2, top=0.8, wspace=0.5)
+
+        if SAVE_FIGS:
+            save_fig(fig, f"per-session {fam} vs EO")
+
+    p_raw, beta = [], []
+    for col in cols:
+        d = S.dropna(subset=[col])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")   # few ferrets: convergence warnings are routine
+            full = smf.mixedlm(f"{col} ~ gi", d, groups=d["id"]).fit(reml=False)
+            null = smf.mixedlm(f"{col} ~ 1", d, groups=d["id"]).fit(reml=False)
+        p_raw.append(chi2.sf(2 * (full.llf - null.llf), 1))
+        beta.append(full.params["gi"])
+    for col, b, p in zip(cols, beta, multipletests(p_raw, method="holm")[1]):
+        group_stat[col] = f"group trend β={b:+.2g}/group, LMM p={p:.2g} (Holm)"
+        desc = "  ".join(f"{t}: {S[col][S.group == t].mean():.3g} ± {S[col][S.group == t].std():.2g}" for t in titles)
+        print(f"{col:15s} {desc}  (mean ± SD over sessions)  {group_stat[col]}")
+    if compare_delayed:   # per-ferret means (delayed ferrets have one session each)
+        print(S.groupby(["group", "id"])[cols].mean().join(S.groupby(["group", "id"]).size().rename("n")).round(3).to_string())

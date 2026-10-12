@@ -2,6 +2,8 @@
 # main init
 # Set your paths in local_config.py (copy local_config.py.example to get started): cd /Users/benjaminscholl/Documents/eyetools/
 import sys
+import warnings
+from itertools import combinations
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
@@ -13,6 +15,9 @@ import seaborn as sns
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR,
                                        eo_groups, head_signal, eye_signal, clean_runs, run_xcorr,
                                        set_style, save_fig, plot_mean_se)
+from scipy.stats import chi2
+import statsmodels.formula.api as smf
+from statsmodels.stats.multitest import multipletests
 set_style()
 
 # LOAD SAVED DATA
@@ -29,7 +34,6 @@ EYE_AXIS = {"h": {"LE": (-0.47, -0.52, 0.71), "RE": (-0.47, 0.52, 0.71)},
 flip_eye = "LE"          # LE horizontal is flipped to match RE, so both eyes can be pooled
 gaze_pad = (12, 20)      # frames excluded before gaze-event onset / after its end (see fixation cell)
 nan_margin = 36          # frames excluded around each eye's tracking gaps (NaN), per eye
-
 min_frames = 500         # minimum fixation frames for a session's cross-correlation
 max_lag = 15             # frames (125 ms), eye-head cross-correlation
 min_run = 4 * max_lag    # frames, shortest fixation run worth correlating
@@ -208,9 +212,11 @@ if SAVE_FIGS:
 # length-weighted over runs and both eyes (NaN with < min_frames frames). Top: mean +- SEM across
 # sessions per group. Bottom: per group, sessions (points) and mean +- SEM (open markers) of magnitude (largest |cc|)
 # and its lag (ms, + = eye lags head); o = horizontal, ^ = vertical.
+
 lags = np.arange(-max_lag, max_lag + 1)
 comps = (("horizontal", "h", "vx", "o"), ("vertical", "v", "vy", "^"))
 XC = {}
+
 for group in groups:
     for R in group:
         for comp, axis, ekey, _ in comps:
@@ -226,6 +232,7 @@ for group in groups:
             XC[id(R), comp] = acc / weight if weight >= min_frames else np.full(len(lags), np.nan)
 
 fig, axes = plt.subplots(2, 2, figsize=(6, 4.6))
+
 for ax, (comp, axis, ekey, _) in zip(axes[0], comps):
     for group, title, c in zip(groups, titles, GROUP_COLORS):
         cc = np.array([XC[id(R), comp] for R in group if np.isfinite(XC[id(R), comp]).all()])
@@ -234,7 +241,9 @@ for ax, (comp, axis, ekey, _) in zip(axes[0], comps):
     ax.axhline(0, color="0.8", lw=0.5)
     ax.set(title=comp, xlabel="eye lag re head (ms)", ylabel=f"correlation (head vs eye {ekey})")
     ax.legend(fontsize=4)
+
 rng = np.random.default_rng(0)
+
 for k, (comp, axis, ekey, marker) in enumerate(comps):
     dx = (k - 0.5) * 0.3    # horizontal left, vertical right of each group
     for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
@@ -246,12 +255,138 @@ for k, (comp, axis, ekey, marker) in enumerate(comps):
             ax.scatter(j + dx + rng.uniform(-0.05, 0.05, len(y)), y, s=8, color=c, marker=marker, alpha=0.6)
             ax.errorbar(j + dx, y.mean(), yerr=y.std(ddof=1) / np.sqrt(len(y)) if len(y) > 1 else 0,
                         color="k", marker=marker, ms=5, mfc="w", capsize=2, label=comp if j == 0 else None)
+
 for ax, ylabel in zip(axes[1], ("peak |correlation|", "lag of peak (ms)")):
     ax.set(xticks=range(len(groups)), xticklabels=titles, ylabel=ylabel)
+    
 axes[1, 0].set(ylim=(0, None))
 axes[1, 1].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].legend(fontsize=4)
 sns.despine(fig)
 fig.tight_layout()
+
 if SAVE_FIGS:
     save_fig(fig, "eye-head xcorr fixation")
+
+
+
+
+# %% VOR gain per session vs EO (horizontal and vertical, fixation frames)
+# METHODS: per session, gain = least-squares slope of eye velocity on head velocity (reprojected onto
+# each eye's axis, EYE_AXIS) over fixation frames of both eyes pooled with |head| <= gain_max_head
+# (NaN with < min_frames frames); -1 = full compensation. Sessions (points) and mean +- SEM per group.
+# Stats: each pair of groups, LMM gain ~ group + (1|ferret) vs gain ~ 1 + (1|ferret), likelihood-ratio
+# test; Holm-corrected over all pairs and both components.
+
+gain_max_head = 180    # deg/s, fit only the low-speed range (compensation saturates above)
+
+rows = []
+
+for group, title in zip(groups, titles):
+    for R in group:
+        row = dict(id=R.id, eo=R.eo, group=title)
+        for axis, ekey in (("h", "vx"), ("v", "vy")):
+            h = np.concatenate([sum(a * head_signal(R, n) for a, n in zip(EYE_AXIS[axis][eye], ("roll_v", "pitch_v", "yaw_v")))[FIX[id(R)][eye]]
+                                for eye in ("LE", "RE")])
+            e = np.concatenate([eye_signal(R, eye, ekey, flip_eye)[FIX[id(R)][eye]] for eye in ("LE", "RE")])
+            k = np.isfinite(h) & np.isfinite(e) & (np.abs(h) <= gain_max_head)
+            row[f"gain_{axis}"] = np.polyfit(h[k], e[k], 1)[0] if k.sum() >= min_frames else np.nan
+        rows.append(row)
+
+G = pd.DataFrame(rows)
+
+rng = np.random.default_rng(0)
+
+fig, axes = plt.subplots(1, 2, figsize=(4.8, 2.4))
+
+for ax, col, comp in zip(axes, ("gain_h", "gain_v"), ("horizontal", "vertical")):
+    for j, (title, c) in enumerate(zip(titles, GROUP_COLORS)):
+        y = G[col][G.group == title].dropna().to_numpy()
+        ax.scatter(j + rng.uniform(-0.1, 0.1, len(y)), y, s=8, color=c, alpha=0.6)
+        ax.errorbar(j, y.mean(), yerr=y.std(ddof=1) / np.sqrt(len(y)) if len(y) > 1 else 0,
+                    color="k", marker="o", ms=5, mfc="w", capsize=2)
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.set(title=comp, xticks=range(len(titles)), xticklabels=titles, ylabel="VOR gain (eye / head velocity)")
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, "VOR gain vs EO")
+
+
+P = []
+for col, comp in (("gain_h", "horizontal"), ("gain_v", "vertical")):
+    for a, b in combinations(titles, 2):
+
+        d = G[G.group.isin([a, b])].dropna(subset=[col])
+        d = d.assign(gi=(d.group == b).astype(int))
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")   # few ferrets: convergence warnings are routine
+            full = smf.mixedlm(f"{col} ~ gi", d, groups=d["id"]).fit(reml=False)
+            null = smf.mixedlm(f"{col} ~ 1", d, groups=d["id"]).fit(reml=False)
+        
+        P.append((comp, a, b, full.params["gi"], chi2.sf(2 * (full.llf - null.llf), 1)))
+
+for (comp, a, b, beta, p), p_holm in zip(P, multipletests([x[-1] for x in P], method="holm")[1]):
+    print(f"{comp:10s} {a} vs {b}: Δgain={beta:+.3f}  LMM p={p:.3g}  Holm p={p_holm:.3g}")
+
+
+#claude explanation: 
+# 1. Loop setup
+
+# P = []
+# for col, comp in (("gain_h", "horizontal"), ("gain_v", "vertical")):
+#     for a, b in combinations(titles, 2):
+# P collects one result tuple per test.
+# combinations(titles, 2) gives the three unordered pairs: (EO 0-3, EO 4-7), (EO 0-3, EO 8-20) and (EO 4-7, EO 8-20). a is always the earlier group and b the later one.
+# 2. Data for this test
+
+# d = G[G.group.isin([a, b])].dropna(subset=[col])
+# d = d.assign(gi=(d.group == b).astype(int))
+# G has one row per session, with columns id (ferret), eo, group, gain_h and gain_v.
+# Only sessions in groups a or b are kept. Sessions with NaN gain for this component (fewer than min_frames frames) are dropped.
+# gi is a dummy variable: 0 for sessions in a, 1 for sessions in b.
+# Example: for EO 0-3 vs EO 8-20 (horizontal), d has 15 + 15 = 30 rows. Ferrets with sessions in both groups appear under both gi values. Ferrets present in only one group still help estimate the between-ferret variance.
+# 3. Two nested models
+
+# full = smf.mixedlm(f"{col} ~ gi", d, groups=d["id"]).fit(reml=False)
+# null = smf.mixedlm(f"{col} ~ 1",  d, groups=d["id"]).fit(reml=False)
+# For session s of ferret f:
+
+# Full model: gain = β₀ + β₁·gi + u_f + ε
+# Null model: gain = β₀ + u_f + ε
+# The terms are:
+
+# β₀: the mean gain of group a (in the full model).
+# β₁: the group difference, i.e. b minus a, after accounting for ferret identity.
+# u_f: a random intercept per ferret, groups=d["id"], drawn from N(0, σ²_ferret). It absorbs the fact that some ferrets have higher or lower gain overall.
+# ε: session-to-session noise, N(0, σ²).
+# The only difference between the two models is β₁. The random-effect structure is the same in both, so the comparison tests just the group effect.
+
+# reml=False makes the models fit by maximum likelihood. REML likelihoods can't be compared between models whose fixed effects differ, so a likelihood-ratio test on β₁ needs ML fits.
+
+# The warnings are suppressed because with this few ferrets, statsmodels often warns that σ²_ferret is near 0 or that convergence was slow. The fits are still usable.
+
+# 4. The test
+
+# P.append((comp, a, b, full.params["gi"], chi2.sf(2 * (full.llf - null.llf), 1)))
+# full.params["gi"] is β₁. It is the Δgain you see printed: the estimated mean difference (later minus earlier) within ferret. Negative means the later group compensates more.
+# full.llf and null.llf are the log-likelihoods of the two models.
+# 2 * (full.llf - null.llf) is the likelihood-ratio statistic. It measures how much better the data fit when the group difference is allowed.
+# Under the null hypothesis (β₁ = 0), this statistic is approximately χ² with 1 degree of freedom, because the full model has one extra parameter.
+# chi2.sf(x, 1) gives P(χ²₁ ≥ x), which is the raw p-value.
+# 5. Holm correction
+
+# for (...), p_holm in zip(P, multipletests([x[-1] for x in P], method="holm")[1]):
+# multipletests(..., method="holm") takes the 6 raw p-values and returns adjusted p-values in the original order. The procedure:
+
+# Sort the 6 p-values from smallest to largest: p₍₁₎ ≤ … ≤ p₍₆₎.
+# Multiply the smallest by 6, the next by 5, …, the largest by 1.
+# Make the results non-decreasing in that sorted order (each adjusted p is at least the one before it), and cap them at 1.
+# Example from your output: horizontal 0-3 vs 8-20 has the smallest raw p, 0.00163, and 0.00163 × 6 = 0.0098. The two vertical/horizontal tests at 4-7 vs 8-20 (raw 0.404 and 0.579) both come out as 0.808, because of the non-decreasing step.
+
+# An adjusted p below 0.05 means the comparison is significant while keeping the chance of any false positive among the 6 tests at 5% or less.
+
+# What a significant result means
+# "Sessions in group b have a different mean gain from sessions in group a, by Δgain. This holds after accounting for ferrets differing in baseline gain, and after correcting for 6 comparisons."

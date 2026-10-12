@@ -35,7 +35,11 @@ compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
 # Frame: flip_eye = "LE" is the HEAD frame — eye + = head yaw +, so VOR (counter-rotation) gain is
 # NEGATIVE (-1 = full compensation). With "RE" the eye axis points the other way and the sign flips.
 flip_eye = "LE"
+# Vertical: eye y / vy point OPPOSITE to head pitch in both eyes (pipeline gaze ~ -0.6 pitch + 0.5 eye y),
+# so vertical eye signals are negated into the head frame: compensatory gain_v / counter_pitch < 0, as gain_h.
+eye_sign = {"vx": 1, "vy": -1, "y": -1}
 sacc_pad = (12, 20)      # frames excluded before eye-saccade onset / after its end (see saccade-free cell)
+nan_margin = 36          # frames excluded around each eye's tracking gaps (NaN), per eye (see saccade-free cell)
 speed_threshold = 50     # mm/s, running_mask: stationary = not in a running bout
 min_bout = 60            # frames, shortest run of frames counted as running
 min_frames = 500         # minimum saccade-free frames (both eyes pooled) for a session's gain fit
@@ -63,28 +67,35 @@ for group, title in zip(groups, titles):
 # position turning point). Padding measured on isolated saccades: eye speed is above baseline from
 # ~12 frames (100 ms) before onset to ~20 frames (167 ms) after the end (6 Hz filter ringing / overshoot).
 # Head saccades are NOT excluded: compensatory eye movement not detected as a saccade stays in.
+# METHODS: per eye, frames within nan_margin frames (300 ms) of that eye's tracking gaps (NaN) are also
+# excluded: saccades with NaN within 12 frames of onset / end are dropped by extraction (never labeled),
+# and gap edges carry transients; eye |vx| p99 is ~540 deg/s 1-3 frames from a gap and reaches baseline
+# (~40) by ~36 frames. FREE[id(R)][eye] = that eye's saccade-free, gap-free frames.
 # METHODS: running = body speed > speed_threshold for >= min_bout frames (running_mask); stationary =
 # body speed tracked and not running.
 FREE, RUN, STAT = {}, {}, {}
 for R in Results:
-    FREE[id(R)] = non_saccade_mask(R, pad_pre=sacc_pad[0], pad_post=sacc_pad[1])
+    free = non_saccade_mask(R, pad_pre=sacc_pad[0], pad_post=sacc_pad[1])
+    FREE[id(R)] = {eye: free & (np.convolve(~np.isfinite(eye_signal(R, eye, "vx")), np.ones(2 * nan_margin + 1), "same") == 0)
+                   for eye in ("LE", "RE")}
     RUN[id(R)] = running_mask(R, speed_threshold, min_bout)
     STAT[id(R)] = np.isfinite(np.asarray(R.speed, float)) & ~RUN[id(R)]
 
-print(pd.DataFrame([dict(id=R.id, eo=R.eo, free_pct=100 * FREE[id(R)].mean(),
-                         free_stat_pct=100 * (FREE[id(R)] & STAT[id(R)]).mean(),
-                         free_run_pct=100 * (FREE[id(R)] & RUN[id(R)]).mean())
+print(pd.DataFrame([dict(id=R.id, eo=R.eo, **{f"free_{eye}_pct": 100 * FREE[id(R)][eye].mean() for eye in ("LE", "RE")},
+                         **{f"free_{eye}_stat_pct": 100 * (FREE[id(R)][eye] & STAT[id(R)]).mean() for eye in ("LE", "RE")},
+                         **{f"free_{eye}_run_pct": 100 * (FREE[id(R)][eye] & RUN[id(R)]).mean() for eye in ("LE", "RE")})
                     for R in Results]).round(1).to_string(index=False))
 
 
 # %% per-session table + trends vs EO (sessions are the unit; one line per ferret)
-# METHODS: gains = OLS slope of eye on head over the session's saccade-free frames, both eyes pooled
-# (NaN with < min_frames finite frames). gain_h: head yaw velocity vs horizontal eye velocity; gain_v:
+# METHODS: gains = OLS slope of eye on head over the session's saccade-free frames (each eye its own
+# FREE mask), both eyes pooled (NaN with < min_frames finite frames). Vertical eye in the head frame
+# (eye_sign). gain_h: head yaw velocity vs horizontal eye velocity; gain_v:
 # head pitch velocity vs vertical eye velocity; gain_h_stat / gain_h_run: gain_h in stationary /
 # running frames. -1 = full compensation. counter_pitch: head pitch vs vertical eye POSITION (static
 # counter-rotation, not VOR).
 # METHODS: head_speed_stat / head_speed_run = median total head angular speed (deg/s) in saccade-free
-# stationary / running frames; head_per_run = OLS slope of head angular speed on body speed in
+# (in at least one eye) stationary / running frames; head_per_run = OLS slope of head angular speed on body speed in
 # saccade-free running frames.
 # METHODS: xc = cross-correlation of head yaw velocity and horizontal eye velocity over contiguous
 # saccade-free NaN-free runs (>= min_run frames), z-scored per run, length-weighted over runs and eyes.
@@ -96,26 +107,27 @@ rows, XC = [], {}
 for gi, (group, title) in enumerate(zip(groups, titles)):
     for R in group:
         free, run, stat = FREE[id(R)], RUN[id(R)], STAT[id(R)]
-        row = dict(id=R.id, eo=R.eo, group=title, gi=gi, free_pct=100 * free.mean())
-        for col, hname, ekey, m in (("gain_h", "yaw_v", "vx", free), ("gain_v", "pitch_v", "vy", free),
-                                    ("gain_h_stat", "yaw_v", "vx", free & stat), ("gain_h_run", "yaw_v", "vx", free & run),
-                                    ("counter_pitch", "pitch", "y", free)):
-            h = np.concatenate([head_signal(R, hname)[m]] * 2)
-            e = np.concatenate([eye_signal(R, eye, ekey, flip_eye)[m] for eye in ("LE", "RE")])
+        either = free["LE"] | free["RE"]   # head-only measures: saccade-free and gap-free in at least one eye
+        row = dict(id=R.id, eo=R.eo, group=title, gi=gi, free_pct=100 * either.mean())
+        for col, hname, ekey, state in (("gain_h", "yaw_v", "vx", True), ("gain_v", "pitch_v", "vy", True),
+                                        ("gain_h_stat", "yaw_v", "vx", stat), ("gain_h_run", "yaw_v", "vx", run),
+                                        ("counter_pitch", "pitch", "y", True)):
+            h = np.concatenate([head_signal(R, hname)[free[eye] & state] for eye in ("LE", "RE")])
+            e = np.concatenate([eye_sign[ekey] * eye_signal(R, eye, ekey, flip_eye)[free[eye] & state] for eye in ("LE", "RE")])
             k = np.isfinite(h) & np.isfinite(e)
             row[col] = np.polyfit(h[k], e[k], 1)[0] if k.sum() >= min_frames else np.nan
 
         hs, sp = head_signal(R, "speed"), np.asarray(R.speed, float)
-        row["head_speed_stat"] = np.nanmedian(hs[free & stat]) if (free & stat).sum() >= min_frames else np.nan
-        row["head_speed_run"] = np.nanmedian(hs[free & run]) if (free & run).sum() >= min_frames else np.nan
-        k = free & run & np.isfinite(hs) & np.isfinite(sp)
+        row["head_speed_stat"] = np.nanmedian(hs[either & stat]) if (either & stat).sum() >= min_frames else np.nan
+        row["head_speed_run"] = np.nanmedian(hs[either & run]) if (either & run).sum() >= min_frames else np.nan
+        k = either & run & np.isfinite(hs) & np.isfinite(sp)
         row["head_per_run"] = np.polyfit(sp[k], hs[k], 1)[0] if k.sum() >= min_frames else np.nan
 
         h = head_signal(R, "yaw_v")
         acc, weight = np.zeros(len(lags)), 0
         for eye in ("LE", "RE"):
             e = eye_signal(R, eye, "vx", flip_eye)
-            for a, b in clean_runs(free & np.isfinite(h) & np.isfinite(e), min_run):
+            for a, b in clean_runs(free[eye] & np.isfinite(h) & np.isfinite(e), min_run):
                 cc = run_xcorr(h[a:b], e[a:b], max_lag)
                 if cc is not None:
                     acc += cc * (b - a)
@@ -198,8 +210,8 @@ fig, axes = plt.subplots(len(rows_), len(groups), figsize=(2.6 * len(groups), 2.
 for j, (group, title) in enumerate(zip(groups, titles)):
     for i, (col, hname, ekey, xl, yl) in enumerate(rows_):
         ax = axes[i, j]
-        h = np.concatenate([head_signal(R, hname)[FREE[id(R)]] for R in group for eye in ("LE", "RE")])
-        e = np.concatenate([eye_signal(R, eye, ekey, flip_eye)[FREE[id(R)]] for R in group for eye in ("LE", "RE")])
+        h = np.concatenate([head_signal(R, hname)[FREE[id(R)][eye]] for R in group for eye in ("LE", "RE")])
+        e = np.concatenate([eye_sign[ekey] * eye_signal(R, eye, ekey, flip_eye)[FREE[id(R)][eye]] for R in group for eye in ("LE", "RE")])
         k = np.isfinite(h) & np.isfinite(e)
         ax.scatter(h[k], e[k], s=1, alpha=0.05, color=EYE_COLOR, lw=0, rasterized=True)
         med = S[col][S.group == title].median()
@@ -223,8 +235,8 @@ if SAVE_FIGS:
 fig, axes = create_subplot_grid(len(groups))
 for ax, group, title in zip(axes, groups, titles):
     for state, col, M in (("stationary", "gain_h_stat", STAT), ("running", "gain_h_run", RUN)):
-        h = np.concatenate([head_signal(R, "yaw_v")[FREE[id(R)] & M[id(R)]] for R in group for eye in ("LE", "RE")])
-        e = np.concatenate([eye_signal(R, eye, "vx", flip_eye)[FREE[id(R)] & M[id(R)]] for R in group for eye in ("LE", "RE")])
+        h = np.concatenate([head_signal(R, "yaw_v")[FREE[id(R)][eye] & M[id(R)]] for R in group for eye in ("LE", "RE")])
+        e = np.concatenate([eye_signal(R, eye, "vx", flip_eye)[FREE[id(R)][eye] & M[id(R)]] for R in group for eye in ("LE", "RE")])
         k = np.isfinite(h) & np.isfinite(e)
         ax.scatter(h[k], e[k], s=1, alpha=0.05, color=LOCO_COLORS[state], lw=0, rasterized=True)
         med = S[col][S.group == title].median()
@@ -254,9 +266,9 @@ for ax, edges, xl in ((axes[0], speed_edges, "running speed (mm/s)"), (axes[1], 
             h = head_signal(R, "yaw_v")
             x = np.asarray(R.speed, float) if edges is speed_edges else np.abs(h)
             for bi, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
-                m = FREE[id(R)] & (x >= lo) & (x < hi)
-                hh = np.concatenate([h[m]] * 2)
-                ee = np.concatenate([eye_signal(R, eye, "vx", flip_eye)[m] for eye in ("LE", "RE")])
+                m = (x >= lo) & (x < hi)
+                hh = np.concatenate([h[FREE[id(R)][eye] & m] for eye in ("LE", "RE")])
+                ee = np.concatenate([eye_signal(R, eye, "vx", flip_eye)[FREE[id(R)][eye] & m] for eye in ("LE", "RE")])
                 k = np.isfinite(hh) & np.isfinite(ee)
                 if k.sum() >= min_bin:
                     G[si, bi] = np.polyfit(hh[k], ee[k], 1)[0]
@@ -281,7 +293,7 @@ if SAVE_FIGS:
 fig, axes = plt.subplots(1, len(groups) + 1, figsize=(2.6 * (len(groups) + 1), 2.2), squeeze=False)
 for group, title, c in zip(groups, titles, GROUP_COLORS):
     for state, ls, M in (("stationary", "-", STAT), ("running", "--", RUN)):
-        vals = np.concatenate([head_signal(R, "speed")[FREE[id(R)] & M[id(R)]] for R in group])
+        vals = np.concatenate([head_signal(R, "speed")[(FREE[id(R)]["LE"] | FREE[id(R)]["RE"]) & M[id(R)]] for R in group])
         vals = vals[np.isfinite(vals)]
         if len(vals) >= min_frames:
             axes[0, 0].hist(vals, bins=np.arange(0, 300, 5), histtype="step", density=True, color=c, ls=ls,
@@ -289,8 +301,8 @@ for group, title, c in zip(groups, titles, GROUP_COLORS):
 axes[0, 0].set_xlabel("head angular speed (deg/s)")
 axes[0, 0].legend(fontsize=4)
 for ax, group, title in zip(axes[0, 1:], groups, titles):
-    s = np.concatenate([np.asarray(R.speed, float)[FREE[id(R)] & RUN[id(R)]] for R in group])
-    h = np.concatenate([head_signal(R, "speed")[FREE[id(R)] & RUN[id(R)]] for R in group])
+    s = np.concatenate([np.asarray(R.speed, float)[(FREE[id(R)]["LE"] | FREE[id(R)]["RE"]) & RUN[id(R)]] for R in group])
+    h = np.concatenate([head_signal(R, "speed")[(FREE[id(R)]["LE"] | FREE[id(R)]["RE"]) & RUN[id(R)]] for R in group])
     k = np.isfinite(s) & np.isfinite(h)
     ax.scatter(s[k], h[k], s=1, alpha=0.05, color=HEAD_COLOR, lw=0, rasterized=True)
     ax.set_ylim(0, 500)

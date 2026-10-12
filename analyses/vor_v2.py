@@ -100,8 +100,10 @@ print(pd.DataFrame([dict(id=R.id, eo=R.eo, **{f"free_{eye}_pct": 100 * FREE[id(R
 # METHODS: xc = cross-correlation of head yaw velocity and horizontal eye velocity over contiguous
 # saccade-free NaN-free runs (>= min_run frames), z-scored per run, length-weighted over runs and eyes.
 # xc_lag = lag of the largest |cc| (ms, + = eye lags head); xc_r = cc at that lag.
-# CAVEAT: eye kinematics are 6 Hz low-passed upstream, head velocity is not: gain is attenuated for
-# fast head movement. Gains are small (EO >= 8 median ~ -0.08); yaw_v vs d(yaw)/dt: r ~ 0.7, slope ~ 0.44.
+# CAVEAT: gains are small (EO >= 8 median ~ -0.08). Checked: yaw_v is head-fixed (local) angular velocity and
+# matches the body-frame rate from the head orientation (r >= 0.98, slope 1.0; d(yaw)/dt differs by frame and
+# tracking flips). Not filter / head-noise attenuation: gain from eye vs head displacement over 50-400 ms
+# windows ~ frame-by-frame gain (eye 6 Hz low-passed upstream, head not).
 lags = np.arange(-max_lag, max_lag + 1)
 rows, XC = [], {}
 for gi, (group, title) in enumerate(zip(groups, titles)):

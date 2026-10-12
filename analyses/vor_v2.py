@@ -93,7 +93,7 @@ for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
 
     b = np.digitize(h, vel_edges) - 1
     med = [np.median(e[b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(centers))]
-    axes[1, 0].plot(centers, med, color=c, marker="o", ms=4, mfc="w", lw=1, label=title)
+    axes[1, 0].plot(centers, med, color=c, marker="o", ms=6, mfc="w", lw=1, label=title)
 
 axes[1, 0].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].set(xlabel="head velocity, eye horizontal axis (deg/s)", ylabel="median eye horizontal velocity (deg/s)")
@@ -142,7 +142,7 @@ for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
     
     b = np.digitize(h, vel_edges) - 1
     med = [np.median(e[b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(centers))]
-    axes[1, 0].plot(centers, med, color=c, marker="o", ms=4, mfc="w", lw=1, label=title)
+    axes[1, 0].plot(centers, med, color=c, marker="o", ms=6, mfc="w", lw=1, label=title)
 
 axes[1, 0].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].set(xlabel="head velocity, eye vertical axis (deg/s)", ylabel="median eye vertical velocity (deg/s)")
@@ -184,7 +184,7 @@ for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
     
     b = np.digitize(h, pitch_edges) - 1
     med = [np.median(e[b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(pcenters))]
-    axes[1, 0].plot(pcenters, med, color=c, marker="o", ms=4, mfc="w", lw=1, label=title)
+    axes[1, 0].plot(pcenters, med, color=c, marker="o", ms=6, mfc="w", lw=1, label=title)
 
 axes[1, 0].axhline(0, color="0.8", lw=0.5)
 axes[1, 0].set(xlabel="head pitch (deg)", ylabel="median eye vertical position (deg)")

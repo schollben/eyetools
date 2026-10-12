@@ -98,3 +98,28 @@ sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
     save_fig(fig, "VOR horizontal fixation")
+
+
+# %% vertical: head pitch velocity vs vertical eye velocity (fixation frames)
+# Same layout as the horizontal cell.
+fig, axes = plt.subplots(2, len(groups), figsize=(2.6 * len(groups), 4.8), squeeze=False)
+for j, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
+    h = np.concatenate([head_signal(R, "pitch_v")[FIX[id(R)][eye]] for R in group for eye in ("LE", "RE")])
+    e = np.concatenate([eye_signal(R, eye, "vy", flip_eye)[FIX[id(R)][eye]] for R in group for eye in ("LE", "RE")])
+    k = np.isfinite(h) & np.isfinite(e)
+    h, e = h[k], e[k]
+    axes[0, j].scatter(h, e, s=1, alpha=0.05, color=EYE_COLOR, lw=0, rasterized=True)
+    axes[0, j].set(xlim=(-300, 300), ylim=(-100, 100), title=f"{title} ({len(h)} frames)",
+                   xlabel="head pitch velocity (deg/s)", ylabel="eye vertical velocity (deg/s)")
+    b = np.digitize(h, vel_edges) - 1
+    med = [np.median(e[b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(centers))]
+    axes[1, 0].plot(centers, med, color=c, marker="o", ms=2, lw=1, label=title)
+axes[1, 0].axhline(0, color="0.8", lw=0.5)
+axes[1, 0].set(xlabel="head pitch velocity (deg/s)", ylabel="median eye vertical velocity (deg/s)")
+axes[1, 0].legend(fontsize=5)
+for ax in axes[1, 1:]:
+    ax.axis("off")
+sns.despine(fig)
+fig.tight_layout()
+if SAVE_FIGS:
+    save_fig(fig, "VOR vertical fixation")

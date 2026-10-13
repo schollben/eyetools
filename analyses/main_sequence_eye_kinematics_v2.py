@@ -1,4 +1,8 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
+#
+# to do: 
+# CONTOUR PLOTS FOR EYE KINEMATICS (NOT SCATTER)
+#
 # main init
 # Set your paths in local_config.py (copy local_config.py.example to get started).
 import sys

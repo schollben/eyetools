@@ -355,6 +355,11 @@ if SAVE_FIGS:
     save_fig(fig, "eye_head_4D_counter_rotation_in_turns")
 
 
+# %% gaze distributions: amplitude/speed, frequency/ISI (like in saccade rate/ISI)
+# basic properites before looking at triggered average stats.
+# in addition, should look at contribution of eye and head for each as a distribution 
+
+
 # %% C. gaze-shift-triggered averages by gaze amplitude: gaze, head and eye (head frame)
 # Does the head carry more of larger gaze shifts? One line per gaze-amplitude bin, as in B.2.
 # METHODS: gaze shifts with onset in gaze_state, LE and RE pooled, with a NaN-free window [onset - pre,

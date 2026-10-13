@@ -377,6 +377,9 @@ if SAVE_FIGS:
 # frac_eye_only = fraction with |head yaw displacement| < head_still_deg. frac_with_eye_sacc = fraction with
 # an eye-saccade onset (same eye) between gaze onset and peak; the rest are gaze "shifts" without a saccade,
 # e.g. head movement the eye did not compensate.
+# match_r_LE / match_r_RE = per-eye Pearson r of gaze displacement vs head + eye displacement (gaze should
+# = yaw + eye). A low r flags a session whose pipeline gaze disagrees with its head and eye data; such
+# sessions are kept, only flagged (printed below).
 
 gaze_rows = []
 for group_idx, (group, title) in enumerate(zip(groups, titles)):
@@ -393,8 +396,13 @@ for group_idx, (group, title) in enumerate(zip(groups, titles)):
                               gaze_amp=g.amplitude_deg.median(), gaze_pkv=g.peak_velocity_deg_s.median(),
                               gaze_slope=slope, gaze_pkv10=10 ** (slope + icpt),
                               head_contrib=g.head_contrib.median(), frac_eye_only=g.eye_only.mean(),
-                              frac_with_eye_sacc=g.with_eye_sacc.mean()))
+                              frac_with_eye_sacc=g.with_eye_sacc.mean(),
+                              **{f"match_r_{eye}": d.gaze_disp.corr(d.head_disp + d.eye_disp)
+                                 for eye, d in g.groupby("eye")}))
 gaze_df = pd.DataFrame(gaze_rows)
+print("sessions with gaze vs head + eye r < 0.8 (kept):")
+print(gaze_df[(gaze_df.match_r_LE < 0.8) | (gaze_df.match_r_RE < 0.8)]
+      [["id", "eo", "n_gaze", "match_r_LE", "match_r_RE", "head_contrib"]].round(2).to_string(index=False))
 gaze_families = dict(gaze=["gaze_rate", "gaze_isi", "gaze_amp", "gaze_pkv", "gaze_slope", "gaze_pkv10"],
                      gaze_comp=["head_contrib", "frac_eye_only", "frac_with_eye_sacc"])
 
@@ -419,6 +427,92 @@ for family, measures in gaze_families.items():
 
     if SAVE_FIGS:
         save_fig(fig, f"eye_head per-session {family} vs EO {gaze_state}")
+
+
+# %% C. gaze-shift-triggered averages by gaze amplitude: gaze, head and eye (head frame)
+# Does the head carry more of larger gaze shifts? One line per gaze-amplitude bin, as in B.2.
+# METHODS: gaze shifts with onset in gaze_state, LE and RE pooled, with a NaN-free window [onset - pre,
+# onset + post); traces zeroed at gaze onset and sign-aligned so gaze moves positive (gaze = yaw + eye,
+# head frame). Session mean per gaze_amp_bins bin (>= min_ev shifts), then mean +- SEM across sessions.
+# Second figure: session median head_contrib per bin (>= min_n shifts), then mean +- SEM across sessions.
+
+t_g = np.arange(-pre, post) / FS * 1000
+gaze_amp_colors = plt.cm.viridis(np.linspace(0.1, 0.85, len(gaze_amp_bins) - 1))
+gaze_traces = {}   # (group index, amp bin index) -> dict of gaze / head / eye session-mean traces
+head_share = {}    # group index -> sessions x bins, session median head_contrib
+for gi, group in enumerate(groups):
+    head_share[gi] = []
+    for R in group:
+        g = G[id(R)]
+        yaw = unwrap_deg(R.yaw)
+        onset = g.onset.to_numpy()
+        win = {k: np.full((len(g), pre + post), np.nan) for k in ("gaze", "head", "eye")}
+        for eye in ("LE", "RE"):
+            rows = np.flatnonzero((g.eye == eye).to_numpy() & (onset >= pre) & (onset + post <= len(yaw)))
+            idx = onset[rows, None] + np.arange(-pre, post)
+            gaze_h = unwrap_deg(getattr(R, f"{eye}_gaze_horizontal_deg")) * (-1 if eye == "LE" else 1)
+            for k, x in (("gaze", gaze_h), ("head", yaw), ("eye", eye_signal(R, eye, "x", flip_eye))):
+                win[k][rows] = x[idx] - x[onset[rows], None]
+        sign = np.sign(g.gaze_disp.to_numpy())
+        for k in win:
+            win[k] *= sign[:, None]
+        amp = g.amplitude_deg.to_numpy()
+        in_state = STATE[id(R)][gaze_state][onset]
+        clean = in_state & np.all([np.all(np.isfinite(w), axis=1) for w in win.values()], axis=0)
+
+        share = []
+        for bi, (lo, hi) in enumerate(zip(gaze_amp_bins[:-1], gaze_amp_bins[1:])):
+            in_bin = (amp >= lo) & (amp < hi)
+            d = gaze_traces.setdefault((gi, bi), {"gaze": [], "head": [], "eye": []})
+            if (clean & in_bin).sum() >= min_ev:
+                for k in win:
+                    d[k].append(win[k][clean & in_bin].mean(0))
+            hc = g.head_contrib[in_state & in_bin]
+            share.append(hc.median() if len(hc) >= min_n else np.nan)
+        head_share[gi].append(share)
+
+fig, axes = plt.subplots(3, len(groups), figsize=(2.5 * len(groups), 5), squeeze=False,
+                         sharex=True, sharey="row")
+for ri, sig in enumerate(("gaze", "head", "eye")):
+    for gi, title in enumerate(titles):
+        ax = axes[ri, gi]
+        for bi, (lo, hi) in enumerate(zip(gaze_amp_bins[:-1], gaze_amp_bins[1:])):
+            plot_mean_se(ax, t_g, np.array(gaze_traces.get((gi, bi), {}).get(sig, [])), gaze_amp_colors[bi],
+                         f"{lo}-{hi}", min_n=2)
+        ax.axhline(0, color="0.8", lw=0.5)
+        ax.axvline(0, color="0.8", lw=0.5)
+        ax.set_title(title, fontsize=6, color=GROUP_COLORS[gi])
+        ax.set_ylabel(f"{sig} rotation (deg)")
+        ax.legend(fontsize=4, title="gaze amp (deg), n sessions", title_fontsize=4)
+for ax in axes[-1]:
+    ax.set_xlabel("time from gaze onset (ms)")
+fig.suptitle(f"gaze shifts: {gaze_state}", fontsize=7)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, f"eye_head_C_gaze_triggered_by_amp_{gaze_state}")
+
+fig, ax = plt.subplots(figsize=(2.4, 2.2))
+x = np.arange(len(gaze_amp_bins) - 1)
+for gi, (title, c) in enumerate(zip(titles, GROUP_COLORS)):
+    share = np.array(head_share[gi], float)
+    n = np.isfinite(share).sum(0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")   # bins with no sessions stay NaN
+        ax.errorbar(x, np.nanmean(share, 0), yerr=np.nanstd(share, 0) / np.sqrt(n), fmt="o-", ms=3,
+                    lw=1, capsize=2, color=c, label=title)
+ax.set_xticks(x, [f"{lo}-{hi}" for lo, hi in zip(gaze_amp_bins[:-1], gaze_amp_bins[1:])])
+ax.set_xlabel("gaze amplitude (deg)")
+ax.set_ylabel("head share of gaze shift")
+ax.set_ylim(0, 1)
+ax.legend(fontsize=4)
+ax.set_title(f"head_contrib, gaze shifts: {gaze_state}", fontsize=6)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, f"eye_head_C_head_share_by_amp_{gaze_state}")
 
 
 # %% per-session table + trends vs EO (sessions are the unit; one line per ferret)

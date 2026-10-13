@@ -23,8 +23,8 @@ import seaborn as sns
 from utils.find_arcs import find_arcs
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR,
                                        LE_COLOR, RE_COLOR, eo_groups, unwrap_deg, set_style, save_fig, head_eye_windows,
-                                       head_triggered_windows, running_mask,
-                                       plot_mean_se, plot_vs_eo)
+                                       head_triggered_windows, running_mask, eye_signal, session_rate,
+                                       pooled_intervals, plot_mean_se, plot_vs_eo)
 set_style()
 
 # LOAD SAVED DATA
@@ -50,6 +50,9 @@ min_bout = 30            # frames
 min_n = 3                # minimum saccades for a session's per-session PSCR measures
 min_ev = 3               # minimum events for a session to contribute a trace (mean +- SEM across sessions)
 states = ("all", "outside turns", "stationary")   # head saccades split by state at head onset (D)
+gaze_state = "all"       # "all" or "stationary": gaze shifts by state at gaze onset (rate / ISI time too)
+head_still_deg = 2       # |head yaw displacement| below this = eye-only gaze shift
+gaze_amp_bins = [0, 10, 20, 40, 360]   # deg, gaze shift amplitude (unwrapped)
 
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
@@ -74,7 +77,11 @@ for group, title in zip(groups, titles):
 # > 50 mm/s, >= 0.3 s long, turning the heading >= 30 deg. A frame is in a turn from arc onset to end.
 # METHODS: stationary = body speed tracked and not in a running bout (running_mask: speed >
 # speed_threshold for >= min_bout frames).
-HEAD, STATE, E, W = {}, {}, {}, {}
+# Gaze shifts are R.df_LEgaze / R.df_REgaze as extracted by process_session. Amplitude is recomputed
+# from UNWRAPPED gaze (horizontal gaze wraps at +-180). Displacements are horizontal, onset -> peak, in
+# the head frame (gaze = yaw + eye). LE pipeline gaze has the opposite horizontal sign to yaw + eye
+# (checked: r = -0.97 vs +0.97 for RE), so it is flipped here.
+HEAD, STATE, E, W, G = {}, {}, {}, {}, {}
 for R in Results:
     df = R.df_head.copy()
     yaw, pitch = unwrap_deg(R.yaw), np.asarray(R.pitch, float)
@@ -95,6 +102,28 @@ for R in Results:
     e["in_turn"] = turn[e["onset"].to_numpy()]
     e["with_head"] = np.sign(e["eye_disp"]) == e["head_sign"]   # eye moved the way the head turned (paired or not)
     E[id(R)] = e
+
+    # one row per gaze shift (G), LE and RE pooled
+    gaze_rows = []
+    for eye, df in (("LE", R.df_LEgaze), ("RE", R.df_REgaze)):
+        g_on, g_pk = df["onset"].to_numpy().astype(int), df["peak"].to_numpy().astype(int)
+        gaze_h = unwrap_deg(getattr(R, f"{eye}_gaze_horizontal_deg")) * (-1 if eye == "LE" else 1)
+        gaze_v = np.asarray(getattr(R, f"{eye}_gaze_vertical_deg"), float)
+        eye_x = eye_signal(R, eye, "x", flip_eye)
+        sacc_on = np.sort((R.df_LE if eye == "LE" else R.df_RE)["onset"].to_numpy().astype(int))
+        g = pd.DataFrame(dict(onset=g_on, peak=g_pk, eye=eye, gaze_disp=gaze_h[g_pk] - gaze_h[g_on],
+                              head_disp=yaw[g_pk] - yaw[g_on], eye_disp=eye_x[g_pk] - eye_x[g_on],
+                              peak_velocity_deg_s=df["peak_velocity_deg_s"].to_numpy(float),
+                              # an eye saccade (same eye) starts between gaze onset and peak
+                              with_eye_sacc=np.searchsorted(sacc_on, g_pk, "right") > np.searchsorted(sacc_on, g_on)))
+        g["amplitude_deg"] = np.hypot(g.gaze_disp, gaze_v[g_pk] - gaze_v[g_on])
+        gaze_rows.append(g)
+    g = pd.concat(gaze_rows, ignore_index=True)
+    g["head_contrib"] = g.head_disp / g.gaze_disp   # head share of the shift: 1 = all head, 0 = all eye
+    g["eye_only"] = (g.head_disp.abs() < head_still_deg).where(g.head_disp.notna())
+    g["in_turn"] = turn[g.onset.to_numpy()]
+    g["stationary"] = STATE[id(R)]["stationary"][g.onset.to_numpy()]
+    G[id(R)] = g
 
 print(pd.DataFrame([dict(id=R.id, eo=R.eo, turns=len(ARCS[id(R)]),
                          turns_per_moving_min=len(ARCS[id(R)]) / max(np.nansum(np.asarray(R.speed, float) > 50) / FS / 60, 1e-9),
@@ -333,6 +362,63 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "eye_head_4D_counter_rotation_in_turns")
+
+
+# %% gaze shifts: per-session measures vs EO (plots only)
+# TODO: gaze stats not run yet — add gaze / gaze_comp families to the per-session stats cell
+# (per-ferret r, LMM + Holm), incl. a head_contrib-vs-amplitude slope.
+# METHODS: gaze shifts with onset in gaze_state, LE and RE pooled (event tables cell). gaze_rate = shifts /
+# tracked-gaze time in gaze_state (Hz), averaged over eyes (session_rate). gaze_isi = median gap from one
+# shift's position peak to the next onset (ms), NaN-free gaps only (pooled_intervals). gaze_amp / gaze_pkv =
+# session medians; gaze_slope / gaze_pkv10 = OLS of log10 peak velocity on log10 amplitude, pkv10 = fitted
+# peak velocity at 10 deg (sessions with >= min_n shifts). Eye data are 6 Hz filtered upstream, so pkv and
+# slope are less reliable than amplitude, rate and ISI.
+# METHODS: head_contrib = session median of head yaw / horizontal gaze displacement (onset -> peak).
+# frac_eye_only = fraction with |head yaw displacement| < head_still_deg. frac_with_eye_sacc = fraction with
+# an eye-saccade onset (same eye) between gaze onset and peak; the rest are gaze "shifts" without a saccade,
+# e.g. head movement the eye did not compensate.
+
+gaze_rows = []
+for group_idx, (group, title) in enumerate(zip(groups, titles)):
+    for R in group:
+        g = G[id(R)]
+        g = g[STATE[id(R)][gaze_state][g.onset.to_numpy()]]
+        fit = g[(g.amplitude_deg > 0) & (g.peak_velocity_deg_s > 0)]
+        slope, icpt = (np.polyfit(np.log10(fit.amplitude_deg), np.log10(fit.peak_velocity_deg_s), 1)
+                       if len(fit) >= min_n else (np.nan, np.nan))
+        isi = pooled_intervals([R], "gaze", gaze_state, speed_threshold, min_bout)
+        gaze_rows.append(dict(id=R.id, eo=R.eo, group=title, group_idx=group_idx, n_gaze=len(g),
+                              gaze_rate=session_rate(R, "gaze", gaze_state, speed_threshold, min_bout),
+                              gaze_isi=np.median(isi) if len(isi) else np.nan,
+                              gaze_amp=g.amplitude_deg.median(), gaze_pkv=g.peak_velocity_deg_s.median(),
+                              gaze_slope=slope, gaze_pkv10=10 ** (slope + icpt),
+                              head_contrib=g.head_contrib.median(), frac_eye_only=g.eye_only.mean(),
+                              frac_with_eye_sacc=g.with_eye_sacc.mean()))
+gaze_df = pd.DataFrame(gaze_rows)
+gaze_families = dict(gaze=["gaze_rate", "gaze_isi", "gaze_amp", "gaze_pkv", "gaze_slope", "gaze_pkv10"],
+                     gaze_comp=["head_contrib", "frac_eye_only", "frac_with_eye_sacc"])
+
+ncol = max(len(m) for m in gaze_families.values())   # same panel size in both figures
+for family, measures in gaze_families.items():
+    fig, axes = plt.subplots(1, ncol, figsize=(2.2 * ncol, 2.4), squeeze=False)
+    for ax in axes[0, len(measures):]:
+        ax.axis("off")
+    for ax, measure in zip(axes[0], measures):
+        plot_vs_eo(ax, gaze_df, measure, color=None)
+        valid = gaze_df.dropna(subset=[measure])
+        y_lo = 0 if measure in ("gaze_rate", "gaze_isi") else valid[measure].min()   # y limits on whole tick steps
+        y_step = np.diff(MaxNLocator(5, steps=[1, 2, 5, 10]).tick_values(y_lo, valid[measure].max())[:2])[0]
+        y_lo, y_hi = np.floor(y_lo / y_step) * y_step, np.ceil(valid[measure].max() / y_step) * y_step
+        ax.set_yticks(np.linspace(y_lo, y_hi, round((y_hi - y_lo) / y_step) + 1))
+        ax.set_ylim(y_lo, y_hi)
+        ax.set_title(measure, fontsize=6)
+    axes[0, 0].legend(fontsize=4)
+    fig.suptitle(f"gaze shifts: {gaze_state}", fontsize=7)
+    sns.despine(fig)
+    fig.subplots_adjust(left=0.07, right=0.98, bottom=0.2, top=0.8, wspace=0.5)
+
+    if SAVE_FIGS:
+        save_fig(fig, f"eye_head per-session {family} vs EO {gaze_state}")
 
 
 # %% per-session table + trends vs EO (sessions are the unit; one line per ferret)

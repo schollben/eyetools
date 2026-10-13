@@ -1,4 +1,8 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
+#
+# eye + head "main sequence" analysis
+# Analyzes the relationship between eye and head movements (positive amplitude/velocity), including saccades and turns.
+#
 # main init
 # Set your paths in local_config.py (copy local_config.py.example to get started): cd /Users/benjaminscholl/Documents/eyetools/
 import sys

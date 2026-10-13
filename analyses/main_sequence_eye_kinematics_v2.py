@@ -217,13 +217,13 @@ for ax, group, title in zip(axes, groups, titles):
         if len(x) < min_n:
             continue
         slope, intercept = np.polyfit(x, y, 1)
-        xl = np.array([x.min(), x.max()])
-        ax.plot(xl, slope * xl + intercept, lw=0.6, alpha=0.6, color=FERRET_COLORS[R.id])
+        xl = np.linspace(x.min(), x.max(), 50)
+        ax.plot(10 ** xl, 10 ** (slope * xl + intercept), lw=0.6, alpha=0.6, color=FERRET_COLORS[R.id])   # power law in deg, deg/s
 
     ax.set_title(title)
     ax.axis([0, 40, 0, 400])
-    ax.set_xlabel("log10 amplitude (deg)")
-    ax.set_ylabel("log10 peak velocity (deg/s)")
+    ax.set_xlabel("amplitude (deg)")
+    ax.set_ylabel("peak velocity (deg/s)")
 
 axes[0].legend(handles=[plt.Line2D([], [], color=FERRET_COLORS[i], label=f"F{i}") for i in sorted(S.id.unique())],
                fontsize=4)

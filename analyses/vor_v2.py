@@ -1,5 +1,8 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
 # main init
+#
+# TOTAL ANGULAR VELOCITY ANALYSIS OF HEAD? or during locomotion?
+#
 # Set your paths in local_config.py (copy local_config.py.example to get started): cd /Users/benjaminscholl/Documents/eyetools/
 import sys
 import warnings

@@ -20,7 +20,7 @@ from utils.find_arcs import find_arcs
 from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR,
                                        LE_COLOR, RE_COLOR, eo_groups, unwrap_deg, set_style, save_fig, head_eye_windows,
                                        head_triggered_windows, running_mask, eye_signal, session_rate,
-                                       pooled_intervals, plot_mean_se, plot_vs_eo)
+                                       pooled_intervals, plot_mean_se, plot_vs_eo, FERRET_COLORS)
 set_style()
 
 # LOAD SAVED DATA
@@ -113,6 +113,7 @@ for R in Results:
                               # an eye saccade (same eye) starts between gaze onset and peak
                               with_eye_sacc=np.searchsorted(sacc_on, g_pk, "right") > np.searchsorted(sacc_on, g_on)))
         g["amplitude_deg"] = np.hypot(g.gaze_disp, gaze_v[g_pk] - gaze_v[g_on])
+        g["direction_deg"] = np.degrees(np.arctan2(gaze_v[g_pk] - gaze_v[g_on], g.gaze_disp))
         gaze_rows.append(g)
     g = pd.concat(gaze_rows, ignore_index=True)
     g["head_contrib"] = g.head_disp / g.gaze_disp   # head share of the shift: 1 = all head, 0 = all eye
@@ -357,7 +358,118 @@ if SAVE_FIGS:
 
 # %% gaze distributions: amplitude/speed, frequency/ISI (like in saccade rate/ISI)
 # basic properites before looking at triggered average stats.
-# in addition, should look at contribution of eye and head for each as a distribution 
+# in addition, should look at contribution of eye and head for each as a distribution
+# Figures as in main_sequence_eye_kinematics_v2.py; tests are on session values in the per-session cell.
+# METHODS: gaze shifts with onset in gaze_state, LE and RE pooled (event tables cell; amplitude and
+# direction from unwrapped gaze, head frame). Distributions pool shifts within a group (descriptive).
+# Main sequence: per-session OLS of log10 peak velocity on log10 amplitude (>= min_n shifts), one line
+# per session. ISI = position peak of one shift -> onset of the next, NaN-free gaps (pooled_intervals);
+# rate = session_rate, mean +- SD over sessions. Eye / head contribution: head_contrib = head yaw /
+# horizontal gaze displacement; head and eye displacements sign-aligned so gaze moves positive.
+
+gaze_in_state = {id(R): G[id(R)][STATE[id(R)][gaze_state][G[id(R)].onset.to_numpy()]] for R in Results}
+group_gaze = [pd.concat([gaze_in_state[id(R)] for R in group]) for group in groups]
+
+# amplitude & peak velocity distributions
+fig, axes = plt.subplots(1, 2, figsize=(6, 2))
+for g, title, c in zip(group_gaze, titles, GROUP_COLORS):
+    g = g[(g.amplitude_deg > 0) & (g.peak_velocity_deg_s > 0)]
+    sns.histplot(ax=axes[0], x=np.log10(g.amplitude_deg), bins=80, element="step", fill=False,
+                 stat="density", color=c, label=title)
+    sns.histplot(ax=axes[1], x=np.log10(g.peak_velocity_deg_s), bins=80, element="step", fill=False,
+                 stat="density", color=c, label=title)
+axes[0].set_xlabel("log10 gaze amplitude (deg)")
+axes[1].set_xlabel("log10 gaze peak velocity (deg/s)")
+axes[0].legend(fontsize=4)
+fig.suptitle(f"gaze shifts: {gaze_state}", fontsize=7)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, f"eye_head gaze distributions amplitude and velocity {gaze_state}")
+
+# inter-shift interval (ISI) distribution and rate per group
+isi_bins = np.logspace(np.log10(10), np.log10(10000), 30)
+fig, (ax, ax_r) = plt.subplots(1, 2, figsize=(6, 2))
+for i, (group, title, c) in enumerate(zip(groups, titles, GROUP_COLORS)):
+    sns.histplot(ax=ax, x=pooled_intervals(group, "gaze", gaze_state, speed_threshold, min_bout),
+                 bins=isi_bins, element="step", fill=False, stat="probability", color=c, label=title)
+    rate = [session_rate(R, "gaze", gaze_state, speed_threshold, min_bout) for R in group]
+    ax_r.errorbar(i, np.nanmean(rate), yerr=np.nanstd(rate), fmt="o", ms=5, capsize=3, color=c)
+ax.set_xscale("log")
+ax.set_xlabel("inter-gaze-shift interval (ms)")
+ax.legend(fontsize=4)
+ax_r.set_xticks(range(len(titles)), titles)
+ax_r.set_xlim(-0.5, len(titles) - 0.5)
+ax_r.set_ylabel("gaze shift rate (Hz)")
+fig.suptitle(f"gaze shifts: {gaze_state}", fontsize=7)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, f"eye_head gaze intervals and rate {gaze_state}")
+
+# main sequence fits (one line per session, coloured by ferret)
+fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2.2), squeeze=False, sharex=True, sharey=True)
+for ax, group, title, c in zip(axes[0], groups, titles, GROUP_COLORS):
+    for R in group:
+        g = gaze_in_state[id(R)]
+        g = g[(g.amplitude_deg > 0) & (g.peak_velocity_deg_s > 0)]
+        if len(g) < min_n:
+            continue
+        x, y = np.log10(g.amplitude_deg), np.log10(g.peak_velocity_deg_s)
+        slope, intercept = np.polyfit(x, y, 1)
+        xl = np.array([x.min(), x.max()])
+        ax.plot(xl, slope * xl + intercept, lw=0.6, alpha=0.6, color=FERRET_COLORS[R.id])
+    ax.set_title(title, fontsize=6, color=c)
+    ax.set_xlabel("log10 gaze amplitude (deg)")
+    ax.set_ylabel("log10 gaze peak velocity (deg/s)")
+axes[0, 0].legend(handles=[plt.Line2D([], [], color=FERRET_COLORS[i], label=f"F{i}")
+                           for i in sorted({R.id for group in groups for R in group})], fontsize=4)
+fig.suptitle(f"gaze shifts: {gaze_state}", fontsize=7)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, f"eye_head gaze main sequence fits {gaze_state}")
+
+# direction per group (head frame, both eyes in the same convention)
+dir_bins = np.linspace(-np.pi, np.pi, 37)
+fig, axes = plt.subplots(1, len(groups), figsize=(2.2 * len(groups), 2.4), squeeze=False,
+                         subplot_kw=dict(projection="polar"))
+for ax, g, title, c in zip(axes[0], group_gaze, titles, GROUP_COLORS):
+    th = np.deg2rad(g.direction_deg.to_numpy(float))
+    h, _ = np.histogram(th[np.isfinite(th)], dir_bins)
+    ax.bar(dir_bins[:-1], h / h.sum(), width=np.diff(dir_bins), align="edge", color=c)
+    ax.set_yticklabels([])
+    ax.set_title(title, fontsize=6)
+fig.suptitle(f"gaze shift direction: {gaze_state}", fontsize=7)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, f"eye_head gaze direction {gaze_state}")
+
+# eye / head contribution per gaze shift
+fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
+for g, title, c in zip(group_gaze, titles, GROUP_COLORS):
+    sign = np.sign(g.gaze_disp)
+    for ax, x, bins in ((axes[0], g.head_contrib, np.linspace(-1, 2, 61)),
+                        (axes[1], g.head_disp * sign, np.linspace(-40, 100, 71)),
+                        (axes[2], g.eye_disp * sign, np.linspace(-30, 30, 61))):
+        sns.histplot(ax=ax, x=x, bins=bins, element="step", fill=False, stat="density", color=c, label=title)
+for ax in axes:
+    ax.axvline(0, color="0.8", lw=0.5)
+axes[0].axvline(1, color="0.8", lw=0.5)
+axes[0].set_xlabel("head share of gaze shift (head_contrib)")
+axes[1].set_xlabel("head displacement (deg, gaze +)")
+axes[2].set_xlabel("eye displacement (deg, gaze +)")
+axes[0].legend(fontsize=4)
+fig.suptitle(f"gaze shifts: {gaze_state}", fontsize=7)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, f"eye_head gaze eye and head contribution {gaze_state}")
 
 
 # %% C. gaze-shift-triggered averages by gaze amplitude: gaze, head and eye (head frame)

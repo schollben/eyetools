@@ -28,8 +28,9 @@ with open("./analyses/results.pkl", "rb") as f:
     Results = pickle.load(f)
 
 # SETTINGS
-SAVE_FIGS = False
+SAVE_FIGS = True
 compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
+fig_tag = " delayed" if compare_delayed else ""   # appended to saved figure names
 
 # OTHER SETTINGS
 # Frame: flip_eye = "LE" is the HEAD frame — eye + = head yaw +, and world gaze = yaw + eye
@@ -168,7 +169,7 @@ for ax, group, title in zip(axes[0], groups, titles):
 
 if SAVE_FIGS:
     fig.tight_layout()
-    save_fig(fig, "eye_head_B_head_triggered")
+    save_fig(fig, "eye_head_B_head_triggered" + fig_tag)
 
 
 # %% B.2 head-onset-triggered averages by head saccade amplitude
@@ -227,7 +228,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, f"eye_head_B2_by_head_amp_{b2_state}_{b2_dir.replace(' ', '_')}")
+    save_fig(fig, f"eye_head_B2_by_head_amp_{b2_state}_{b2_dir.replace(' ', '_')}" + fig_tag)
 
 # %% Wallace Fig 4A / 4C — eye and head position / velocity around eye saccades in turns
 # Eye-head dynamics, replicating Wallace, Voit, Martin Machado et al., Kerr lab, Current Biology
@@ -302,7 +303,7 @@ for kind, unit in (("pos", "rotation (deg)"), ("vel", "velocity (deg/s)")):
     fig.tight_layout()
 
     if SAVE_FIGS:
-        save_fig(fig, f"eye_head_4{'A' if kind == 'pos' else 'C'}_{kind}_in_turns_with_head")
+        save_fig(fig, f"eye_head_4{'A' if kind == 'pos' else 'C'}_{kind}_in_turns_with_head" + fig_tag)
 
 
 # %% Wallace Fig 4D — peak head velocity vs peak counter-rotation eye velocity, per group
@@ -353,7 +354,10 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, "eye_head_4D_counter_rotation_in_turns")
+    save_fig(fig, "eye_head_4D_counter_rotation_in_turns" + fig_tag)
+
+
+
 
 
 # %% gaze distributions: amplitude/speed, frequency/ISI (like in saccade rate/ISI)
@@ -386,7 +390,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, f"eye_head gaze distributions amplitude and velocity {gaze_state}")
+    save_fig(fig, f"eye_head gaze distributions amplitude and velocity {gaze_state}" + fig_tag)
 
 # inter-shift interval (ISI) distribution and rate per group
 isi_bins = np.logspace(np.log10(10), np.log10(10000), 30)
@@ -407,7 +411,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, f"eye_head gaze intervals and rate {gaze_state}")
+    save_fig(fig, f"eye_head gaze intervals and rate {gaze_state}" + fig_tag)
 
 # main sequence fits (one line per session, coloured by ferret)
 fig, axes = plt.subplots(1, len(groups), figsize=(2.5 * len(groups), 2.2), squeeze=False, sharex=True, sharey=True)
@@ -431,7 +435,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, f"eye_head gaze main sequence fits {gaze_state}")
+    save_fig(fig, f"eye_head gaze main sequence fits {gaze_state}" + fig_tag)
 
 # direction per group (head frame, both eyes in the same convention)
 dir_bins = np.linspace(-np.pi, np.pi, 37)
@@ -447,7 +451,7 @@ fig.suptitle(f"gaze shift direction: {gaze_state}", fontsize=7)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, f"eye_head gaze direction {gaze_state}")
+    save_fig(fig, f"eye_head gaze direction {gaze_state}" + fig_tag)
 
 # eye / head contribution per gaze shift
 fig, axes = plt.subplots(1, 3, figsize=(7.5, 2))
@@ -469,7 +473,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, f"eye_head gaze eye and head contribution {gaze_state}")
+    save_fig(fig, f"eye_head gaze eye and head contribution {gaze_state}" + fig_tag)
 
 
 # %% C. gaze-shift-triggered averages by gaze amplitude: gaze, head and eye (head frame)
@@ -534,7 +538,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, f"eye_head_C_gaze_triggered_by_amp_{gaze_state}")
+    save_fig(fig, f"eye_head_C_gaze_triggered_by_amp_{gaze_state}" + fig_tag)
 
 fig, ax = plt.subplots(figsize=(2.4, 2.2))
 x = np.arange(len(gaze_amp_bins) - 1)
@@ -555,7 +559,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, f"eye_head_C_head_share_by_amp_{gaze_state}")
+    save_fig(fig, f"eye_head_C_head_share_by_amp_{gaze_state}" + fig_tag)
 
 
 # %% per-session table + trends vs EO (sessions are the unit; one line per ferret)
@@ -662,7 +666,7 @@ for family, measures in measure_families.items():
         fig.subplots_adjust(left=0.07, right=0.98, bottom=0.2, top=0.8, wspace=0.5)
 
         if SAVE_FIGS:
-            save_fig(fig, f"eye_head per-session {family} vs EO" + (f" {gaze_state}" if family.startswith("gaze") else ""))
+            save_fig(fig, f"eye_head per-session {family} vs EO" + (f" {gaze_state}" if family.startswith("gaze") else "") + fig_tag)
 
     lrt_p, lmm_beta = [], []
     for measure in measures:

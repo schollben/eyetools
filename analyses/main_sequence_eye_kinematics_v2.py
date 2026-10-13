@@ -32,6 +32,7 @@ with open("./analyses/results.pkl", "rb") as f:
 # SETTINGS
 SAVE_FIGS = False
 compare_delayed = False               # True: normal EO 8-20 vs. all delayed sessions
+fig_tag = " delayed" if compare_delayed else ""   # appended to saved figure names
 
 # OTHER SETTINGS 
 min_n = 5                             # minimum number of saccades a session must have before it gets fitted
@@ -118,7 +119,7 @@ for fam, cols in families.items():
         fig.subplots_adjust(left=0.07, right=0.98, bottom=0.2, top=0.8, wspace=0.5)
 
         if SAVE_FIGS:
-            save_fig(fig, f"per-session {fam} vs EO")
+            save_fig(fig, f"per-session {fam} vs EO" + fig_tag)
 
     p_raw, beta = [], []
     for col in cols:
@@ -138,7 +139,10 @@ for fam, cols in families.items():
 
 
 # %% scatter plots
-# amplitude vs peak velocity (log-log), eyes combined
+# amplitude vs peak velocity, eyes combined
+
+xy_bins = (np.arange(0, 41, 1), np.arange(0, 401, 10))   # deg, deg/s: 2D histogram bins
+lvlbins = np.arange(0, 0.051, 0.005)   # fraction of saccades per bin (max ~0.059 per group)
 
 fig, axes = create_subplot_grid(len(groups))
 for i, (ax, group, title) in enumerate(zip(axes, groups, titles)):
@@ -147,22 +151,30 @@ for i, (ax, group, title) in enumerate(zip(axes, groups, titles)):
         ax.set_title(title)
         continue
 
-    x, y = logamp_logvel(group)
+    x, y = (10 ** v for v in logamp_logvel(group))   # back to deg, deg/s
 
-    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.2, color="white", edgecolor="k")
-    
+    H = np.histogram2d(x, y, bins=xy_bins)[0].T
+    cs = ax.contourf((xy_bins[0][:-1] + xy_bins[0][1:]) / 2, (xy_bins[1][:-1] + xy_bins[1][1:]) / 2,
+                    (np.where(H >= 3, H / H.sum(), np.nan)), levels=lvlbins, extend="max", cmap="Greens")
+
     ax.set_title(title, color=GROUP_COLORS[i])
-    ax.axis([0.25, 1.75, 1, 3])  # [xmin, xmax, ymin, ymax]
-    ax.set_xlabel("log10 amplitude (deg)")
-    ax.set_ylabel("log10 peak velocity (deg/s)")
+    ax.axis([0, 30, 0, 300])  # [xmin, xmax, ymin, ymax]
+    ax.set_xlabel("amplitude (deg)")
+    ax.set_ylabel("peak velocity (deg/s)")
+    
+fig.colorbar(cs, cax=ax.inset_axes([1.05, 0, 0.05, 1]), label="fraction of saccades")
 
 if SAVE_FIGS:
     # fig.set_size_inches(8, 3)
     fig.tight_layout()
-    save_fig(fig, "amplitude vs peak velocity")
+    save_fig(fig, "amplitude vs peak velocity" + fig_tag)
 
 # amplitude vs duration (ms), eyes combined
+dur_bins = (np.arange(0, 41, 2), (np.arange(0, 61, 2) - 0.5) * 1000 / 120)   # deg; ms, 2-frame bins centred on frame counts
+dur_lvls = np.arange(0, 0.051, 0.01)   # fraction of saccades per bin (max ~0.036 per group)
+
 fig, axes = create_subplot_grid(len(groups))
+
 for i, (ax, group, title) in enumerate(zip(axes, groups, titles)):
 
     if not group:
@@ -179,17 +191,20 @@ for i, (ax, group, title) in enumerate(zip(axes, groups, titles)):
     x = abs(amp[inds])
     y = dur_ms[inds]
 
-    sns.scatterplot(ax=ax, x=x, y=y, s=3, alpha=0.2, color="white", edgecolor="k")
-    
+    H = np.histogram2d(x, y, bins=dur_bins)[0].T
+    cs = ax.contourf((dur_bins[0][:-1] + dur_bins[0][1:]) / 2, (dur_bins[1][:-1] + dur_bins[1][1:]) / 2,
+                     np.where(H >= 3, H / H.sum(), np.nan), levels=dur_lvls, extend="max", cmap="Greens")
+
     ax.set_title(title, color=GROUP_COLORS[i])
     ax.axis([0, 40, 0, 500])  # [xmin, xmax, ymin, ymax]
     ax.set_xlabel("Amplitude (deg)")
     ax.set_ylabel("Duration (ms)")
+fig.colorbar(cs, cax=ax.inset_axes([1.05, 0, 0.05, 1]), label="fraction of saccades")
 
 if SAVE_FIGS:
     # fig.set_size_inches(8, 3)
     fig.tight_layout()
-    save_fig(fig, "amplitude vs duration")
+    save_fig(fig, "amplitude vs duration" + fig_tag)
 
 
 # %% main sequence fits per EO bin (one line per session, coloured by ferret)
@@ -206,7 +221,7 @@ for ax, group, title in zip(axes, groups, titles):
         ax.plot(xl, slope * xl + intercept, lw=0.6, alpha=0.6, color=FERRET_COLORS[R.id])
 
     ax.set_title(title)
-    ax.axis([0.25, 1.75, 1, 3])
+    ax.axis([0, 40, 0, 400])
     ax.set_xlabel("log10 amplitude (deg)")
     ax.set_ylabel("log10 peak velocity (deg/s)")
 
@@ -216,7 +231,7 @@ sns.despine(fig)
 
 if SAVE_FIGS:
     fig.tight_layout()
-    save_fig(fig, "amplitude vs velocity with fits")
+    save_fig(fig, "amplitude vs velocity with fits" + fig_tag)
 
 # slope summary: mean ± SD over sessions (descriptive); inference = mixed model in the per-session cell
 fig, ax = plt.subplots(figsize=(3, 2))
@@ -237,7 +252,7 @@ sns.despine(fig)
 
 if SAVE_FIGS:
     fig.tight_layout()
-    save_fig(fig, "main sequence slopes")
+    save_fig(fig, "main sequence slopes" + fig_tag)
 
 
 # %% marginal amplitude & velocity distributions per EO bin
@@ -273,7 +288,7 @@ sns.despine(fig)
 
 if SAVE_FIGS:
     fig.tight_layout()
-    save_fig(fig, "distributions__amplitude and velocity")
+    save_fig(fig, "distributions__amplitude and velocity" + fig_tag)
 
 # METHODS: amplitude / peak velocity differences between groups are tested on session medians
 # (med_amp, med_pkv) with the group mixed model in the per-session cell (ferret random intercept,
@@ -321,7 +336,7 @@ sns.despine(fig)
 
 if SAVE_FIGS:
     fig.tight_layout()
-    save_fig(fig, "inter-saccade intervals")
+    save_fig(fig, "inter-saccade intervals" + fig_tag)
 
 
 # %% mean speed / displacement around saccade onset (panel per group, line per amplitude bin)
@@ -359,7 +374,7 @@ for kind in ("speed", "displacement"):
 
     if SAVE_FIGS:
         fig.tight_layout()
-        save_fig(fig, f"saccade-onset {kind}")
+        save_fig(fig, f"saccade-onset {kind}" + fig_tag)
 
 
 # %% saccade direction per group (check that the direction mix is not driving main-sequence changes)
@@ -387,6 +402,5 @@ fig.suptitle(f"frac_horiz {group_stat['frac_horiz']}", fontsize=6)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, "saccade direction")
+    save_fig(fig, "saccade direction" + fig_tag)
 
-# %%

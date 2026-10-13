@@ -35,6 +35,7 @@ with open("./analyses/results.pkl", "rb") as f:
 # SETTINGS
 SAVE_FIGS = False
 compare_delayed = True   # True: normal EO 8-20 vs. all delayed sessions
+fig_tag = " delayed" if compare_delayed else ""   # appended to saved figure names
 
 # OTHER SETTINGS
 eye_max = 5              # deg, pupil used only where |x| and |y| < eye_max (that eye); 10 = sensitivity check
@@ -258,7 +259,7 @@ for fam, cols in families.items():
         fig.subplots_adjust(left=0.07, right=0.98, bottom=0.2, top=0.8, wspace=0.5)
 
         if SAVE_FIGS:
-            save_fig(fig, f"per-session pupil {fam} vs EO")
+            save_fig(fig, f"per-session pupil {fam} vs EO" + fig_tag)
 
     p_raw, beta = [], []
     for col in cols:
@@ -301,7 +302,7 @@ axes[1, 0].set_ylabel("pupil (mm)")
 sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
-    save_fig(fig, "pupil by state")
+    save_fig(fig, "pupil by state" + fig_tag)
 
 
 # %% pupil vs body speed and vs head angular speed
@@ -335,7 +336,7 @@ axes[0].legend(fontsize=5)
 sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
-    save_fig(fig, "pupil vs speed")
+    save_fig(fig, "pupil vs speed" + fig_tag)
 
 
 # %% onset-triggered pupil (run onsets, turn onsets)
@@ -358,7 +359,7 @@ axes[0, 0].legend(fontsize=4)
 sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
-    save_fig(fig, "onset-triggered pupil")
+    save_fig(fig, "onset-triggered pupil" + fig_tag)
 
 
 # %% example session: gate, gated pupil, bins, speed and state (sanity check)
@@ -397,4 +398,4 @@ axes[0].set_title(f"F{R.id} EO{R.eo}  (eye_max = {eye_max} deg)", fontsize=6)
 sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
-    save_fig(fig, "pupil example session")
+    save_fig(fig, "pupil example session" + fig_tag)

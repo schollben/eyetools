@@ -29,6 +29,7 @@ with open("./analyses/results.pkl", "rb") as f:
 # SETTINGS
 SAVE_FIGS = False
 compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
+fig_tag = " delayed" if compare_delayed else ""   # appended to saved figure names
 
 # OTHER SETTINGS
 # Frame: flip_eye = "RE" is the CONJUGATE frame (both eyes + = same direction of rotation), so
@@ -324,7 +325,7 @@ for fam, cols in families.items():
         fig.subplots_adjust(left=0.07, right=0.98, bottom=0.2, top=0.8, wspace=0.5)
 
         if SAVE_FIGS:
-            save_fig(fig, f"per-session binocular {fam} vs EO")
+            save_fig(fig, f"per-session binocular {fam} vs EO" + fig_tag)
 
     p_raw, beta = [], []
     for col in cols:
@@ -369,7 +370,7 @@ for j, (group, title) in enumerate(zip(groups, titles)):
 sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
-    save_fig(fig, "binocular saccade displacement scatter")
+    save_fig(fig, "binocular saccade displacement scatter" + fig_tag)
 
 
 # %% disconjugacy vs saccade amplitude
@@ -402,7 +403,7 @@ ax.legend(fontsize=5)
 sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
-    save_fig(fig, "disconjugacy vs amplitude")
+    save_fig(fig, "disconjugacy vs amplitude" + fig_tag)
 
 
 # %% slow (saccade-free) conjugacy vs head speed and locomotor state; LE-RE velocity xcorr
@@ -474,7 +475,7 @@ ax.legend(fontsize=4)
 sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
-    save_fig(fig, "slow conjugacy vs head speed")
+    save_fig(fig, "slow conjugacy vs head speed" + fig_tag)
 
 
 # %% saccade-triggered vergence (abducting vs adducting eye)
@@ -505,7 +506,7 @@ axes[0, 0].set_ylabel("vergence change (deg, + conv)")
 sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
-    save_fig(fig, "saccade-triggered vergence")
+    save_fig(fig, "saccade-triggered vergence" + fig_tag)
 
 
 # %% vergence vs head-to-toy distance
@@ -546,7 +547,7 @@ axes[0].legend(fontsize=5)
 sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
-    save_fig(fig, "vergence vs toy distance")
+    save_fig(fig, "vergence vs toy distance" + fig_tag)
 
 
 # %% binocular pupil coupling
@@ -579,4 +580,4 @@ ax.legend(fontsize=4)
 sns.despine(fig)
 fig.tight_layout()
 if SAVE_FIGS:
-    save_fig(fig, "binocular pupil coupling")
+    save_fig(fig, "binocular pupil coupling" + fig_tag)

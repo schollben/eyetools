@@ -27,6 +27,7 @@ with open("./analyses/results.pkl", "rb") as f:
 # SETTINGS
 SAVE_FIGS = False
 compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
+fig_tag = " delayed" if compare_delayed else ""   # appended to saved figure names
 
 # OTHER SETTINGS
 EYE_AXIS = {"h": {"LE": (-0.47, -0.52, 0.71), "RE": (-0.47, 0.52, 0.71)},
@@ -110,7 +111,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, "VOR horizontal fixation")
+    save_fig(fig, "VOR horizontal fixation" + fig_tag)
 
 
 # %% VERTICAL: head pitch velocity vs vertical eye velocity (fixation frames)
@@ -159,7 +160,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, "VOR vertical fixation")
+    save_fig(fig, "VOR vertical fixation" + fig_tag)
 
 
 # %% counter-pitch: head pitch vs vertical eye position (fixation frames; static, not VOR)
@@ -203,7 +204,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, "counter-pitch fixation")
+    save_fig(fig, "counter-pitch fixation" + fig_tag)
 
 
 # %% eye-head velocity cross-correlation, horizontal and vertical (fixation frames)
@@ -266,7 +267,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, "eye-head xcorr fixation")
+    save_fig(fig, "eye-head xcorr fixation" + fig_tag)
 
 
 
@@ -311,7 +312,7 @@ sns.despine(fig)
 fig.tight_layout()
 
 if SAVE_FIGS:
-    save_fig(fig, "VOR gain vs EO")
+    save_fig(fig, "VOR gain vs EO" + fig_tag)
 
 
 P = []

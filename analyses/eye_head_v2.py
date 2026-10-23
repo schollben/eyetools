@@ -707,3 +707,5 @@ if compare_delayed:   # per-ferret means (delayed ferrets have one session each)
     all_measures = [m for measures in measure_families.values() for m in measures]
     print(session_df.groupby(["group", "id"])[all_measures].mean()
           .join(session_df.groupby(["group", "id"]).size().rename("n")).round(3).to_string())
+
+# %%

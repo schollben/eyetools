@@ -217,9 +217,9 @@ print(S[S.delayed | (S.ref == "old")][["id", "eo", "age", "dur_min", "frac_eye_t
 
 
 # %% stats: delayed vs experience-matched (EO 0-3) and age-matched (EO 8-20) normal sessions
-# METHODS: null for "is the delayed mean different from reference group X?": the mean of k sessions drawn
-# from k DIFFERENT normal ferrets in X (k = delayed sessions with a value, one session per ferret, like the
-# delayed design), n_draw random draws. It contains session-to-session and ferret-to-ferret variability.
+# METHODS: delayed sessions are lumped (all sessions of all delayed ferrets, session = unit). Null for "is the
+# delayed mean different from reference group X?": the mean of k sessions drawn without replacement from all
+# normal sessions in X, any ferret (k = delayed sessions with a value), n_draw random draws.
 # p = fraction of null means at least as far from the null centre as the delayed mean (two-sided).
 # dev_p = LMM likelihood-ratio test, EO 0-3 vs EO 8-20 normal sessions, ferret random intercept: does the
 # measure develop at all? maturity = (delayed - EO 0-3) / (EO 8-20 - EO 0-3): 0 = like experience-matched,
@@ -231,10 +231,8 @@ rng = np.random.default_rng(0)
 
 
 def null_means(ref, measure, k):
-    by_ferret = [g[measure].dropna().to_numpy() for _, g in ref.groupby("id")]
-    by_ferret = [v for v in by_ferret if len(v)]
-    return np.array([np.mean([rng.choice(by_ferret[f]) for f in rng.choice(len(by_ferret), k, replace=False)])
-                     for _ in range(n_draw)]), len(by_ferret)
+    v = ref[measure].dropna()
+    return np.array([rng.choice(v.to_numpy(), k, replace=False).mean() for _ in range(n_draw)]), ref.id[v.index].nunique()
 
 
 stats_rows, NULL = [], {}

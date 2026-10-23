@@ -54,6 +54,7 @@ states = ("all", "outside turns", "stationary")   # head saccades split by state
 gaze_state = "all"       # "all" or "stationary": gaze shifts by state at gaze onset (rate / ISI time too)
 head_still_deg = 2       # |head yaw displacement| below this = eye-only gaze shift
 gaze_amp_bins = [0, 10, 20, 40, 360]   # deg, gaze shift amplitude (unwrapped)
+yaw_jump = 10            # deg/frame: a larger single-frame yaw step is a head-pose flip (event excluded)
 
 if compare_delayed:
     groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
@@ -82,6 +83,9 @@ for group, title in zip(groups, titles):
 # from UNWRAPPED gaze (horizontal gaze wraps at +-180). Displacements are horizontal, onset -> peak, in
 # the head frame (gaze = yaw + eye). LE pipeline gaze has the opposite horizontal sign to yaw + eye
 # (checked: r = -0.97 vs +0.97 for RE), so it is flipped here.
+# METHODS: head-pose flips (single-frame unwrapped yaw step > yaw_jump deg, with roll flipping by ~180
+# deg) are tracking artifacts. Head saccades and gaze shifts with a flip in [onset - 5, peak + 5] frames
+# are dropped; eye-saccade and head-triggered windows containing a flip are not clean (helpers).
 HEAD, STATE, E, W, G = {}, {}, {}, {}, {}
 for R in Results:
     df = R.df_head.copy()
@@ -90,7 +94,8 @@ for R in Results:
     df["yaw_disp"] = yaw[pk] - yaw[on]
     df["amplitude_deg"] = np.hypot(df["yaw_disp"], pitch[pk] - pitch[on])
     df["peak_velocity_deg_s"] = np.rad2deg(df["peak_velocity_deg_s"].astype(float))
-    HEAD[id(R)] = df
+    jump = np.abs(np.diff(yaw)) > yaw_jump   # head-pose flips
+    HEAD[id(R)] = df.loc[[not jump[max(o - 5, 0):p + 5].any() for o, p in zip(on, pk)]].reset_index(drop=True)
 
     turn = np.zeros(len(R.yaw), bool)
     for s, e in zip(ARCS[id(R)]["onset"], ARCS[id(R)]["end"]):
@@ -99,7 +104,7 @@ for R in Results:
                     "stationary": np.isfinite(np.asarray(R.speed, float)) & ~running_mask(R, speed_threshold, min_bout)}
 
     # one row per eye saccade (E) and its onset-aligned traces (W, same row order)
-    e, W[id(R)] = head_eye_windows(R, HEAD[id(R)], flip_eye, pre, post, pair_window, pscr_win)
+    e, W[id(R)] = head_eye_windows(R, HEAD[id(R)], flip_eye, pre, post, pair_window, pscr_win, yaw_jump)
     e["in_turn"] = turn[e["onset"].to_numpy()]
     e["with_head"] = np.sign(e["eye_disp"]) == e["head_sign"]   # eye moved the way the head turned (paired or not)
     E[id(R)] = e
@@ -121,11 +126,17 @@ for R in Results:
         g["direction_deg"] = np.degrees(np.arctan2(gaze_v[g_pk] - gaze_v[g_on], g.gaze_disp))
         gaze_rows.append(g)
     g = pd.concat(gaze_rows, ignore_index=True)
+    g = g.loc[[not jump[max(o - 5, 0):p + 5].any() for o, p in zip(g.onset, g.peak)]].reset_index(drop=True)
     g["head_contrib"] = g.head_disp / g.gaze_disp   # head share of the shift: 1 = all head, 0 = all eye
     g["eye_only"] = (g.head_disp.abs() < head_still_deg).where(g.head_disp.notna())
     g["in_turn"] = turn[g.onset.to_numpy()]
     g["stationary"] = STATE[id(R)]["stationary"][g.onset.to_numpy()]
     G[id(R)] = g
+
+for group, title in zip(groups, titles):
+    print(f"{title}: yaw jump > {yaw_jump} deg/frame removed "
+          f"{sum(len(R.df_head) - len(HEAD[id(R)]) for R in group)} head saccades, "
+          f"{sum(len(R.df_LEgaze) + len(R.df_REgaze) - len(G[id(R)]) for R in group)} gaze shifts")
 
 
 # %% B. head-onset-triggered average: head and eye-in-head (head frame)
@@ -142,7 +153,7 @@ for ax, group, title in zip(axes[0], groups, titles):
         continue
     head, eye = [], []
     for R in group:
-        T = head_triggered_windows(R, HEAD[id(R)], flip_eye, head_pre, head_post)
+        T = head_triggered_windows(R, HEAD[id(R)], flip_eye, head_pre, head_post, yaw_jump)
         hk = np.all(np.isfinite(T["head_pos"]), axis=1)
         if hk.sum() >= min_ev:
             head.append(T["head_pos"][hk].mean(0))
@@ -195,7 +206,7 @@ traces = {}   # (group index, amp bin index) -> dict of head / eye session-mean 
 for gi, group in enumerate(groups):
     for R in group:
         H, e = HEAD[id(R)], E[id(R)]
-        T = head_triggered_windows(R, H, flip_eye, head_pre, head_post)
+        T = head_triggered_windows(R, H, flip_eye, head_pre, head_post, yaw_jump)
         amp = H["amplitude_deg"].to_numpy(float)
         keep = np.all(np.isfinite(T["head_pos"]), axis=1) & STATE[id(R)][b2_state][H["onset"].to_numpy().astype(int)]
         if b2_dir != "all":

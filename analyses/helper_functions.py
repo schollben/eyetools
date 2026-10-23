@@ -428,7 +428,7 @@ def onset_correlogram(R, head_df, max_lag=60, bin_frames=3):
     return (edges[:-1] + edges[1:]) / 2 / FS * 1000, counts, expected
 
 
-def head_eye_windows(R, head_df, flip_eye="LE", pre=24, post=72, pair_window=30, pscr_win=24):
+def head_eye_windows(R, head_df, flip_eye="LE", pre=24, post=72, pair_window=30, pscr_win=24, yaw_jump=10):
     """One row per eye saccade with its head context (E), plus onset-aligned traces (W).
 
     E keeps EVERY eye saccade, so timing measures are not filtered by trace quality;
@@ -441,7 +441,8 @@ def head_eye_windows(R, head_df, flip_eye="LE", pre=24, post=72, pair_window=30,
       head_sign          sign of the paired head saccade's unwrapped yaw displacement
                          (unpaired: dominant head velocity in the window)
       same_direction     1 = eye moved with the paired head saccade, 0 = against, else NaN
-      clean              window [onset-pre, onset+post) in range and NaN-free
+      clean              window [onset-pre, onset+post) in range and NaN-free, with no
+                         single-frame yaw step > yaw_jump deg (head-pose flip)
       head_peak_vel      peak head velocity in the pscr_win frames after the eye
                          saccade (same window as eye_cr_vel; sign-aligned, deg/s)
       eye_cr_vel         most negative eye velocity in the pscr_win frames after the eye
@@ -472,7 +473,8 @@ def head_eye_windows(R, head_df, flip_eye="LE", pre=24, post=72, pair_window=30,
             a, b = o - pre, o + post
             clean = bool(a >= 0 and b <= len(px) and np.all(np.isfinite(yaw[a:b]))
                          and np.all(np.isfinite(yv[a:b])) and np.all(np.isfinite(px[a:b]))
-                         and np.all(np.isfinite(vx[a:b])))
+                         and np.all(np.isfinite(vx[a:b]))
+                         and not np.any(np.abs(np.diff(yaw[a:b])) > yaw_jump))
             if i >= 0:
                 s = h_sign[i] or 1.0
             elif clean:
@@ -514,12 +516,13 @@ def head_eye_windows(R, head_df, flip_eye="LE", pre=24, post=72, pair_window=30,
     return E, W
 
 
-def head_triggered_windows(R, head_df, flip_eye="LE", pre=24, post=144):
+def head_triggered_windows(R, head_df, flip_eye="LE", pre=24, post=144, yaw_jump=10):
     """Head-onset-aligned traces, one row per head saccade.
 
     Dict of (n_head x pre+post) arrays head_pos, LE_pos, RE_pos, baseline-subtracted at head
     onset and sign-aligned so the head turns positive. NaN rows where the window runs off
-    the recording; eye rows may contain NaN. In the head frame (flip_eye="LE"),
+    the recording or has a single-frame yaw step > yaw_jump deg (head-pose flip); eye rows
+    may contain NaN. In the head frame (flip_eye="LE"),
     head_pos + eye_pos is gaze.
     """
     yaw = unwrap_deg(R.yaw)
@@ -528,7 +531,7 @@ def head_triggered_windows(R, head_df, flip_eye="LE", pre=24, post=144):
     for i, (o, p) in enumerate(zip(head_df["onset"].to_numpy().astype(int),
                                    head_df["peak"].to_numpy().astype(int))):
         a, b = o - pre, o + post
-        if a < 0 or b > len(yaw):
+        if a < 0 or b > len(yaw) or np.any(np.abs(np.diff(yaw[a:b])) > yaw_jump):
             continue
         s = np.sign(yaw[p] - yaw[o]) or 1.0
         out["head_pos"][i] = (yaw[a:b] - yaw[o]) * s

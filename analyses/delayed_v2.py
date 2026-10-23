@@ -35,6 +35,7 @@ pair_window = 30         # frames an eye saccade may lead its head saccade
 speed_threshold, min_bout = 20, 30   # running_mask, for gaze rate / ISI ("all" state uses neither)
 head_still_deg = 2       # |head yaw displacement| below this = eye-only gaze shift
 min_n = 20               # minimum events for a per-session median / main-sequence fit
+yaw_jump = 10            # deg/frame: a larger single-frame yaw step is a head-pose flip (event excluded)
 EYE_AXIS = {"h": {"LE": (-0.47, -0.52, 0.71), "RE": (-0.47, 0.52, 0.71)},
             "v": {"LE": (0.74, -0.68, 0.0),   "RE": (-0.73, -0.68, 0.0)}}   # head velocity onto each eye's axes
 gaze_pad = (12, 20)      # frames excluded before gaze onset / after its peak (fixation frames)
@@ -89,13 +90,15 @@ def slope(x, y, k):
 rows = []
 for R in Results:
     yaw, pitch = unwrap_deg(R.yaw), np.asarray(R.pitch, float)
-    H = R.df_head.copy()
+    jump = np.abs(np.diff(yaw)) > yaw_jump   # head-pose flips, events dropped as in eye_head_v2
+    H = R.df_head.loc[[not jump[max(o - 5, 0):p + 5].any()
+                   for o, p in zip(R.df_head.onset.astype(int), R.df_head.peak.astype(int))]].reset_index(drop=True)
     on, pk = H["onset"].to_numpy().astype(int), H["peak"].to_numpy().astype(int)
     H["amplitude_deg"] = np.hypot(yaw[pk] - yaw[on], pitch[pk] - pitch[on])
     H["peak_velocity_deg_s"] = np.rad2deg(H["peak_velocity_deg_s"].astype(float))
-    E, _ = head_eye_windows(R, H, flip_eye, 24, 72, pair_window, 24)
+    E, _ = head_eye_windows(R, H, flip_eye, 24, 72, pair_window, 24, yaw_jump)
     first = E[E.paired].sort_values("onset").groupby("head_idx").first()
-    T = head_triggered_windows(R, H, flip_eye, 24, 144)
+    T = head_triggered_windows(R, H, flip_eye, 24, 144, yaw_jump)
     hk = np.all(np.isfinite(T["head_pos"]), axis=1)
     ev = np.vstack([T[k][hk & np.all(np.isfinite(T[k]), axis=1)] for k in ("LE_pos", "RE_pos")])
     eye_tr = ev.mean(0) if len(ev) >= min_n else np.full(168, np.nan)   # session-mean eye trace, head onset at 24
@@ -115,6 +118,7 @@ for R in Results:
 
     gaze = []
     for eye, df in (("LE", R.df_LEgaze), ("RE", R.df_REgaze)):
+        df = df.loc[[not jump[max(o - 5, 0):p + 5].any() for o, p in zip(df.onset.astype(int), df.peak.astype(int))]]
         g_on, g_pk = df["onset"].to_numpy().astype(int), df["peak"].to_numpy().astype(int)
         gaze_h = unwrap_deg(getattr(R, f"{eye}_gaze_horizontal_deg")) * (-1 if eye == "LE" else 1)
         gaze_v = np.asarray(getattr(R, f"{eye}_gaze_vertical_deg"), float)

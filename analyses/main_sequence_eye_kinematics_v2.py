@@ -31,7 +31,7 @@ with open("./analyses/results.pkl", "rb") as f:
 
 # SETTINGS
 SAVE_FIGS = False
-compare_delayed = False               # True: normal EO 8-20 vs. all delayed sessions
+compare_delayed = True               # True: normal EO 8-20 vs. all delayed sessions
 fig_tag = " delayed" if compare_delayed else ""   # appended to saved figure names
 
 # OTHER SETTINGS 

@@ -45,6 +45,12 @@ pair_window = 30         # frames (250 ms) an eye saccade may lead its head sacc
 pre, post = 24, 72       # frames: -200 to +600 ms from eye-saccade onset
 pscr_win = 24            # frames (200 ms) after the eye saccade ends: counter-rotation window
 head_pre, head_post = 24, 144   # frames: -200 to +1200 ms from head onset (panel B)
+b3_min_amp = 20          # deg |head yaw displacement|: head saccades used in B.3
+b3_min_eye = 2           # deg |horizontal eye displacement|: eye saccades counted in B.3
+b3_win = (-60, 180)      # frames: -500 to +1500 ms from head onset (B.3)
+b3_bw = 6                # frames (50 ms) per B.3 rate bin
+b3_n_shift = 20          # circular shifts (>= 10 s) of the eye onsets for the B.3 chance rate
+b3_min_head = 10         # minimum head saccades for a session's B.3 rate
 amp_classes = [(5, 10), (10, 15), (15, np.inf)]   # Wallace Fig 4A/4C classes, horizontal deg
 speed_threshold = 20     # mm/s, running_mask: stationary = not in a running bout
 min_bout = 30            # frames
@@ -244,6 +250,69 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, f"eye_head_B2_by_head_amp_{b2_state}_{b2_dir.replace(' ', '_')}" + fig_tag)
+
+
+# %% B.3 eye-saccade rate around head onset, above chance
+# When do eye saccades follow a head movement? With-head saccades are the gaze shift; against-head
+# saccades are mostly the returns of back-and-forth chains. The first-saccade lag (lag_ms) is not used:
+# it shortens whenever the saccade rate rises, even at chance.
+# METHODS: head saccades with |unwrapped yaw displacement| >= b3_min_amp deg; eye saccades of both eyes with
+# |horizontal displacement| >= b3_min_eye deg, with-head = same sign as the head yaw displacement. Rate =
+# eye onsets per b3_bw bin around head onset, per head saccade per eye (s^-1). Chance = the same rate with
+# the eye onsets circularly shifted against the head by random offsets >= 10 s (mean of b3_n_shift
+# shifts, as in eye_head_coupling); excess = rate - chance. Sessions with >= b3_min_head head saccades.
+# burst_with_ms / burst_against_ms = centre of mass of the positive excess in [-100, 400) / [200, 700) ms;
+# burst_with / burst_against = excess saccades per head saccade per eye in [0, 500) / [200, 700) ms.
+# Exploration: the burst timing did not depend on running speed before head onset.
+
+b3_edges = np.arange(b3_win[0], b3_win[1] + 1, b3_bw)
+t_b3 = (b3_edges[:-1] + b3_edges[1:]) / 2 / FS * 1000
+b3_measures = ["burst_with_ms", "burst_against_ms", "burst_with", "burst_against"]
+B3 = {}   # id(R) -> excess rate traces ("with", "against") and the session measures
+rng = np.random.default_rng(0)
+for R in Results:
+    H, e = HEAD[id(R)], E[id(R)]
+    H = H[H.yaw_disp.abs() >= b3_min_amp]
+    e = e[e.eye_disp.abs() >= b3_min_eye]
+    if len(H) < b3_min_head or not len(e):
+        continue
+    h_on, h_sign = H.onset.to_numpy(int), np.sign(H.yaw_disp.to_numpy())
+    e_on, e_with = e.onset.to_numpy(int), np.sign(e.eye_disp.to_numpy())[None, :] == h_sign[:, None]
+    n, n_eyes = len(R.LE_vx), e.eye.nunique()
+
+    def b3_rate(onsets):
+        lag = onsets[None, :] - h_on[:, None]   # head x eye, frames
+        return {d: np.histogram(lag[e_with == (d == "with")], b3_edges)[0] / len(h_on) / n_eyes / (b3_bw / FS)
+                for d in ("with", "against")}
+
+    real = b3_rate(e_on)
+    chance = [b3_rate((e_on + s) % n) for s in rng.integers(int(10 * FS), n - int(10 * FS), b3_n_shift)]
+    ex = {d: real[d] - np.mean([c[d] for c in chance], axis=0) for d in real}
+
+    def centre(x, lo, hi):
+        k = (t_b3 >= lo) & (t_b3 < hi)
+        w = np.clip(x[k], 0, None)
+        return (t_b3[k] * w).sum() / w.sum() if w.sum() > 0 else np.nan
+
+    B3[id(R)] = dict(ex, burst_with_ms=centre(ex["with"], -100, 400), burst_against_ms=centre(ex["against"], 200, 700),
+                     burst_with=ex["with"][(t_b3 >= 0) & (t_b3 < 500)].sum() * b3_bw / FS,
+                     burst_against=ex["against"][(t_b3 >= 200) & (t_b3 < 700)].sum() * b3_bw / FS)
+
+fig, axes = plt.subplots(1, 2, figsize=(5, 2), sharey=True)
+for ax, d in zip(axes, ("with", "against")):
+    for gi, (group, title) in enumerate(zip(groups, titles)):
+        plot_mean_se(ax, t_b3, np.array([B3[id(R)][d] for R in group if id(R) in B3]), GROUP_COLORS[gi], title, min_n=2)
+    ax.axhline(0, color="0.8", lw=0.5)
+    ax.axvline(0, color="0.8", lw=0.5)
+    ax.set_title(f"{d}-head eye saccades", fontsize=6)
+    ax.set_xlabel("time from head onset (ms)")
+axes[0].set_ylabel("rate above chance\n(/s per eye per head saccade)")
+axes[0].legend(fontsize=4)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, "eye_head_B3_rate_above_chance" + fig_tag)
 
 # %% Wallace Fig 4A / 4C — eye and head position / velocity around eye saccades in turns
 # Eye-head dynamics, replicating Wallace, Voit, Martin Machado et al., Kerr lab, Current Biology
@@ -598,6 +667,7 @@ if SAVE_FIGS:
 # METHODS: match_r_LE / match_r_RE = per-eye Pearson r of gaze displacement vs head + eye displacement (gaze
 # should = yaw + eye). A low r flags a session whose pipeline gaze disagrees with its head and eye data; such
 # sessions are kept, only flagged (printed below).
+# METHODS: timing measures (burst_*): see B.3; NaN for sessions with < b3_min_head head saccades.
 # TODO: head_contrib-vs-gaze-amplitude slope test.
 
 session_rows = []
@@ -627,6 +697,7 @@ for group_idx, (group, title) in enumerate(zip(groups, titles)):
                                  head_contrib=gaze_shift.head_contrib.median(),
                                  frac_eye_only=gaze_shift.eye_only.mean(),
                                  frac_with_eye_sacc=gaze_shift.with_eye_sacc.mean(),
+                                 **{m: B3[id(R)][m] if id(R) in B3 else np.nan for m in b3_measures},
                                  **{f"match_r_{eye}": d.gaze_disp.corr(d.head_disp + d.eye_disp)
                                     for eye, d in gaze_shift.groupby("eye")}))
 session_df = pd.DataFrame(session_rows)
@@ -636,7 +707,8 @@ print(session_df[(session_df.match_r_LE < 0.8) | (session_df.match_r_RE < 0.8)]
 measure_families = dict(head=["head_rate", "head_amp", "head_pkv"],
                         pscr=["pscr_gain", "cr_peak_vel", "pct_eye_in_turn"],
                         gaze=["gaze_rate", "gaze_isi", "gaze_amp", "gaze_pkv", "gaze_slope", "gaze_pkv10"],
-                        gaze_comp=["head_contrib", "frac_eye_only", "frac_with_eye_sacc"])
+                        gaze_comp=["head_contrib", "frac_eye_only", "frac_with_eye_sacc"],
+                        timing=b3_measures)
 
 # METHODS: EO trend per ferret: Pearson r of session value vs EO, sessions treated as independent
 # (ferrets with >= 3 sessions). Reported as the number of ferrets whose r has the sign of the global
@@ -708,6 +780,3 @@ if compare_delayed:   # per-ferret means (delayed ferrets have one session each)
     print(session_df.groupby(["group", "id"])[all_measures].mean()
           .join(session_df.groupby(["group", "id"]).size().rename("n")).round(3).to_string())
 
-# %%
-
-# A better timing measure: the rate-above-background histogram (bottom row) for each group, or a chance-corrected pairing. There is already an eye_head_coupling function in helper_functions that compares against chance using time-shifted data. Per session, the size and latency of the with-head burst at 100–250 ms after onset would describe the timing more cleanly than the first-saccade lag.

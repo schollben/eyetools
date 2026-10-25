@@ -709,3 +709,5 @@ if compare_delayed:   # per-ferret means (delayed ferrets have one session each)
           .join(session_df.groupby(["group", "id"]).size().rename("n")).round(3).to_string())
 
 # %%
+
+# A better timing measure: the rate-above-background histogram (bottom row) for each group, or a chance-corrected pairing. There is already an eye_head_coupling function in helper_functions that compares against chance using time-shifted data. Per session, the size and latency of the with-head burst at 100–250 ms after onset would describe the timing more cleanly than the first-saccade lag.

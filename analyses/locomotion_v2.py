@@ -203,3 +203,88 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "locomotion speed distributions" + fig_tag)
+
+
+# %% 4. oculomotor policy at matched locomotor demand
+# Does gaze deployment change with age once body movement is matched, or only follow from the body moving more?
+# METHODS: frames binned by head linear speed (SPEED_EDGES) and, separately, head |ω| (OMEGA_EDGES), ART
+# frames excluded. Exposure = eye-tracked frames (eye vx finite) per eye, summed over both eyes; a session
+# counts in a bin with >= min_exp exposure frames. Events are binned by their onset frame: gaze shifts
+# (df_LEgaze, df_REgaze), eye saccades (df_LE, df_RE), head saccades (df_head). gs_rate / sac_rate =
+# count / exposure (Hz); gs_amp = median |amplitude| (>= 10 shifts); head_rate = head saccades / non-ART time.
+# METHODS: matched test on (session × bin) rows, ferret random intercept: m ~ group_idx + C(bin), LRT vs
+# m ~ C(bin) (1 df); age × demand: m ~ group_idx * cen + C(bin), LRT vs the first. Speed rows below
+# STAT_MAX. Holm over the 8 age tests (4 measures × 2 demand variables).
+# METHODS: per-session: {m}_rest = speed bin < 25 mm/s; {m}_run = mean over the 50-200 mm/s bins.
+OMEGA_EDGES = np.array([0, 10, 20, 40, 80, 160, 320])   # deg/s
+min_exp = 600   # frames (5 s, both eyes summed)
+POLICY = dict(gs_rate="gaze shifts / s", sac_rate="eye saccades / s", gs_amp="median gaze-shift amplitude (deg)",
+              head_rate="head saccades / s")
+DEMAND = dict(speed=(SPEED_EDGES, "head linear speed (mm/s)"), omega=(OMEGA_EDGES, "head angular speed |ω| (deg/s)"))
+policy_rows = []
+for R in (R for group in groups for R in group):
+    X = dict(speed=np.asarray(R.speed, float), omega=head_signal(R, "speed"))
+    for xname, (edges, _) in DEMAND.items():
+        x = X[xname]
+        b = np.digitize(x, edges) - 1
+        b[~np.isfinite(x) | ART[id(R)] | (x >= edges[-1])] = -1
+        nb = len(edges) - 1
+        exposure, n_gs, n_sac, amp = np.zeros(nb), np.zeros(nb), np.zeros(nb), [[] for _ in range(nb)]
+        for eye, df_sacc, df_gaze in (("LE", R.df_LE, R.df_LEgaze), ("RE", R.df_RE, R.df_REgaze)):
+            bt = np.where(np.isfinite(eye_signal(R, eye, "vx", flip_eye)), b, -1)
+            exposure += np.bincount(bt[bt >= 0], minlength=nb)
+            ob = bt[df_gaze.onset.astype(int)]
+            n_gs += np.bincount(ob[ob >= 0], minlength=nb)
+            for i, a in zip(ob, np.abs(df_gaze.amplitude_deg)):
+                if i >= 0:
+                    amp[i].append(a)
+            ob = bt[df_sacc.onset.astype(int)]
+            n_sac += np.bincount(ob[ob >= 0], minlength=nb)
+        head_exposure = np.bincount(b[b >= 0], minlength=nb)
+        ob = b[R.df_head.onset.astype(int)]
+        n_head = np.bincount(ob[ob >= 0], minlength=nb)
+        for i in range(nb):
+            if exposure[i] >= min_exp:
+                policy_rows.append(dict(**session_rows[id(R)], x=xname, bin=i, cen=(edges[i] + edges[i + 1]) / 2,
+                                        gs_rate=n_gs[i] / exposure[i] * FS, sac_rate=n_sac[i] / exposure[i] * FS,
+                                        gs_amp=np.median(amp[i]) if len(amp[i]) >= 10 else np.nan,
+                                        head_rate=n_head[i] / head_exposure[i] * FS))
+policy_bins = pd.DataFrame(policy_rows)
+for (i, eo), g in policy_bins[policy_bins.x == "speed"].groupby(["id", "eo"]):
+    R = next(R for group in groups for R in group if (R.id, R.eo) == (i, eo))
+    for m in POLICY:
+        session_rows[id(R)][f"{m}_rest"] = g[m][g.bin == 0].mean()
+        session_rows[id(R)][f"{m}_run"] = g[m][g.bin.isin([2, 3, 4])].mean()
+measure_families["policy"] = [f"{m}_{st}" for m in POLICY for st in ("rest", "run")]
+
+fig, axes = plt.subplots(2, 4, figsize=(10, 4.8))
+for r, (xname, (edges, xlab)) in enumerate(DEMAND.items()):
+    v = policy_bins[policy_bins.x == xname]
+    print(xname, {t: v[v.group == t].groupby("bin").size().to_dict() for t in titles})
+    for ax, (m, lab) in zip(axes[r], POLICY.items()):
+        plot_bin_curves(ax, v, m, (edges[:-1] + edges[1:]) / 2, lab)
+        ax.set(xlabel=xlab, ylim=(0, None))
+axes[0, 0].legend(fontsize=5)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, "locomotion oculomotor policy vs demand" + fig_tag)
+
+policy_tests = []
+for xname in DEMAND:
+    for m in POLICY:
+        v = policy_bins[(policy_bins.x == xname) & ((xname != "speed") | (policy_bins.cen < STAT_MAX))].dropna(subset=[m])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            full = smf.mixedlm(f"{m} ~ group_idx + C(bin)", v, groups=v["id"]).fit(reml=False)
+            null = smf.mixedlm(f"{m} ~ C(bin)", v, groups=v["id"]).fit(reml=False)
+            intr = smf.mixedlm(f"{m} ~ group_idx * cen + C(bin)", v, groups=v["id"]).fit(reml=False)
+        policy_tests.append(dict(x=xname, measure=m, age_beta=full.params["group_idx"],
+                                 age_p=chi2.sf(2 * (full.llf - null.llf), 1),
+                                 age_x_demand_beta=intr.params["group_idx:cen"],
+                                 age_x_demand_p=chi2.sf(2 * (intr.llf - full.llf), 1)))
+policy_tests = pd.DataFrame(policy_tests)
+policy_tests.insert(4, "age_p_holm", multipletests(policy_tests.age_p, method="holm")[1])
+print("matched-demand LMM (age effect per group step, controlling for bin):")
+print(policy_tests.to_string(index=False, float_format=lambda v: f"{v:.3g}"))

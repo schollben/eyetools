@@ -332,3 +332,55 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "locomotion head rotation vs relative speed" + fig_tag)
+
+
+# %% 7. gaze stability while running
+# Do older animals keep gaze steadier while running?
+# METHODS: horizontal world-gaze velocity = head yaw velocity + horizontal eye velocity (flip_eye head frame,
+# gaze = yaw + eye, as eye_head_v2), every frame where the eye is tracked and the head is not ART. No saccade /
+# gaze-shift mask (conservative: older animals make more gaze shifts, section 4). Both eyes pooled. The
+# pipeline's *_ang_vel_local_x_deg_s is not used: its sign differs between eyes. Eye data are 6 Hz filtered
+# upstream and head data are not, so fast head motion shows up as gaze motion (same at every age).
+# METHODS: per session × SPEED_EDGES bin median |gaze velocity| (>= min_frames, both eyes summed), then mean ±
+# SEM over sessions. Matched-speed LMM on (session × bin) rows below STAT_MAX, ferret random intercept:
+# gz ~ group_idx + C(bin), LRT vs gz ~ C(bin); age × speed: gz ~ group_idx * cen + C(bin), LRT vs the first.
+# METHODS: per-session: gz_rest = median < 25 mm/s; gz_fast = median at 200-300 mm/s; gz_slope = OLS of
+# |gaze velocity| on speed, frames < 300 mm/s (deg/s per 100 mm/s).
+# Lower gaze velocity combines less head rotation at a given speed (section 1) and better compensation.
+gaze_rows = []
+for R in (R for group in groups for R in group):
+    s = np.asarray(R.speed, float)
+    b = speed_bin(R, ~ART[id(R)])
+    gz = [np.abs(head_signal(R, "yaw_v") + eye_signal(R, eye, "vx", flip_eye)) for eye in ("LE", "RE")]
+    pooled = lambda k: np.concatenate([g[k & np.isfinite(g)] for g in gz])
+    for i in range(len(SPEED_CEN)):
+        v = pooled(b == i)
+        if len(v) >= min_frames:
+            gaze_rows.append(dict(**session_rows[id(R)], bin=i, cen=SPEED_CEN[i], gz=np.median(v)))
+    k = (b >= 0) & (s < 300)
+    x = np.concatenate([s[k & np.isfinite(g)] for g in gz])
+    session_rows[id(R)].update(gz_rest=np.median(pooled(b == 0)), gz_fast=np.median(pooled((s >= 200) & (s < 300) & (b >= 0))),
+                               gz_slope=np.polyfit(x / 100, pooled(k), 1)[0])
+gaze_bins = pd.DataFrame(gaze_rows)
+measure_families["gaze_stab"] = ["gz_rest", "gz_fast", "gz_slope"]
+print({t: gaze_bins[gaze_bins.group == t].groupby("bin").size().to_dict() for t in titles})
+
+fig, ax = plt.subplots(figsize=(3, 2.4))
+plot_bin_curves(ax, gaze_bins, "gz", SPEED_CEN, "median |horizontal gaze velocity| (deg/s)\n(all tracked frames)")
+ax.set(xlabel="head linear speed (mm/s)", ylim=(0, None))
+ax.legend(fontsize=5)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, "locomotion gaze velocity vs speed" + fig_tag)
+
+v = gaze_bins[gaze_bins.cen < STAT_MAX]
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    full = smf.mixedlm("gz ~ group_idx + C(bin)", v, groups=v["id"]).fit(reml=False)
+    null = smf.mixedlm("gz ~ C(bin)", v, groups=v["id"]).fit(reml=False)
+    intr = smf.mixedlm("gz ~ group_idx * cen + C(bin)", v, groups=v["id"]).fit(reml=False)
+print(f"gaze velocity, matched speed (< {STAT_MAX} mm/s): age β = {full.params['group_idx']:+.2f} deg/s per group, "
+      f"p = {chi2.sf(2 * (full.llf - null.llf), 1):.3g}; age × speed β = {intr.params['group_idx:cen']:+.3f}, "
+      f"p = {chi2.sf(2 * (intr.llf - full.llf), 1):.3g}")

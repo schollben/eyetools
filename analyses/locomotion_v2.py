@@ -384,3 +384,73 @@ with warnings.catch_warnings():
 print(f"gaze velocity, matched speed (< {STAT_MAX} mm/s): age β = {full.params['group_idx']:+.2f} deg/s per group, "
       f"p = {chi2.sf(2 * (full.llf - null.llf), 1):.3g}; age × speed β = {intr.params['group_idx:cen']:+.3f}, "
       f"p = {chi2.sf(2 * (intr.llf - full.llf), 1):.3g}")
+
+
+# %% per-session table + trends vs EO (sessions are the unit; one line per ferret)
+# METHODS: measures per section above. EO trend per ferret: Pearson r of session value vs EO, sessions treated
+# as independent (ferrets with >= 3 sessions). Reported as the number of ferrets whose r has the sign of the
+# global trend (r over all sessions pooled), and how many of those reach p < 0.05. Normal cohort only; in
+# compare_delayed mode the only comparison is delayed vs oldest normal sessions (group model below).
+# METHODS: global trend across EO groups: linear mixed model (LMM), measure ~ group index (EO bin 0, 1, 2; or
+# oldest normal = 0, delayed = 1) as a linear fixed effect, random intercept per ferret. β = change per group
+# step. p = likelihood-ratio test against the intercept-only model (both fit by ML), chi2 with 1 df,
+# Holm-corrected within each family of measures (head_rot, speed, policy, rel_speed, gaze_stab).
+session_df = pd.DataFrame(session_rows.values())
+stats_rows = []
+ncol = max(len(m) for m in measure_families.values())   # same panel size in every family figure
+for family, measures in measure_families.items():
+    ferret_trend = {}   # measure -> per-ferret trend columns of stats_df
+
+    if not compare_delayed:
+        fig, axes = plt.subplots(1, ncol, figsize=(2.2 * ncol, 2.4), squeeze=False)
+        for ax in axes[0, len(measures):]:
+            ax.axis("off")
+        for ax, measure in zip(axes[0], measures):
+            plot_vs_eo(ax, session_df, measure, color=None)
+            valid = session_df.dropna(subset=[measure])
+            y_lo = 0 if family in ("policy", "head_rot", "gaze_stab") or measure.endswith("_frac") else valid[measure].min()
+            y_step = np.diff(MaxNLocator(5, steps=[1, 2, 5, 10]).tick_values(y_lo, valid[measure].max())[:2])[0]
+            y_lo, y_hi = np.floor(y_lo / y_step) * y_step, np.ceil(valid[measure].max() / y_step) * y_step
+            ax.set_yticks(np.linspace(y_lo, y_hi, round((y_hi - y_lo) / y_step) + 1))
+            ax.set_ylim(y_lo, y_hi)
+            pooled_r = pearsonr(valid.eo, valid[measure])[0]
+            pooled_up = pooled_r > 0
+            ferret_r = {fid: pearsonr(g.eo, g[measure]) for fid, g in valid.groupby("id") if len(g) >= 3}
+            ferrets_same_sign = [fid for fid, (r, p) in ferret_r.items() if (r > 0) == pooled_up]
+            ferrets_p05 = sum(ferret_r[fid][1] < 0.05 for fid in ferrets_same_sign)
+            ferret_trend[measure] = dict(pooled_r=pooled_r, ferrets_same_sign=
+                                         f"{len(ferrets_same_sign)}/{len(ferret_r)} {'↑' if pooled_up else '↓'}",
+                                         ferrets_p05=ferrets_p05)
+            ax.set_title(f"{measure}\n{len(ferrets_same_sign)}/{len(ferret_r)} ferrets {'↑' if pooled_up else '↓'} "
+                         f"({ferrets_p05} with p<0.05)", fontsize=6)
+        axes[0, 0].legend(fontsize=4)
+        sns.despine(fig)
+        fig.subplots_adjust(left=0.07, right=0.98, bottom=0.2, top=0.8, wspace=0.5)
+
+        if SAVE_FIGS:
+            save_fig(fig, f"locomotion per-session {family} vs EO" + fig_tag)
+
+    lrt_p, lmm_beta = [], []
+    for measure in measures:
+        valid = session_df.dropna(subset=[measure])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")   # few ferrets: convergence warnings are routine
+            lmm_full = smf.mixedlm(f"{measure} ~ group_idx", valid, groups=valid["id"]).fit(reml=False)
+            lmm_null = smf.mixedlm(f"{measure} ~ 1", valid, groups=valid["id"]).fit(reml=False)
+        lrt_p.append(chi2.sf(2 * (lmm_full.llf - lmm_null.llf), 1))
+        lmm_beta.append(lmm_full.params["group_idx"])
+    for measure, b, p in zip(measures, lmm_beta, multipletests(lrt_p, method="holm")[1]):
+        valid = session_df.dropna(subset=[measure])
+        stats_rows.append(dict(family=family, measure=measure,
+                               **{t: f"{valid[measure][valid.group == t].mean():.3g} ± "
+                                     f"{valid[measure][valid.group == t].std():.2g}" for t in titles},
+                               n_sessions=len(valid), **ferret_trend.get(measure, {}),
+                               lmm_beta=b, lmm_p_holm=p))
+
+# one printout: group mean ± SD over sessions, per-ferret EO trend (normal cohort), group-trend LMM
+stats_df = pd.DataFrame(stats_rows)
+print(stats_df.to_string(index=False, na_rep="", float_format=lambda v: f"{v:.3g}"))
+if compare_delayed:   # per-ferret means (delayed ferrets have one session each)
+    all_measures = [m for measures in measure_families.values() for m in measures]
+    print(session_df.groupby(["group", "id"])[all_measures].mean()
+          .join(session_df.groupby(["group", "id"]).size().rename("n")).round(3).to_string())

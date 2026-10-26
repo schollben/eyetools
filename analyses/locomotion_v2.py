@@ -1,10 +1,12 @@
 # %% main script to run data loading, cleaning, and saccade extraction for a session
-#
-#
-#
 # main init
+#
+# LOCOMOTION: does gaze-stabilization maturity gate running speed, or does running drive gaze maturation?
+# Speed rises with EO, so comparisons are made at matched speed.
+#
 # Set your paths in local_config.py (copy local_config.py.example to get started): cd /Users/benjaminscholl/Documents/eyetools/
 import sys
+import warnings
 sys.path.insert(0, "")  # ensure cwd is on path so local_config.py is found
 import local_config  # type: ignore
 sys.path.insert(0, local_config.EYETOOLS_ROOT)
@@ -13,9 +15,14 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, EYE_COLOR, AGE_COLORS, HEAD_COLOR,
-                                       eo_groups, head_signal, eye_signal, running_mask, clean_runs, run_xcorr,
-                                       set_style, save_fig, plot_mean_se)
+from analyses.helper_functions import (NORMAL_IDS, DELAYED_IDS, delayed_groups, FS, EO_BINS, AGE_COLORS,
+                                       eo_groups, head_signal, eye_signal, running_mask, unwrap_deg,
+                                       set_style, save_fig, plot_vs_eo)
+from utils.find_arcs import find_arcs
+from scipy.stats import chi2, pearsonr
+import statsmodels.formula.api as smf
+from statsmodels.stats.multitest import multipletests
+from matplotlib.ticker import MaxNLocator
 set_style()
 
 # LOAD SAVED DATA
@@ -25,76 +32,81 @@ with open("./analyses/results.pkl", "rb") as f:
 # SETTINGS
 SAVE_FIGS = False
 compare_delayed = False   # True: normal EO 8-20 vs. all delayed sessions
+fig_tag = " delayed" if compare_delayed else ""   # appended to saved figure names
 
-
+# OTHER SETTINGS
+EXCLUDE = ((407, 11), (757, 15))   # (id, EO): ~30% head pose-flip artifact frames
+flip_eye = "LE"          # LE horizontal is flipped to match RE, so both eyes can be pooled
+gaze_pad = (12, 20)      # frames excluded before gaze-event onset / after its end (FIX)
+nan_margin = 36          # frames excluded around each eye's tracking gaps (NaN), per eye
+min_frames = 120         # frames (1 s) per session per speed bin
+yaw_jump = 10            # deg/frame, unwrapped yaw step counted as a head pose flip
+art_omega = 600          # deg/s, head angular speed counted as artifact
+art_pad = 5              # frames padded around artifact frames
 speed_threshold = 50     # mm/s, running_mask: stationary = not in a running bout
 min_bout = 60            # frames, shortest run of frames counted as running
+SPEED_EDGES = np.array([0, 25, 50, 100, 150, 200, 250, 300, 400, 500, 600])   # mm/s, head linear speed bins
+SPEED_CEN = (SPEED_EDGES[:-1] + SPEED_EDGES[1:]) / 2
+STAT_MAX = 300           # mm/s, matched-speed LMMs use bins below this (every group has coverage)
 
+Results = [R for R in Results if (R.id, R.eo) not in EXCLUDE]
+if compare_delayed:
+    groups, titles = delayed_groups(Results, normal_ids=NORMAL_IDS, delayed_ids=DELAYED_IDS)
+    GROUP_COLORS = ["#222222", "#d62728"]
+else:
+    groups, titles = eo_groups(Results, pool_by_eo=True, eo_bins=EO_BINS, normal_ids=NORMAL_IDS)
+    GROUP_COLORS = AGE_COLORS
+
+for group, title in zip(groups, titles):
+    print(f"{title}: {len(group)} sessions, {len(set(R.id for R in group))} animals")
+
+# per-session frame masks
+# ART = head artifact frames (yaw step > yaw_jump or |ω| > art_omega, ± art_pad)
+# TURN = inside a find_arcs arc; STRAIGHT = outside arcs and outside head saccades (df_head onset -> peak)
+# FIX = fixation frames (per eye): outside gaze shifts and away from tracking gaps
 # RUN = running frames (body speed > speed_threshold for >= min_bout frames)
-# STAT = stationary frames (body speed tracked and not running) 
-FIX, RUN, STAT = {}, {}, {}
+# STAT = stationary frames (body speed tracked and not running)
+ART, ARCS, TURN, STRAIGHT, FIX, RUN, STAT = {}, {}, {}, {}, {}, {}, {}
 for R in Results:
+    n = len(R.yaw)
+    art = (np.abs(np.diff(unwrap_deg(R.yaw), prepend=np.nan)) > yaw_jump) | (head_signal(R, "speed") > art_omega)
+    ART[id(R)] = np.convolve(art, np.ones(2 * art_pad + 1), "same") > 0
+    ARCS[id(R)] = find_arcs(R)
+    turn, steer = np.zeros(n, bool), np.zeros(n, bool)
+    for a, e in zip(ARCS[id(R)].onset, ARCS[id(R)].end):
+        turn[a:e] = steer[a:e] = True
+    for o, p in zip(R.df_head.onset, R.df_head.peak):
+        steer[int(o):int(p) + 1] = True
+    TURN[id(R)], STRAIGHT[id(R)] = turn, ~steer
     gs = np.zeros(len(R.LE_vx), bool)
     for df in (R.df_LEgaze, R.df_REgaze):
         for o, p in zip(df.onset, df.peak):
             gs[max(0, o - gaze_pad[0]):p + gaze_pad[1] + 1] = True
-    FIX[id(R)] = {eye: ~gs & (np.convolve(~np.isfinite(eye_signal(R, eye, "vx")), 
+    FIX[id(R)] = {eye: ~gs & (np.convolve(~np.isfinite(eye_signal(R, eye, "vx")),
                                           np.ones(2 * nan_margin + 1), "same") == 0)
                   for eye in ("LE", "RE")}
     RUN[id(R)] = running_mask(R, speed_threshold, min_bout)
     STAT[id(R)] = np.isfinite(np.asarray(R.speed, float)) & ~RUN[id(R)]
 
-##############
-# BELOW IS COPY PASTED FROM OTHER SCRIPTS TO BE REFACTORED LATER
-# GOALS:
-# 1.  
-#
-
-# %% stationary vs running: binned eye velocity vs head velocity (fixation frames)
-# Median eye velocity per head velocity bin; colour = group, solid = stationary, dashed = running.
-fig, axes = plt.subplots(1, 2, figsize=(6, 2.4))
-for ax, hname, ekey, lab in ((axes[0], "yaw_v", "vx", "horizontal"), (axes[1], "pitch_v", "vy", "vertical")):
-    for group, title, c in zip(groups, titles, GROUP_COLORS):
-        for state, ls, M in (("stationary", "-", STAT), ("running", "--", RUN)):
-            h = np.concatenate([head_signal(R, hname)[FIX[id(R)][eye] & M[id(R)]] for R in group for eye in ("LE", "RE")])
-            e = np.concatenate([eye_signal(R, eye, ekey, flip_eye)[FIX[id(R)][eye] & M[id(R)]] for R in group for eye in ("LE", "RE")])
-            k = np.isfinite(h) & np.isfinite(e)
-            b = np.digitize(h[k], vel_edges) - 1
-            med = [np.median(e[k][b == i]) if (b == i).sum() >= min_bin else np.nan for i in range(len(centers))]
-            ax.plot(centers, med, color=c, ls=ls, lw=1, label=f"{title} {state}")
-    ax.axhline(0, color="0.8", lw=0.5)
-    ax.set(xlabel=f"head {'yaw' if lab == 'horizontal' else 'pitch'} velocity (deg/s)",
-           ylabel=f"median eye {lab} velocity (deg/s)")
-axes[0].legend(fontsize=4)
-sns.despine(fig)
-fig.tight_layout()
-if SAVE_FIGS:
-    save_fig(fig, "VOR stationary vs running")
+session_rows = {id(R): dict(id=R.id, eo=R.eo, group=title, group_idx=gi)
+                for gi, (group, title) in enumerate(zip(groups, titles)) for R in group}   # per-session table, filled by each section
+measure_families = {}
 
 
+def speed_bin(R, mask):
+    """SPEED_EDGES bin index per frame; -1 outside mask / untracked / >= last edge."""
+    s = np.asarray(R.speed, float)
+    b = np.digitize(s, SPEED_EDGES) - 1
+    b[~np.isfinite(s) | (s >= SPEED_EDGES[-1]) | ~mask] = -1
+    return b
 
 
-
-# %% head angular speed in fixation frames (fixation in either eye)
-# Left: head angular speed distributions per group (solid = stationary, dashed = running). Right: head
-# angular speed vs running speed in running fixation frames, one panel per group.
-fig, axes = plt.subplots(1, len(groups) + 1, figsize=(2.6 * (len(groups) + 1), 2.2), squeeze=False)
-for group, title, c in zip(groups, titles, GROUP_COLORS):
-    for state, ls, M in (("stationary", "-", STAT), ("running", "--", RUN)):
-        vals = np.concatenate([head_signal(R, "speed")[(FIX[id(R)]["LE"] | FIX[id(R)]["RE"]) & M[id(R)]] for R in group])
-        vals = vals[np.isfinite(vals)]
-        if len(vals) >= min_frames:
-            axes[0, 0].hist(vals, bins=np.arange(0, 300, 5), histtype="step", density=True, color=c, ls=ls,
-                            label=f"{title} {state}")
-axes[0, 0].set_xlabel("head angular speed (deg/s)")
-axes[0, 0].legend(fontsize=4)
-for ax, group, title in zip(axes[0, 1:], groups, titles):
-    s = np.concatenate([np.asarray(R.speed, float)[(FIX[id(R)]["LE"] | FIX[id(R)]["RE"]) & RUN[id(R)]] for R in group])
-    h = np.concatenate([head_signal(R, "speed")[(FIX[id(R)]["LE"] | FIX[id(R)]["RE"]) & RUN[id(R)]] for R in group])
-    k = np.isfinite(s) & np.isfinite(h)
-    ax.scatter(s[k], h[k], s=1, alpha=0.05, color=HEAD_COLOR, lw=0, rasterized=True)
-    ax.set(ylim=(0, 500), title=title, xlabel="running speed (mm/s)", ylabel="head angular speed (deg/s)")
-sns.despine(fig)
-fig.tight_layout()
-if SAVE_FIGS:
-    save_fig(fig, "head speed fixation")
+def plot_bin_curves(ax, B, m, cen, label):
+    """Mean ± SEM over sessions of per-(session × bin) measure m, per group; bins with >= 3 sessions."""
+    for t, c in zip(titles, GROUP_COLORS):
+        g = B[B.group == t].groupby("bin")[m]
+        mu, se, nn = g.mean(), g.sem(), g.count()
+        k = nn[nn >= 3].index
+        ax.plot(cen[k], mu[k], color=c, marker="o", ms=3, mfc="w", lw=1, label=t)
+        ax.fill_between(cen[k], (mu - se)[k], (mu + se)[k], color=c, alpha=0.2)
+    ax.set_ylabel(label)

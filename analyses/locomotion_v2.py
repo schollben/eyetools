@@ -150,3 +150,56 @@ fig.tight_layout()
 
 if SAVE_FIGS:
     save_fig(fig, "locomotion head rotation vs speed" + fig_tag)
+
+
+# %% 3. speed distributions: capacity vs use
+# Are young animals capacity-limited, or do they choose to run slower?
+# METHODS: sustained speed = 0.5 s (sustain frames) running mean of R.speed (NaN where > half the window is
+# untracked). Running = RUN. cap_p99 = 99th percentile of sustained speed (capacity; a spontaneous maximum,
+# biased up by more running); bout_peak_med = median over running bouts of each bout's peak sustained speed.
+# Chase = toy moving at toy_moving-1000 mm/s and head velocity toward the toy > approach mm/s.
+# use_run = median speed in running, non-chase frames; chase_run = median speed in running chase frames
+# (NaN if < min_frames); use_over_cap, chase_over_use = ratios; chase_frac, run_frac = fraction of frames.
+# CAP = cap_p99 per session, reused in section 6.
+sustain = 60       # frames (0.5 s)
+toy_moving = 100   # mm/s
+approach = 50      # mm/s
+CAP, speed_dists = {}, []
+for R in (R for group in groups for R in group):
+    s = np.asarray(R.speed, float)
+    ok = np.isfinite(s)
+    run = RUN[id(R)]
+    s_sus = np.convolve(np.where(ok, s, 0), np.ones(sustain), "same") / np.maximum(np.convolve(ok, np.ones(sustain), "same"), 1)
+    s_sus[np.convolve(~ok, np.ones(sustain), "same") > sustain / 2] = np.nan
+    tx, ty = np.asarray(R.toy_x, float), np.asarray(R.toy_y, float)
+    toy_speed = np.hypot(np.gradient(tx), np.gradient(ty)) * FS
+    d = np.hypot(tx - R.position_x, ty - R.position_y)
+    closing = (R.linearVel_x * (tx - R.position_x) + R.linearVel_y * (ty - R.position_y)) / np.maximum(d, 1)
+    chase = (toy_speed > toy_moving) & (toy_speed < 1000) & (closing > approach)
+    e = np.diff(np.concatenate(([0], run.astype(int), [0])))
+    peaks = np.array([np.nanmax(s_sus[a:b]) for a, b in zip(np.flatnonzero(e == 1), np.flatnonzero(e == -1))
+                      if np.isfinite(s_sus[a:b]).any()])
+    CAP[id(R)] = np.nanpercentile(s_sus, 99)
+    use_run = np.nanmedian(s[run & ~chase])
+    chase_run = np.nanmedian(s[run & chase]) if (run & chase).sum() >= min_frames else np.nan
+    session_rows[id(R)].update(cap_p99=CAP[id(R)], bout_peak_med=np.median(peaks) if len(peaks) else np.nan,
+                               use_run=use_run, use_over_cap=use_run / CAP[id(R)],
+                               chase_run=chase_run, chase_over_use=chase_run / use_run,
+                               chase_frac=chase.mean(), run_frac=run.mean())
+    speed_dists.append(dict(group=session_rows[id(R)]["group"], use=s[run & ~chase & ok], chase=s[run & chase & ok]))
+measure_families["speed"] = ["cap_p99", "bout_peak_med", "use_run", "use_over_cap",
+                             "chase_run", "chase_over_use", "chase_frac", "run_frac"]
+
+fig, axes = plt.subplots(1, 2, figsize=(5.5, 2.4), sharey=True)
+for ax, k, name in zip(axes, ("use", "chase"), ("running, not chasing toy", "running, chasing toy")):
+    for t, c in zip(titles, GROUP_COLORS):
+        v = np.concatenate([d[k] for d in speed_dists if d["group"] == t])
+        ax.hist(v, bins=np.arange(50, 800, 20), density=True, histtype="step", color=c, label=t)
+    ax.set(title=name, xlabel="head linear speed (mm/s)", yscale="log")
+axes[0].set_ylabel("density")
+axes[0].legend(fontsize=5)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, "locomotion speed distributions" + fig_tag)

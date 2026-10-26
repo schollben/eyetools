@@ -7,6 +7,7 @@ from scipy.signal import savgol_filter
 from scipy.stats import spearmanr
 
 from utils import non_saccade_mask, load_session_data, process_session, removeBadData, getSesh
+from utils.parse_session_name import parse_session_name
 from utils.config import SAVELOC
 from utils.eye_velocity import eye_velocity
 
@@ -726,11 +727,13 @@ def session_rates(group, signal, condition="all", speed_threshold=100, min_bout=
     return r[np.isfinite(r)]
 
 
-def load_results(ferrets, **params):
+def load_results(ferrets, max_eo=None, **params):
     """Load, clean and extract every session of the given ferrets with one shared set of
-    extraction params (EXTRACT, overridable per call)."""
+    extraction params (EXTRACT, overridable per call). max_eo skips sessions with EO above it."""
     Results = []
     for session in getSesh.by_ferret(*ferrets):
+        if max_eo is not None and parse_session_name(session)["eo"] > max_eo:
+            continue
         R = load_session_data(session)
         removeBadData(R)
         process_session(R, **{**EXTRACT, **params})

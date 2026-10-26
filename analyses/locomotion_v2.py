@@ -288,3 +288,47 @@ policy_tests = pd.DataFrame(policy_tests)
 policy_tests.insert(4, "age_p_holm", multipletests(policy_tests.age_p, method="holm")[1])
 print("matched-demand LMM (age effect per group step, controlling for bin):")
 print(policy_tests.to_string(index=False, float_format=lambda v: f"{v:.3g}"))
+
+
+# %% 6. head rotation vs speed relative to capacity
+# Is younger animals' extra head rotation at high speed explained by running closer to their own limit?
+# METHODS: rel = R.speed / CAP (section 3), binned at REL_EDGES; ART frames excluded; all and straight
+# frame sets as in section 1. Per session × bin median (>= min_frames), then mean ± SEM over sessions.
+# METHODS: per-session (straight frames), for total |ω| (speed_*) and |yaw velocity| (yaw_v_*): *_rel60_90 =
+# median at 0.6-0.9 of capacity (>= min_frames); *_relslope = OLS on rel, rel < 1 (deg/s per 0.1 capacity).
+REL_EDGES = np.array([0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.2, 1.5])
+REL_CEN = (REL_EDGES[:-1] + REL_EDGES[1:]) / 2
+ROT = dict(speed="total |ω|", yaw_v="|yaw velocity|")
+rel_rows = []
+for R in (R for group in groups for R in group):
+    rel = np.asarray(R.speed, float) / CAP[id(R)]
+    b = np.digitize(rel, REL_EDGES) - 1
+    b[~np.isfinite(rel) | (rel >= REL_EDGES[-1])] = -1
+    for c in ROT:
+        v = np.abs(head_signal(R, c))
+        ok = ~ART[id(R)] & np.isfinite(v)
+        for fset, mask in (("all", ok), ("straight", ok & STRAIGHT[id(R)])):
+            for i in range(len(REL_CEN)):
+                if (mask & (b == i)).sum() >= min_frames:
+                    rel_rows.append(dict(**session_rows[id(R)], ch=c, fset=fset, bin=i, rot=np.median(v[mask & (b == i)])))
+        k = ok & STRAIGHT[id(R)] & np.isfinite(rel)
+        in_60_90 = k & (rel >= 0.6) & (rel < 0.9)
+        session_rows[id(R)].update({f"{c}_rel60_90": np.median(v[in_60_90]) if in_60_90.sum() >= min_frames else np.nan,
+                                    f"{c}_relslope": np.polyfit(rel[k & (rel < 1)], v[k & (rel < 1)], 1)[0] / 10})
+rel_bins = pd.DataFrame(rel_rows)
+measure_families["rel_speed"] = [f"{c}_{k}" for k in ("rel60_90", "relslope") for c in ROT]
+
+fig, axes = plt.subplots(2, 2, figsize=(5.5, 4.6))
+for r, fset in enumerate(("all", "straight")):
+    for ax, (c, name) in zip(axes[r], ROT.items()):
+        v = rel_bins[(rel_bins.fset == fset) & (rel_bins.ch == c)]
+        plot_bin_curves(ax, v, "rot", REL_CEN, f"median {name} (deg/s)")
+        ax.set(ylim=(0, None), xlabel="speed / session capacity (cap_p99)", title=f"{fset} frames")
+        if (fset, c) == ("straight", "speed"):
+            print("straight", {t: v[v.group == t].groupby("bin").size().to_dict() for t in titles})
+axes[0, 0].legend(fontsize=5)
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, "locomotion head rotation vs relative speed" + fig_tag)

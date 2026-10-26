@@ -110,3 +110,43 @@ def plot_bin_curves(ax, B, m, cen, label):
         ax.plot(cen[k], mu[k], color=c, marker="o", ms=3, mfc="w", lw=1, label=t)
         ax.fill_between(cen[k], (mu - se)[k], (mu + se)[k], color=c, alpha=0.2)
     ax.set_ylabel(label)
+
+
+# %% 1. head rotation vs running speed
+# Does a given speed produce less head rotation as animals mature?
+# METHODS: head total angular speed |ω| (head_signal "speed"), artifact-free frames (ART). Per session ×
+# SPEED_EDGES bin median (>= min_frames frames), then mean ± SEM over sessions per group (bins with >= 3
+# sessions). Frame sets: all; straight (STRAIGHT: no find_arcs turns, no head saccades onset -> peak); turns (TURN).
+# METHODS: per-session (straight frames): rot_rest = median |ω| < 25 mm/s; rot_fast = median |ω| at 200-300
+# mm/s; rot_slope = OLS of |ω| on speed, frames < 300 mm/s (deg/s per 100 mm/s).
+FSETS = dict(all="all frames", straight="straight (no turns / head saccades)", turn="turns only (find_arcs)")
+rot_rows = []
+for R in (R for group in groups for R in group):
+    w = head_signal(R, "speed")
+    s = np.asarray(R.speed, float)
+    ok = ~ART[id(R)] & np.isfinite(w)
+    for fset, mask in (("all", ok), ("straight", ok & STRAIGHT[id(R)]), ("turn", ok & TURN[id(R)])):
+        b = speed_bin(R, mask)
+        for i in range(len(SPEED_CEN)):
+            if (b == i).sum() >= min_frames:
+                rot_rows.append(dict(**session_rows[id(R)], fset=fset, bin=i, rot=np.median(w[b == i])))
+    k = ok & STRAIGHT[id(R)] & np.isfinite(s)
+    session_rows[id(R)].update(rot_rest=np.median(w[k & (s < 25)]),
+                               rot_fast=np.median(w[k & (s >= 200) & (s < 300)]),
+                               rot_slope=np.polyfit(s[k & (s < 300)] / 100, w[k & (s < 300)], 1)[0])
+rot_bins = pd.DataFrame(rot_rows)
+measure_families["head_rot"] = ["rot_rest", "rot_fast", "rot_slope"]
+
+fig, axes = plt.subplots(3, 1, figsize=(3, 7.6), sharex=True)
+for ax, (fset, name) in zip(axes, FSETS.items()):
+    v = rot_bins[rot_bins.fset == fset]
+    plot_bin_curves(ax, v, "rot", SPEED_CEN, "median head |ω| (deg/s)")
+    ax.set(title=name, ylim=(0, None), xlim=(0, SPEED_EDGES[-1]))
+    print(fset, {t: v[v.group == t].groupby("bin").size().to_dict() for t in titles})
+axes[0].legend(fontsize=5)
+axes[-1].set_xlabel("head linear speed (mm/s)")
+sns.despine(fig)
+fig.tight_layout()
+
+if SAVE_FIGS:
+    save_fig(fig, "locomotion head rotation vs speed" + fig_tag)

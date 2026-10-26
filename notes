@@ -1,0 +1,20 @@
+Key points from this Discussion:
+dissociate oculomotor execution 
+(main-sequence kinematics, an index of saccade-generator integrity) 
+from oculomotor policy (when and where gaze is deployed), 
+and characterize how policy parameters, 
+and the magnitude and temporal structure of their variability, 
+change across development
+
+
+
+Eye vs. head contribution to gaze shifts
+	•	Gaze shifts averaged about 15.8° from the eye alone, 9.4° from the head alone, and 23.3° combined. The eye contributed more in 83% of saccades. Head-fixed saccades were smaller, about 12.3°
+	•	Mice made 1–2 gaze shifts per second during exploration
+	•	idea: track the head/gaze ratio per shift and the gaze-shift rate vs. age. This is where locomotor development should show up: if head capacity grows, the head’s share could grow.
+
+Saccade-triggered profiles in comparison to mice. 
+	•	Saccade-aligned averages showed slower counter-movements of the eye just before and just after each saccade in freely moving mice; head-fixed mice showed none.
+	•	The phases: eye counter-rotation as the head starts moving, then the saccade, then compensation roughly equal and opposite to the head. The pattern held across ~44,000 gaze shifts, implying the head drives gaze shifts.
+	•	Asymmetry: temporal-to-nasal saccades were larger (in mice?). Nasal-to-temporal saccades brought the eye back to center; temporal-to-nasal ones carried it past center in the direction of the turn.
+	•	idea: measure the latency from head-velocity onset to saccade trigger, the amplitude and duration of the pre-saccadic counter-rotation, and the asymmetry vs. age.
